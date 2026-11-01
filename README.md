@@ -1,4 +1,15 @@
+<p align="center"><img src="docs/assets/icon.svg" width="96" alt="Plainnote"></p>
+
 # Plainnote
+
+[![test](https://github.com/zyvorai/note/actions/workflows/test.yml/badge.svg)](https://github.com/zyvorai/note/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/zyvorai/note?color=5b5bd6)](https://github.com/zyvorai/note/releases/latest)
+[![license: MIT](https://img.shields.io/badge/license-MIT-5b5bd6)](LICENSE)
+![dependencies: 0](https://img.shields.io/badge/dependencies-0-5b5bd6)
+
+**[Website](https://zyvorai.github.io/note/) · [Download](https://github.com/zyvorai/note/releases/latest) · [Contributing](CONTRIBUTING.md)**
+
+<p align="center"><img src="docs/assets/hero-light.png" alt="Plainnote screenshot" width="860"></p>
 
 A free, lightweight, local-first notes app. Your notes are plain Markdown files in a folder you choose. No dependencies, no build step, no accounts, no telemetry: just Node.js.
 
@@ -106,11 +117,16 @@ public/md.js       Markdown renderer and editor helpers (shared with the tests)
 desktop/           macOS wrapper (Plainnote.swift, build.sh), cross-platform launcher.js, Linux .desktop
 scripts/build-sea.js  builds the single-file executable
 tests/             unit, API and browser tests
+docs/              the website (GitHub Pages) and its screenshots
 ```
 
 ## Limits
 
 The editor is a plain textarea, not a full code editor. The graph layout is O(n²): fine for a few hundred notes. The Windows/Linux builds are produced by CI and haven't been tested by hand on those systems; the macOS wrapper needs Node installed. No encryption at rest and no built-in auth (it relies on being local-only).
+
+## Contributing
+
+Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately ([SECURITY.md](SECURITY.md)).
 
 ## License
 
