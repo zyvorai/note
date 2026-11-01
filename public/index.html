@@ -87,7 +87,7 @@ button:disabled{opacity:.4;cursor:default}
   </aside>
   <main id="main">
     <div id="bar"><button id="menu" title="Notes list">☰</button><input id="title" placeholder="Select or create a note" disabled><span id="status"></span><span id="wc" title="Words · characters"></span>
-      <button id="pin" title="Pin to top of the list">Pin</button><button id="gr" title="Graph view (Ctrl/Cmd+G)">Graph</button><button id="tog" title="Edit / preview (Ctrl/Cmd+E)">Preview</button><button id="del" title="Delete">Delete</button></div>
+      <button id="pin" title="Pin to top of the list">Pin</button><button id="exp" title="Download as a standalone HTML page">Export</button><button id="gr" title="Graph view (Ctrl/Cmd+G)">Graph</button><button id="tog" title="Edit / preview (Ctrl/Cmd+E)">Preview</button><button id="del" title="Delete">Delete</button></div>
     <div id="pane"><div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div></div>
     <div id="back"></div>
     <div id="ac"></div>
@@ -132,7 +132,7 @@ function renderTags() {
 }
 let pins = new Set(); try { pins = new Set(JSON.parse(localStorage.getItem('pins') || '[]')); } catch {}
 function savePins() { try { localStorage.setItem('pins', JSON.stringify([...pins])); } catch {} }
-function renderPin() { const on = !!cur && pins.has(cur); $('#pin').disabled = !cur; $('#pin').textContent = on ? 'Unpin' : 'Pin'; }
+function renderPin() { const on = !!cur && pins.has(cur); $('#pin').disabled = $('#exp').disabled = !cur; $('#pin').textContent = on ? 'Unpin' : 'Pin'; }
 function renderList() {
   if (trashMode) return;
   renderTags();
@@ -313,6 +313,23 @@ async function openToday() {
   const name = `daily/${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   await open(name, !notes.has(name));
 }
+/* export: the rendered note as one self-contained .html file (page styles are reused, so it matches the preview) */
+function exportHtml() {
+  if (!cur) return;
+  const css = [];
+  for (const sh of document.styleSheets) for (const r of sh.cssRules) {
+    const t = r.cssText;
+    if (/^(:root|html|\*|#pv|\.tk-|@media \(prefers-color-scheme)/.test(t) && !/#(app|side|bar|hl|ed)\b/.test(t)) css.push(t);
+  }
+  const doc = new DOMParser().parseFromString(`<div id="pv">${md(notes.get(cur).text)}</div>`, 'text/html');
+  for (const a of doc.querySelectorAll('[data-note],[data-tag]')) { const sp = doc.createElement('span'); sp.className = a.className; sp.innerHTML = a.innerHTML; a.replaceWith(sp); }
+  for (const im of doc.querySelectorAll('img')) { const src = im.getAttribute('src') || ''; if (src.startsWith('/')) im.setAttribute('src', location.origin + src); }
+  const title = cur.split('/').pop();
+  const html = `<!doctype html>\n<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>\n<style>\n${css.join('\n')}\n</style></head>\n<body>${doc.body.innerHTML}</body></html>\n`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' })); a.download = title + '.html';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 async function rename() {
   const to = $('#title').value.trim().replace(/[\\:*?"<>|]/g, '');
   const dir = cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/') + 1) : '';
@@ -490,6 +507,7 @@ applyTheme(THEMES.includes(savedTheme) ? savedTheme : 'auto', false);
 $('#theme').onclick = () => applyTheme(THEMES[(THEMES.indexOf($('#theme').dataset.mode) + 1) % 3], true);
 $('#new').onclick = newNote;
 $('#today').onclick = openToday;
+$('#exp').onclick = exportHtml;
 $('#pin').onclick = () => { if (!cur) return; pins.has(cur) ? pins.delete(cur) : pins.add(cur); savePins(); renderPin(); renderList(); };
 $('#gr').onclick = async () => { await flush(); graphOn = !graphOn; renderPane(); };
 $('#tog').onclick = () => { if (!cur) return; graphOn = false; preview = !preview; flush(); renderPane(); };

@@ -91,6 +91,17 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`document.querySelector('#pin').click()`);
     assert.doesNotMatch(await ev(`document.querySelector('#list .item').textContent`), /📌/);
 
+    // export downloads a self-contained HTML page of the rendered note
+    const exp = await ev(`(async()=>{ let d; const orig = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function(){ d = { name: this.download, href: this.href }; };
+      document.querySelector('#exp').click(); HTMLAnchorElement.prototype.click = orig;
+      return { name: d.name, html: await (await fetch(d.href)).text(), cur: document.querySelector('#title').value }; })()`);
+    assert.equal(exp.name, exp.cur + '.html');
+    assert.match(exp.html, /^<!doctype html>/);
+    assert.match(exp.html, /<div id="pv">/);
+    assert.match(exp.html, /#pv/, 'preview styles are embedded');
+    assert.doesNotMatch(exp.html, /data-note|<script/, 'no app hooks or scripts');
+
     // editor: list continuation, [[ autocomplete, bold, tab indent
     await ev(`(async()=>{ document.querySelector('#new').click(); })()`);
     await until(`document.querySelector('#ed') && document.querySelector('#title').value.startsWith('Untitled')`, 'new note');
