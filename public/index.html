@@ -56,6 +56,9 @@ button:disabled{opacity:.4;cursor:default}
 #gc{display:block;width:100%;height:100%;cursor:grab}
 #back{border-top:1px solid var(--line);padding:8px 16px;font-size:13px;color:var(--mute);max-height:20%;overflow:auto}
 #back a{color:var(--acc);cursor:pointer;margin-right:12px}
+#outline{border-top:1px solid var(--line);padding:6px 16px;font-size:13px;color:var(--mute);max-height:14%;overflow:auto;display:none}
+#outline a{color:var(--fg);cursor:pointer;margin-right:12px;white-space:nowrap;display:inline-block}#outline a:hover{color:var(--acc)}
+#outline a.l2{margin-left:8px}#outline a.l3{margin-left:16px}
 #sw{position:fixed;inset:0;background:#0006;display:none;align-items:flex-start;justify-content:center;padding-top:15vh}
 #sw div{background:var(--bg);border:1px solid var(--line);border-radius:10px;width:min(480px,92vw);overflow:hidden}
 #swq{width:100%;padding:12px;border:0;border-bottom:1px solid var(--line);outline:0;background:none}
@@ -89,6 +92,7 @@ button:disabled{opacity:.4;cursor:default}
     <div id="bar"><button id="menu" title="Notes list">☰</button><input id="title" placeholder="Select or create a note" disabled><span id="status"></span><span id="wc" title="Words · characters"></span>
       <button id="pin" title="Pin to top of the list">Pin</button><button id="exp" title="Download as a standalone HTML page">Export</button><button id="gr" title="Graph view (Ctrl/Cmd+G)">Graph</button><button id="tog" title="Edit / preview (Ctrl/Cmd+E)">Preview</button><button id="del" title="Delete">Delete</button></div>
     <div id="pane"><div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div></div>
+    <div id="outline"></div>
     <div id="back"></div>
     <div id="ac"></div>
   </main>
@@ -158,6 +162,27 @@ function renderBack() {
   }
   $('#back').innerHTML = hits.length ? 'Linked from: ' + hits.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join('') : 'No backlinks';
 }
+/* outline: headings of the open note (ignoring fenced code); click to jump */
+function headingsOf(text) {
+  const out = []; let fence = false, off = 0;
+  for (const line of text.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+    else if (!fence) { const m = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/); if (m) out.push({ level: m[1].length, text: m[2], off }); }
+    off += line.length + 1;
+  }
+  return out;
+}
+function renderOutline() {
+  const el = $('#outline'), hs = cur && !graphOn && notes.get(cur) ? headingsOf(notes.get(cur).text) : [];
+  el.style.display = hs.length > 1 ? 'block' : 'none';
+  el.innerHTML = hs.length > 1 ? 'Outline: ' + hs.map((h, i) => `<a data-h="${i}" class="l${Math.min(h.level, 3)}">${esc(h.text.replace(/[*_`]/g, ''))}</a>`).join('') : '';
+}
+function gotoHeading(i) {
+  const h = headingsOf(notes.get(cur).text)[i]; if (!h) return;
+  if (preview) { const el = $('#pv')?.querySelectorAll('h1,h2,h3,h4,h5,h6')[i]; if (el) $('#pane').scrollTop += el.getBoundingClientRect().top - $('#pane').getBoundingClientRect().top - 12; return; }
+  const ed = $('#ed'); if (!ed) return;
+  ed.focus(); ed.setSelectionRange(h.off, h.off); caretIntoView(true);
+}
 function updateWC() {
   const t = cur && notes.get(cur) ? notes.get(cur).text : null, el = $('#wc');
   if (t == null || graphOn) { el.textContent = ''; return; }
@@ -165,7 +190,7 @@ function updateWC() {
   el.textContent = `${w.toLocaleString()} word${w === 1 ? '' : 's'} · ${t.length.toLocaleString()} chars`;
 }
 function renderPane() {
-  updateWC(); renderPin();
+  updateWC(); renderPin(); renderOutline();
   $('#tog').disabled = $('#del').disabled = !cur;
   if (graphOn) return drawGraph();
   stopGraph(); $('#gr').textContent = 'Graph';
@@ -266,7 +291,7 @@ function syncEditor() {
 new ResizeObserver(() => syncEditor()).observe($('#pane'));
 // The textarea grows with its content (so it lines up with the highlight layer), so the pane scrolls instead:
 // find the caret's on-screen position via the mirror and keep it in view.
-function caretIntoView() {
+function caretIntoView(top) {
   const ed = $('#ed'), hl = $('#hl'), pane = $('#pane');
   if (!ed || !hl) return;
   const off = ed.selectionEnd, w = document.createTreeWalker(hl, NodeFilter.SHOW_TEXT);
@@ -278,12 +303,13 @@ function caretIntoView() {
   if (!rect.height) { r.setStart(node, Math.max(0, at - 1)); r.setEnd(node, at); rect = r.getBoundingClientRect(); }
   if (!rect.height) return;
   const pr = pane.getBoundingClientRect();
-  if (rect.bottom > pr.bottom - 24) pane.scrollTop += rect.bottom - pr.bottom + 56;
+  if (top) pane.scrollTop += rect.top - pr.top - 12;   // put the caret line at the top
+  else if (rect.bottom > pr.bottom - 24) pane.scrollTop += rect.bottom - pr.bottom + 56;
   else if (rect.top < pr.top + 8) pane.scrollTop -= pr.top - rect.top + 56;
 }
 function onInput() {
   syncEditor();
-  const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); dirty = true; updateWC();
+  const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); dirty = true; updateWC(); renderOutline();
   $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
 }
 async function flush() {
@@ -450,6 +476,8 @@ document.addEventListener('click', (e) => {
   if (rs) { api('/api/restore', { method: 'POST', body: JSON.stringify({ id: rs.dataset.restore }) }).then(async (r) => { await load(); trashMode = false; $('#trash').textContent = 'Trash'; renderList(); open(r.name, false); }); return; }
   const tg = e.target.closest('[data-tag]');
   if (tg) { e.preventDefault(); activeTag = activeTag === tg.dataset.tag ? null : tg.dataset.tag; renderList(); return; }
+  const oh = e.target.closest('[data-h]');
+  if (oh) { gotoHeading(+oh.dataset.h); return; }
   const a = e.target.closest('[data-note]');
   if (a) { e.preventDefault(); open(a.dataset.note, true); }
 });

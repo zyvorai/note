@@ -102,6 +102,23 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.match(exp.html, /#pv/, 'preview styles are embedded');
     assert.doesNotMatch(exp.html, /data-note|<script/, 'no app hooks or scripts');
 
+    // outline: headings (not those in code fences) listed; clicking one scrolls the editor to it
+    const out = await ev(`(async()=>{ const n = notes.get(cur), keep = n.text;
+      n.text = '# One\\n\\n' + 'filler line\\n'.repeat(120) + '\\n\\n' + '\\x60\\x60\\x60' + '\\n# not a heading\\n' + '\\x60\\x60\\x60' + '\\n\\n## Two\\n\\n' + 'more filler\\n'.repeat(120) + '\\n### Three\\nend\\n';
+      preview = false; renderPane(); await new Promise((r) => setTimeout(r, 300));   // let the pane resize settle
+      const links = [...document.querySelectorAll('#outline a')].map((a) => a.textContent);
+      const shown = getComputedStyle(document.querySelector('#outline')).display;
+      document.querySelector('#outline a[data-h="2"]').click();
+      await new Promise((r) => setTimeout(r, 300));
+      const sel = document.querySelector('#ed').selectionStart, top = document.querySelector('#pane').scrollTop;
+      const at = n.text.slice(sel, sel + 9);
+      n.text = keep; renderPane();
+      return { links, shown, at, top }; })()`);
+    assert.deepEqual(out.links, ['One', 'Two', 'Three']);
+    assert.equal(out.shown, 'block');
+    assert.equal(out.at, '### Three');
+    assert.ok(out.top > 0, 'editor scrolled to the heading');
+
     // history: back returns to the previously opened note, forward comes back
     const h0 = await ev(`document.querySelector('#title').value`);
     await ev(`open(notes.keys().next().value === $('#title').value ? [...notes.keys()][1] : notes.keys().next().value, false)`);
