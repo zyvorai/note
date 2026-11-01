@@ -13,8 +13,8 @@ fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
 
 // 1. One script: server.js wrapped as a module, then the launcher (SEA can only run a single file).
-const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8').replace(/^#!.*\n/, '');
-const launcher = fs.readFileSync(path.join(root, 'desktop', 'launcher.js'), 'utf8').replace(/^#!.*\n/, '');
+const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8').replace(/^#![^\n]*\n/, '');
+const launcher = fs.readFileSync(path.join(root, 'desktop', 'launcher.js'), 'utf8').replace(/^#![^\n]*\n/, '');
 fs.writeFileSync(path.join(out, 'bundle.js'),
   `const __bundled = (function () {\n  const module = { exports: {} };\n  (function (module, exports, require, __dirname) {\n${server}\n  })(module, module.exports, require, '');\n  return module.exports;\n})();\n${launcher}`);
 

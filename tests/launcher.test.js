@@ -28,7 +28,8 @@ test('--no-window serves the app and stops on SIGTERM', async () => {
     assert.match(await (await fetch(url)).text(), /Plainnote/);
     assert.match(await (await fetch(url + 'md.js')).text(), /createMarkdown|function create/);
     l.proc.kill('SIGTERM');
-    assert.equal(await l.exited, 0);
+    const code = await l.exited;
+    assert.ok(posix ? code === 0 : code === 0 || code === null, `exit code ${code}`);   // Windows kills on SIGTERM
     await assert.rejects(fetch(url + 'api/ping'));
   } finally { l.proc.kill(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
