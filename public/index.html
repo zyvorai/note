@@ -470,7 +470,7 @@ const THEMES = ['auto', 'light', 'dark'], ICON = { auto: '◐', light: '☀', da
 function applyTheme(t, save) {
   const root = document.documentElement;
   if (t === 'auto') delete root.dataset.theme; else root.dataset.theme = t;
-  $('#theme').textContent = ICON[t]; $('#theme').title = `Theme: ${t} (click to change)`; $('#theme').dataset.mode = t;
+  $('#theme').textContent = ICON[t]; $('#theme').title = `Theme: ${t} (click or Ctrl/Cmd+Shift+L to change)`; $('#theme').dataset.mode = t;
   if (save) try { t === 'auto' ? localStorage.removeItem('theme') : localStorage.setItem('theme', t); } catch {}
 }
 let savedTheme = 'auto'; try { savedTheme = localStorage.getItem('theme') || 'auto'; } catch {}
@@ -517,6 +517,7 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'g') { e.preventDefault(); $('#gr').click(); }
   else if (k === 'e') { e.preventDefault(); $('#tog').click(); }
   else if (k === 's') { e.preventDefault(); flush(); }
+  else if (k === 'l' && e.shiftKey) { e.preventDefault(); $('#theme').click(); }
 });
 window.addEventListener('focus', async () => {
   if (dirty) return;
