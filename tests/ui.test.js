@@ -126,8 +126,12 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     // typing at the end of a long note scrolls the pane to keep the caret visible
     await ev(`(() => { const e = document.querySelector('#ed'); document.querySelector('#pane').scrollTop = 0; e.focus(); e.setSelectionRange(e.value.length, e.value.length); })()`);
     await cdp('Input.insertText', { text: 'end' });
-    await sleep(200);
-    assert.ok(await ev(`document.querySelector('#pane').scrollTop > 200`), 'pane scrolled to follow the caret');
+    let scrolled = false;
+    for (let i = 0; i < 30 && !scrolled; i++) { scrolled = await ev(`document.querySelector('#pane').scrollTop > 200`); if (!scrolled) await sleep(100); }
+    if (!scrolled) console.log('DEBUG caret-follow', JSON.stringify(await ev(`(() => { const e = document.querySelector('#ed'), p = document.querySelector('#pane');
+      return { scrollTop: p.scrollTop, scrollHeight: p.scrollHeight, clientHeight: p.clientHeight, selEnd: e.selectionEnd, len: e.value.length, tail: e.value.slice(-12),
+               active: document.activeElement && (document.activeElement.id || document.activeElement.tagName), hasFocus: document.hasFocus(), edH: e.offsetHeight }; })()`)));
+    assert.ok(scrolled, 'pane scrolled to follow the caret');
     await shot('7-highlight-bottom');
 
     // theme toggle: auto -> light -> dark, persisted
