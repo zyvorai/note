@@ -35,6 +35,7 @@ button:disabled{opacity:.4;cursor:default}
 #bar{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--line)}
 #title{flex:1;border:0;background:none;font-size:17px;font-weight:600;outline:0}
 #status{color:var(--mute);font-size:12px}
+#wc{color:var(--mute);font-size:12px;white-space:nowrap}
 #pane{flex:1;overflow:auto;min-height:0}
 #pv{display:block;width:100%;max-width:760px;margin:0 auto;padding:24px 16px 80px}
 #edwrap{position:relative;max-width:760px;margin:0 auto}
@@ -85,7 +86,7 @@ button:disabled{opacity:.4;cursor:default}
     <footer id="sf"><button id="sync" title="Sync notes with a git remote">Sync</button><label title="Sync every 2 minutes" style="white-space:nowrap"><input type="checkbox" id="auto"> Auto</label><button id="trash" title="Deleted notes">Trash</button><span id="ss"></span></footer>
   </aside>
   <main id="main">
-    <div id="bar"><button id="menu" title="Notes list">☰</button><input id="title" placeholder="Select or create a note" disabled><span id="status"></span>
+    <div id="bar"><button id="menu" title="Notes list">☰</button><input id="title" placeholder="Select or create a note" disabled><span id="status"></span><span id="wc" title="Words · characters"></span>
       <button id="gr" title="Graph view (Ctrl/Cmd+G)">Graph</button><button id="tog" title="Edit / preview (Ctrl/Cmd+E)">Preview</button><button id="del" title="Delete">Delete</button></div>
     <div id="pane"><div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div></div>
     <div id="back"></div>
@@ -154,7 +155,14 @@ function renderBack() {
   }
   $('#back').innerHTML = hits.length ? 'Linked from: ' + hits.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join('') : 'No backlinks';
 }
+function updateWC() {
+  const t = cur && notes.get(cur) ? notes.get(cur).text : null, el = $('#wc');
+  if (t == null || graphOn) { el.textContent = ''; return; }
+  const w = (t.match(/\S+/g) || []).length;
+  el.textContent = `${w.toLocaleString()} word${w === 1 ? '' : 's'} · ${t.length.toLocaleString()} chars`;
+}
 function renderPane() {
+  updateWC();
   $('#tog').disabled = $('#del').disabled = !cur;
   if (graphOn) return drawGraph();
   stopGraph(); $('#gr').textContent = 'Graph';
@@ -272,7 +280,7 @@ function caretIntoView() {
 }
 function onInput() {
   syncEditor();
-  const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); dirty = true;
+  const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); dirty = true; updateWC();
   $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
 }
 async function flush() {
