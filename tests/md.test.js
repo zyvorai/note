@@ -89,3 +89,20 @@ test('wikiContext detects an open [[', () => {
   assert.equal(MD.wikiContext('see [[Home]] x', 14), null);
   assert.equal(MD.wikiContext('plain', 5), null);
 });
+
+test('highlightMarkdown never changes the text (required for the editor overlay)', () => {
+  const strip = (h) => h.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  const samples = [
+    '', '\n', 'plain', '# H1 **b** #tag\n\n- [x] done [[Home|x]]\n  1. n `c` ~~s~~\n> quote *i*\n---',
+    '| a | b |\n|---|--:|\n| `1|2` | [[x|y]] |', '```js\nconst a = "<b>" // hi\n/* multi\nline */\n```\nafter', '```\nunclosed <script>',
+    '```js\n```', '*not closed **bold', 'a & b < c > d "q"', '![i](a b.png) [l](https://e.com) #1 #a/b_c',
+    'tabs\tand  spaces   \n\n\n  indented', '\u00e9\u4e2d\ud83d\ude00 emoji',
+  ];
+  for (const t of samples) assert.equal(strip(MD.highlightMarkdown(t)), t, JSON.stringify(t));
+});
+
+test('highlightMarkdown marks the main constructs', () => {
+  const h = MD.highlightMarkdown('# Title\n- item **b** [[Home]] #tag `c`\n> q\n```js\nconst x = 1\n```');
+  for (const c of ['mk-h', 'mk-m', 'mk-b', 'mk-l', 'mk-t', 'mk-c', 'mk-q', 'tk-k', 'tk-n']) assert.ok(h.includes(c), c);
+  assert.ok(!MD.highlightMarkdown('<script>alert(1)</script>').includes('<script>'));
+});

@@ -162,7 +162,51 @@
     return m ? { query: m[1], start: pos - m[1].length } : null;
   }
 
-  const api = { esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext };
+  /* ---- live editor highlighting ----
+     Returns HTML whose text content is EXACTLY the input (only <span>s added), so it can sit behind a transparent textarea. */
+  const INLINE = /(`[^`\n]+`)|(\[\[[^\]\n]+\]\])|(!?\[[^\]\n]*\]\([^)\n]*\))|(\*\*[^*\n]+\*\*)|(\*[^*\s][^*\n]*\*)|(~~[^~\n]+~~)|(^|[\s(])(#(?=[\w\/-]*[A-Za-z_])[\w\/-]+)/g;
+  const span = (cls, t) => `<span class="${cls}">${esc(t)}</span>`;
+  function inlineHL(s, pipes) {
+    const plain = (t) => (pipes ? esc(t).replace(/\|/g, '<span class="mk-m">|</span>') : esc(t));
+    let out = '', last = 0;
+    for (const m of s.matchAll(INLINE)) {
+      out += plain(s.slice(last, m.index));
+      if (m[1]) out += span('mk-c', m[1]);
+      else if (m[2]) out += span('mk-l', m[2]);
+      else if (m[3]) out += span('mk-u', m[3]);
+      else if (m[4]) out += span('mk-b', m[4]);
+      else if (m[5]) out += span('mk-i', m[5]);
+      else if (m[6]) out += span('mk-x', m[6]);
+      else out += esc(m[7]) + span('mk-t', m[8]);
+      last = m.index + m[0].length;
+    }
+    return out + plain(s.slice(last));
+  }
+  function highlightMarkdown(text) {
+    const lines = text.split('\n'), out = [];
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i], f = l.match(/^```\s*([\w+-]*)/);
+      if (f) {
+        out.push(span('mk-m', l));
+        const body = [];
+        while (i + 1 < lines.length && !/^```/.test(lines[i + 1])) body.push(lines[++i]);
+        if (body.length) out.push(highlight(body.join('\n'), f[1]));
+        if (i + 1 < lines.length) out.push(span('mk-m', lines[++i]));
+        continue;
+      }
+      let m;
+      if (/^#{1,6}(\s|$)/.test(l)) out.push(`<span class="mk-h">${inlineHL(l)}</span>`);
+      else if (/^(-{3,}|\*{3,})\s*$/.test(l)) out.push(span('mk-m', l));
+      else if ((m = l.match(/^(>\s?)(.*)$/))) out.push(span('mk-m', m[1]) + `<span class="mk-q">${inlineHL(m[2])}</span>`);
+      else if ((m = l.match(/^(\s*)([-*+]|\d+\.)(\s+)(\[[ xX]\]\s+)?(.*)$/)))
+        out.push(esc(m[1]) + span('mk-m', m[2] + m[3]) + (m[4] ? span('mk-n', m[4]) : '') + inlineHL(m[5]));
+      else if (/^\s*\|/.test(l) || (sepRe.test(l) && l.includes('-'))) out.push(inlineHL(l, true));
+      else out.push(inlineHL(l));
+    }
+    return out.join('\n');
+  }
+
+  const api = { highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);

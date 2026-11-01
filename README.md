@@ -49,6 +49,7 @@ plainnote --no-window          # server only, open the printed URL yourself
 - **Tags**: `#tag` or `#parent/child`, filter from the sidebar.
 - **Full-text search** with snippets, and a **quick switcher**.
 - **Preview** with tables, images (remote or from your folder), task lists and syntax-highlighted code blocks.
+- **Live syntax highlighting while you edit** (headings, bold, links, wikilinks, tags, code blocks with per-language colours).
 - **Editor niceties**: list continuation, Tab/Shift+Tab indent, Cmd/Ctrl+B and +I, paste or drop images (saved to `attachments/`).
 - **Safe by default**: autosave, deletes go to `.trash/` (restore from the Trash button), and if a note changes on disk underneath you (sync, another window) your version is saved as a "conflict" copy instead of overwriting.
 - **Git sync**, manual or every 2 minutes.

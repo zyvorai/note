@@ -33,8 +33,15 @@ button:disabled{opacity:.4;cursor:default}
 #title{flex:1;border:0;background:none;font-size:17px;font-weight:600;outline:0}
 #status{color:var(--mute);font-size:12px}
 #pane{flex:1;overflow:auto;min-height:0}
-#ed,#pv{display:block;width:100%;max-width:760px;margin:0 auto;padding:24px 16px 80px}
-#ed{height:100%;border:0;outline:0;resize:none;background:none;color:var(--fg);font:14px/1.7 ui-monospace,Menlo,monospace}
+#pv{display:block;width:100%;max-width:760px;margin:0 auto;padding:24px 16px 80px}
+#edwrap{position:relative;max-width:760px;margin:0 auto}
+#hl,#ed{display:block;margin:0;padding:24px 16px 80px;width:100%;border:0;font:14px/1.7 ui-monospace,Menlo,monospace;letter-spacing:normal;tab-size:2;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word}
+#hl{position:absolute;inset:0;pointer-events:none;overflow:hidden;color:var(--fg)}
+#ed{position:relative;resize:none;outline:0;overflow:hidden;background:transparent;color:transparent;caret-color:var(--fg)}
+#ed::placeholder{color:var(--mute)}#ed::selection{background:#7c7cf055;color:transparent}
+.mk-h{color:var(--acc);font-weight:700}.mk-m{color:var(--mute)}.mk-q{color:var(--mute);font-style:italic}.mk-b{font-weight:700}.mk-i{font-style:italic}
+.mk-c{color:#c2570c;background:var(--code);border-radius:3px}.mk-l{color:var(--acc)}.mk-u{color:#2f8f5b}.mk-t{color:var(--acc);font-weight:600}.mk-x{text-decoration:line-through;color:var(--mute)}.mk-n{color:var(--acc)}
+@media(prefers-color-scheme:dark){.mk-c{color:#ffb070}.mk-u{color:#7fd6a0}}
 #pv a{color:var(--acc)}#pv a.new{opacity:.6;border-bottom:1px dashed}
 #pv code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}
 #pv pre{background:var(--code);padding:12px;border-radius:8px;overflow:auto}#pv pre code{padding:0;background:none}
@@ -64,7 +71,7 @@ button:disabled{opacity:.4;cursor:default}
   #side{display:none;position:fixed;inset:0 25% 0 0;z-index:10;box-shadow:0 0 40px #0006}
   body.side-open #side{display:flex}
   #bar{padding:8px 10px;flex-wrap:wrap}
-  #ed,#pv{padding:16px 12px 80px}
+  #hl,#ed,#pv{padding:16px 12px 80px}
 }
 </style>
 </head>
@@ -154,8 +161,8 @@ function renderPane() {
   const t = notes.get(cur).text;
   $('#tog').textContent = preview ? 'Edit' : 'Preview';
   if (preview) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
-  else { $('#pane').innerHTML = '<textarea id="ed" spellcheck="false" placeholder="Start writing… use [[links]] to connect notes"></textarea>';
-    const ed = $('#ed'); ed.value = t; ed.oninput = () => { onInput(); acUpdate(); }; ed.onkeydown = edKey; ed.onblur = () => setTimeout(acHide, 150);
+  else { $('#pane').innerHTML = '<div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" spellcheck="false" placeholder="Start writing… use [[links]] to connect notes"></textarea></div>';
+    const ed = $('#ed'); ed.value = t; syncEditor(); ed.oninput = () => { onInput(); acUpdate(); caretIntoView(); }; ed.onkeydown = (e) => { edKey(e); setTimeout(caretIntoView, 0); }; ed.onblur = () => setTimeout(acHide, 150);
     ed.onpaste = (e) => { if (attach(e.clipboardData.files)) { if ([...e.clipboardData.files].some((f) => f.type.startsWith('image/'))) e.preventDefault(); } };
     ed.ondragover = (e) => { if ([...e.dataTransfer.items].some((i) => i.type.startsWith('image/'))) e.preventDefault(); };
     ed.ondrop = (e) => { if ([...e.dataTransfer.files].some((f) => f.type.startsWith('image/'))) { e.preventDefault(); attach(e.dataTransfer.files); } }; if (!t) ed.focus(); }
@@ -235,7 +242,35 @@ async function attach(files) {
   }
   onInput(); return true;
 }
+const HL_LIMIT = 300000;        // beyond this, skip highlighting to keep typing instant
+function syncEditor() {
+  const ed = $('#ed'), hl = $('#hl'), wrap = $('#edwrap'), pane = $('#pane');
+  if (!ed || !hl) return;
+  hl.innerHTML = ed.value.length > HL_LIMIT ? esc(ed.value) + '\n' : MD.highlightMarkdown(ed.value) + '\n';   // trailing \n keeps the last empty line's height
+  wrap.style.minHeight = pane.clientHeight + 'px';
+  ed.style.height = 'auto';
+  ed.style.height = Math.max(ed.scrollHeight, pane.clientHeight) + 'px';       // grow with content; the pane scrolls
+}
+new ResizeObserver(() => syncEditor()).observe($('#pane'));
+// The textarea grows with its content (so it lines up with the highlight layer), so the pane scrolls instead:
+// find the caret's on-screen position via the mirror and keep it in view.
+function caretIntoView() {
+  const ed = $('#ed'), hl = $('#hl'), pane = $('#pane');
+  if (!ed || !hl) return;
+  const off = ed.selectionEnd, w = document.createTreeWalker(hl, NodeFilter.SHOW_TEXT);
+  let n, pos = 0, node = null, at = 0;
+  while ((n = w.nextNode())) { const l = n.nodeValue.length; if (pos + l >= off) { node = n; at = off - pos; break; } pos += l; }
+  if (!node) return;
+  const r = document.createRange(); r.setStart(node, at); r.setEnd(node, Math.min(at + 1, node.nodeValue.length));
+  let rect = r.getBoundingClientRect();
+  if (!rect.height) { r.setStart(node, Math.max(0, at - 1)); r.setEnd(node, at); rect = r.getBoundingClientRect(); }
+  if (!rect.height) return;
+  const pr = pane.getBoundingClientRect();
+  if (rect.bottom > pr.bottom - 24) pane.scrollTop += rect.bottom - pr.bottom + 56;
+  else if (rect.top < pr.top + 8) pane.scrollTop -= pr.top - rect.top + 56;
+}
 function onInput() {
+  syncEditor();
   const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); dirty = true;
   $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
 }

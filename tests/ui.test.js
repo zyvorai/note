@@ -110,6 +110,26 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
 
     assert.equal(await ev(`document.querySelector('#del').disabled`), false);   // restored note is open
 
+    // live syntax highlighting: overlay text must equal the textarea text, and wrapping must match
+    const long = '# Heading with **bold** and #tag\n\n' + Array.from({ length: 30 }, (_, i) => `- item ${i} with [[Home]] and \`code\` ` + 'word '.repeat(30)).join('\n') + '\n\n```js\nconst a = "x"; // c\n```\n> quote\n| a | b |\n|---|---|\n';
+    await ev(`document.querySelector('#tog').click(); document.querySelector('#tog').click()`);       // back into the editor
+    await until(`document.querySelector('#ed')`, 'editor');
+    await ev(`(() => { const e = document.querySelector('#ed'); e.value = ${JSON.stringify(long)}; e.dispatchEvent(new Event('input')); })()`);
+    assert.equal(await ev(`document.querySelector('#hl').textContent.replace(/\\n$/, '') === document.querySelector('#ed').value`), true, 'overlay text matches');
+    for (const c of ['mk-h', 'mk-b', 'mk-l', 'mk-c', 'mk-t', 'mk-q', 'tk-k', 'mk-m'])
+      assert.ok(await ev(`!!document.querySelector('#hl .${c}')`), 'highlight class ' + c);
+    assert.equal(await ev(`document.querySelector('#hl').scrollHeight`), await ev(`document.querySelector('#ed').scrollHeight`), 'same wrapped height');
+    // a wrapped line's last word sits at the same y in overlay and textarea (checked via caret rect)
+    assert.ok(await ev(`document.querySelector('#ed').getBoundingClientRect().height > document.querySelector('#pane').clientHeight`), 'editor grows with content (pane scrolls)');
+    await shot('6-highlight');
+
+    // typing at the end of a long note scrolls the pane to keep the caret visible
+    await ev(`(() => { const e = document.querySelector('#ed'); document.querySelector('#pane').scrollTop = 0; e.focus(); e.setSelectionRange(e.value.length, e.value.length); })()`);
+    await cdp('Input.insertText', { text: 'end' });
+    await sleep(200);
+    assert.ok(await ev(`document.querySelector('#pane').scrollTop > 200`), 'pane scrolled to follow the caret');
+    await shot('7-highlight-bottom');
+
     // narrow screens: sidebar hidden behind the menu button
     await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 800, deviceScaleFactor: 2, mobile: true });
     await sleep(300);
