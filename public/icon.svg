@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4d5cfa"/><stop offset=".5" stop-color="#854df2"/><stop offset="1" stop-color="#d14fc7"/></linearGradient>
+<linearGradient id="hd" x1="0" x2="1"><stop offset="0" stop-color="#5c57f5"/><stop offset="1" stop-color="#9e52e6"/></linearGradient>
+</defs>
+<rect x="6" y="6" width="88" height="88" rx="20" fill="url(#bg)"/>
+<path d="M27 17h36l9 12v47a5 5 0 0 1-5 5H27a5 5 0 0 1-5-5V22a5 5 0 0 1 5-5z" fill="#fff"/>
+<path d="M63 17v12h12z" fill="#b8b2fb"/>
+<rect x="28" y="28" width="20" height="5" rx="2.5" fill="url(#hd)"/>
+<g fill="#d3d1ec"><rect x="28" y="41" width="34" height="2.8" rx="1.4"/><rect x="28" y="48.5" width="30" height="2.8" rx="1.4"/><rect x="28" y="56" width="22" height="2.8" rx="1.4"/></g>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M55 74.5 78 60 72 84z" stroke="#5a3fc0" stroke-opacity=".35" stroke-width="4.4"/><path d="M55 74.5 78 60 72 84z" stroke="#fff" stroke-width="2.2"/></g>
+<circle cx="55" cy="74.5" r="6.2" fill="#fff"/><circle cx="55" cy="74.5" r="4.8" fill="#ffb83a"/>
+<circle cx="78" cy="60" r="4.8" fill="#fff"/><circle cx="78" cy="60" r="3.7" fill="#2fc7bd"/>
+<circle cx="72" cy="84" r="4.4" fill="#fff"/><circle cx="72" cy="84" r="3.4" fill="#ec5a8c"/>
+</svg>
