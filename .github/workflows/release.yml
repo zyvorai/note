@@ -26,8 +26,10 @@ jobs:
           "$EXE" --no-window --port 47999 --notes "$RUNNER_TEMP/notes" &
           PID=$!
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:47999/api/ping && break; sleep 1; done
-          curl -sf http://127.0.0.1:47999/ | grep -q "Plainnote"
-          curl -sf http://127.0.0.1:47999/md.js | grep -q "wikiContext"
+          curl -sf http://127.0.0.1:47999/ -o "$RUNNER_TEMP/index.html"
+          curl -sf http://127.0.0.1:47999/md.js -o "$RUNNER_TEMP/md.js"
+          grep -q "Plainnote" "$RUNNER_TEMP/index.html"
+          grep -q "wikiContext" "$RUNNER_TEMP/md.js"
           kill $PID || true
       - uses: actions/upload-artifact@v4
         with:
