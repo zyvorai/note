@@ -30,6 +30,14 @@ node server.js ~/Notes          # http://localhost:4777
 open dist/Plainnote.app
 ```
 
+A native wrapper (Swift + WKWebView, no Electron), universal for Apple Silicon and Intel. It has a translucent sidebar and full-size window, a real menu bar, a Dock menu and a menu-bar icon, and integrates with macOS:
+
+- **Quick capture**: press **Ctrl+Option+N** anywhere to jot a line into today's daily note without leaving what you're doing (⌘↩ saves, esc cancels).
+- **`plainnote://` links**: `plainnote://open/<note>`, `plainnote://today`, `plainnote://new?title=…&text=…`.
+- **Open files and folders**: open a `.md` file from Finder, or drop a folder on the Dock icon to use it as your notes folder.
+- **Services**: select text in any app, then *Services ▸ New Plainnote from Selection*.
+- **Share** the open note from the File menu, and sync notifications when the app is in the background.
+
 A tiny native wrapper (Swift + WKWebView, no Electron). It starts the bundled server on a free local port, shows it in a window, and stops it on quit. Node.js must be installed. **File → Choose Notes Folder…** switches folders (default `~/Notes`). The app is ad-hoc signed; to distribute it, build with `SIGN_ID="Developer ID Application: …" ./desktop/build.sh` and notarize with `notarytool`.
 
 ## Desktop app (Windows and Linux)
@@ -40,7 +48,7 @@ A single downloadable executable, no Node install needed. Build it on the target
 node scripts/build-sea.js      # -> dist/plainnote-<platform>-<arch>[.exe]
 ```
 
-CI builds all three platforms: run the **build-desktop** workflow, or push a `v*` tag to attach the executables to a GitHub release (the macOS build also attaches a `Plainnote-<version>-arm64.dmg`).
+CI builds all three platforms: run the **build-desktop** workflow, or push a `v*` tag to attach the executables to a GitHub release (the macOS build also attaches a universal `Plainnote-<version>-universal.dmg`).
 
 It starts the notes server on `127.0.0.1` and opens it in a standalone app window using an installed Chrome, Edge, Chromium or Brave (Edge ships with Windows), falling back to your default browser. Closing the window quits the app. Launching it again opens another window on the running instance.
 

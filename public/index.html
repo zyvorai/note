@@ -500,7 +500,12 @@ const EXTRA = {
   palette: () => swOpen('cmds'), switcher: () => swOpen(),
   sidebar: () => { document.body.classList.toggle('side-off'); reportSide(); },
 };
-window.plainnote = { run(id) { const c = COMMANDS.find((x) => x.id === id); (c ? c.run : EXTRA[id])?.(); } };
+window.plainnote = {
+  ready: null,                                                      // resolves once the first load finished (the app waits on it)
+  async run(id) { await this.ready; const c = COMMANDS.find((x) => x.id === id); (c ? c.run : EXTRA[id])?.(); },
+  async openNote(name, create) { await this.ready; await load(); await open(name, !!create); },   // reload first: the note may have just been written on disk
+  current: () => (cur && notes.get(cur) ? { name: cur, text: notes.get(cur).text } : null),
+};
 const macPost = (m) => { try { window.webkit?.messageHandlers?.mac?.postMessage(m); } catch {} };
 if (/[?&]mac\b/.test(location.search)) document.documentElement.classList.add('mac');   // ?mac previews the native-app layout in a browser
 function reportSide() { const sd = $('#side'); macPost({ t: 'side', w: getComputedStyle(sd).display === 'none' ? 0 : Math.round(sd.getBoundingClientRect().width) }); }
@@ -575,7 +580,8 @@ async function doSync(auto) {
     if (cur && !notes.has(cur)) { cur = null; renderPane(); renderBack(); }
     else if (cur && notes.get(cur).text !== before) renderPane();
     $('#ss').textContent = r.message; $('#ss').title = '';
-  } catch (e) { $('#ss').textContent = e.message; $('#ss').title = e.message; }
+    macPost({ t: 'notify', title: 'Sync finished', body: r.message });
+  } catch (e) { $('#ss').textContent = e.message; $('#ss').title = e.message; macPost({ t: 'notify', title: 'Sync failed', body: e.message }); }
   finally { btn.disabled = false; syncing = false; }
 }
 $('#sync').onclick = () => doSync(false);
@@ -675,7 +681,7 @@ window.addEventListener('hashchange', () => {
   let h = ''; try { h = decodeURIComponent(location.hash.slice(1)); } catch {}
   if (h && h !== cur && notes.has(h)) open(h, false);
 });
-load().then(async () => {
+plainnote.ready = load().then(async () => {
   let h = decodeURIComponent(location.hash.slice(1)); if (!h) try { h = localStorage.getItem('last') || ''; } catch {}   // reopen where you left off
   if (h) await open(h, false);
   if (/[?&]graph\b/.test(location.search)) { graphOn = true; renderPane(); }   // ?graph opens the graph view (used for screenshots)

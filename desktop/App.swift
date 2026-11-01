@@ -7,12 +7,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     var web: WKWebView!
     var effect: NSVisualEffectView!      // translucent sidebar behind the web view (see Window.swift)
     var lastMouseDown: NSEvent?          // used to start window drags requested by the page
+    var pageReady = false                // the page finished loading; until then URL/file opens are queued
+    var pending: [URL] = []
+    var statusItem: NSStatusItem?
+    var capture: CapturePanel?
     var server: Process?
     var stopping = false
     var port = 0
 
     var notesDir: String {
-        get { UserDefaults.standard.string(forKey: "notesDir") ?? NSHomeDirectory() + "/Notes" }
+        get { ProcessInfo.processInfo.environment["PLAINNOTE_DIR"] ?? UserDefaults.standard.string(forKey: "notesDir") ?? NSHomeDirectory() + "/Notes" }
         set { UserDefaults.standard.set(newValue, forKey: "notesDir") }
     }
 
@@ -20,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         buildMenu()
         buildWindow()
         startServer()
+        setupIntegrations()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ n: Notification) { stopServer() }
@@ -82,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     }
 
     func stopServer() {
+        pageReady = false
         stopping = true
         server?.terminate(); server = nil
     }
@@ -137,6 +143,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24)); field.stringValue = defaultText ?? ""
         a.accessoryView = field; a.window.initialFirstResponder = field
         c(a.runModal() == .alertFirstButtonReturn ? field.stringValue : nil)
+    }
+    func webView(_ w: WKWebView, didFinish navigation: WKNavigation!) {
+        pageReady = true
+        let urls = pending; pending = []
+        urls.forEach(handle)
     }
     // target=_blank links and external URLs open in the default browser.
     func webView(_ w: WKWebView, createWebViewWith c: WKWebViewConfiguration, for a: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {

@@ -39,7 +39,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/dmg"
           cp -R dist/Plainnote.app "$RUNNER_TEMP/dmg/"
           ln -s /Applications "$RUNNER_TEMP/dmg/Applications"
-          hdiutil create -quiet -volname Plainnote -srcfolder "$RUNNER_TEMP/dmg" -ov -format UDZO "dist/Plainnote-$VER-$(uname -m).dmg"
+          hdiutil create -quiet -volname Plainnote -srcfolder "$RUNNER_TEMP/dmg" -ov -format UDZO "dist/Plainnote-$VER-universal.dmg"
+          lipo -info dist/Plainnote.app/Contents/MacOS/Plainnote
           hdiutil verify -quiet dist/Plainnote-*.dmg
       - uses: actions/upload-artifact@v4
         with:

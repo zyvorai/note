@@ -30,9 +30,11 @@ extension AppDelegate {
         page(file, "New Note", "new", "n")
         page(file, "Today’s Note", "today", "t", mods: [.command, .shift])
         page(file, "Open Quickly…", "switcher", "k")
+        add(file, "Quick Capture…", #selector(showCapture), "n", target: self, mods: [.control, .option])
         file.addItem(.separator())
         page(file, "Export as HTML…", "export", "e", mods: [.command, .shift])
         page(file, "Pin / Unpin Note", "pin", "p", mods: [.command, .option])
+        add(file, "Share…", #selector(shareNote), "", target: self)
         file.addItem(.separator())
         add(file, "Choose Notes Folder…", #selector(chooseFolder), "o", target: self)
         add(file, "Reveal Notes in Finder", #selector(reveal), "", target: self)
@@ -58,6 +60,8 @@ extension AppDelegate {
         page(view, "Smaller Text", "smaller", "-")
         page(view, "Actual Size", "reset", "0")
         view.addItem(.separator())
+        let bar = add(view, "Show Menu Bar Icon", #selector(toggleStatusItem(_:)), "", target: self)
+        bar.state = statusItem != nil || UserDefaults.standard.object(forKey: "statusItem") as? Bool ?? true ? .on : .off
         add(view, "Reload", #selector(reload), "r", target: self)
         add(view, "Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", mods: [.command, .control])
 

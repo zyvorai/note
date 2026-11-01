@@ -146,7 +146,8 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.equal(await ev(`getComputedStyle(document.querySelector('#side')).display`), 'none');
     await ev(`plainnote.run('sidebar')`);
     assert.notEqual(await ev(`getComputedStyle(document.querySelector('#side')).display`), 'none');
-    assert.equal(await ev(`typeof plainnote.run('nonexistent')`), 'undefined', 'unknown ids are ignored');
+    assert.equal(await ev(`plainnote.run('nonexistent').then(() => 'ok')`), 'ok', 'unknown ids are ignored');
+    assert.equal(await ev(`plainnote.current().name === document.querySelector('#title').value || plainnote.current().name.endsWith('/' + document.querySelector('#title').value)`), true, 'plainnote.current() reports the open note');
     await ev(`(async()=>{ await open('Home', false); })()`);
     await until(`document.querySelector('#title').value === 'Home'`, 'back to Home');
 

@@ -57,6 +57,8 @@ extension AppDelegate: WKScriptMessageHandler {
             let w = CGFloat((d["w"] as? NSNumber)?.doubleValue ?? 0)
             effect.isHidden = w <= 0
             effect.frame = NSRect(x: 0, y: 0, width: w, height: effect.superview?.bounds.height ?? 720)
+        case "notify":                                            // sync results: only worth a banner when the app is in the background
+            if !NSApp.isActive { notify(title: d["title"] as? String ?? "Plainnote", body: d["body"] as? String ?? "") }
         default: break
         }
     }
