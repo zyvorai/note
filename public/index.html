@@ -409,7 +409,10 @@ function drawGraph() {
 let swSel = 0, swRows = [];
 function swRender() {
   const v = $('#swq').value.trim(), l = v.toLowerCase();
-  swRows = [...notes.keys()].filter((n) => n.toLowerCase().includes(l)).slice(0, 8);
+  // most recently edited first; names that start with the query beat names that merely contain it
+  const rank = (n) => (l && n.toLowerCase().startsWith(l) ? 0 : 1);
+  swRows = [...notes.keys()].filter((n) => n.toLowerCase().includes(l))
+    .sort((a, b) => rank(a) - rank(b) || (notes.get(b).mtime || 0) - (notes.get(a).mtime || 0)).slice(0, 8);
   if (v && !notes.has(v)) swRows.push({ create: v });
   swSel = Math.min(swSel, swRows.length - 1);
   $('#swl').innerHTML = swRows.map((r, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${r.create ? `Create “${esc(r.create)}”` : esc(r)}</div>`).join('');

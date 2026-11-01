@@ -70,6 +70,11 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await sleep(1200); await shot('2-graph');
     await ev(`document.querySelector('#gr').click()`);
 
+    // quick switcher: recent notes first, prefix matches beat substring matches
+    const order = await ev(`(()=>{ swOpen(); const a = swRows.slice(); const t = [...notes.values()].sort((x,y)=>y.mtime-x.mtime)[0].name; $('#swq').value = 'o'; swRender(); const b = swRows.slice(); swClose(); return {a, t, b}; })()`);
+    assert.equal(order.a[0], order.t, 'empty query lists the most recently edited note first');
+    assert.ok(order.b.length && order.b.slice(0, order.b.findIndex((n) => !String(n).toLowerCase().startsWith('o'))).every((n) => String(n).toLowerCase().startsWith('o')), 'prefix matches first');
+
     // today's daily note is created in daily/ and reopened (not duplicated) on a second click
     await ev(`document.querySelector('#today').click()`);
     await until(`/^\\d{4}-\\d{2}-\\d{2}$/.test(document.querySelector('#title').value) && document.querySelector('#ed')`, 'daily note');
