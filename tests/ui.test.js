@@ -84,6 +84,13 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`document.querySelector('#today').click()`); await sleep(300);
     assert.equal(fs.readdirSync(path.join(dir, 'daily')).length, 1);
 
+    // pinning floats the note to the top of the list, and unpinning restores the order
+    await ev(`document.querySelector('#pin').click()`);
+    assert.match(await ev(`document.querySelector('#list .item').textContent`), /^📌 /);
+    assert.equal(await ev(`document.querySelector('#pin').textContent`), 'Unpin');
+    await ev(`document.querySelector('#pin').click()`);
+    assert.doesNotMatch(await ev(`document.querySelector('#list .item').textContent`), /📌/);
+
     // editor: list continuation, [[ autocomplete, bold, tab indent
     await ev(`(async()=>{ document.querySelector('#new').click(); })()`);
     await until(`document.querySelector('#ed') && document.querySelector('#title').value.startsWith('Untitled')`, 'new note');
