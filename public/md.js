@@ -63,13 +63,14 @@
       });
       s = s.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
         .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|\W)\*(?!\s)(.+?)\*(?=\W|$)/g, '$1<i>$2</i>')
-        .replace(/~~(.+?)~~/g, '<s>$1</s>');
+        .replace(/~~(.+?)~~/g, '<s>$1</s>').replace(/==(?!\s)(.+?)==/g, '<mark>$1</mark>')
+        .replace(/\[\^([^\]\s]+)\]/g, (_, k) => `<sup class="fn"><a href="#fn-${k}" id="fnr-${k}">${k}</a></sup>`);
       return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
     }
 
     function md(src) {
       const out = [], L = src.replace(/\r/g, '').split('\n');
-      let list = null, para = [];
+      let list = null, para = []; const notesFn = [];
       const flushP = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = []; };
       const flushL = () => { if (list) out.push(`</${list}>`); list = null; };
       for (let i = 0; i < L.length; i++) {
@@ -103,11 +104,24 @@
             : `<li>${inline(li[2])}</li>`);
           continue;
         }
-        if (/^>\s?/.test(l)) { flushP(); flushL(); out.push(`<blockquote>${inline(l.replace(/^>\s?/, ''))}</blockquote>`); continue; }
+        if (/^>\s?/.test(l)) {
+          flushP(); flushL(); const q = [];
+          while (i < L.length && /^>\s?/.test(L[i])) q.push(L[i++].replace(/^>\s?/, ''));
+          i--;
+          const c = q[0].match(/^\[!(\w+)\][+-]?\s*(.*)$/);
+          if (c) {
+            const kind = c[1].toLowerCase();
+            out.push(`<div class="callout callout-${kind}"><div class="callout-title">${inline(c[2] || kind[0].toUpperCase() + kind.slice(1))}</div>${q.length > 1 ? `<div>${inline(q.slice(1).join(' '))}</div>` : ''}</div>`);
+          } else out.push(`<blockquote>${q.map(inline).join('<br>')}</blockquote>`);
+          continue;
+        }
+        const fd = l.match(/^\[\^([^\]\s]+)\]:\s*(.*)/);
+        if (fd) { flushP(); flushL(); notesFn.push([fd[1], fd[2]]); continue; }
         if (!l.trim()) { flushP(); flushL(); continue; }
         flushL(); para.push(l.trim());
       }
       flushP(); flushL();
+      if (notesFn.length) out.push(`<hr><ol class="footnotes">${notesFn.map(([k, t]) => `<li id="fn-${esc(k)}">${inline(t)} <a href="#fnr-${esc(k)}">↩</a></li>`).join('')}</ol>`);
       return out.join('\n');
     }
     return { md, inline };
@@ -249,7 +263,23 @@
     return out.join('\n');
   }
 
-  const api = { highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
+  // Notes that mention `name` in plain text without linking to it: [{name, index}]
+  function unlinkedMentions(notes, name) {
+    const short = name.split('/').pop(), lc = name.toLowerCase(), sl = short.toLowerCase(), out = [];
+    if (short.length < 3) return out;
+    const re = new RegExp('(^|[^\\w\\[])' + short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w\\]])', 'i');
+    for (const n of notes) {
+      if (n.name.toLowerCase() === lc) continue;
+      const linked = [...n.text.matchAll(linkRe)].some((m) => { const t = m[1].trim().toLowerCase(); return t === lc || t === sl; });
+      if (linked) continue;
+      const text = n.text.replace(/```[\s\S]*?```/g, (c) => ' '.repeat(c.length)).replace(linkRe, (c) => ' '.repeat(c.length));
+      const m = re.exec(text);
+      if (m) out.push({ name: n.name, index: m.index + m[1].length });
+    }
+    return out;
+  }
+
+  const api = { unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);

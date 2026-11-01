@@ -173,6 +173,19 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`(async()=>{ await open('Home', false); })()`);
     await until(`document.querySelector('#title').value === 'Home'`, 'back to Home');
 
+    // unlinked mentions: Home mentions "Find Test" in plain text elsewhere -> offered, and "link" rewrites it
+    await ev(`(async () => { await api('/api/note?name=Mention%20Src', { method: 'PUT', body: 'I wrote about find test today ==hot==\\n\\n> [!tip] Hint\\n> body', headers: { 'x-base-mtime': '0' } }); await load(); await open('Find Test', false); })()`);
+    await until(`document.querySelector('#um')`, 'unlinked mention listed');
+    await ev(`document.querySelector('#um [data-link]').click()`);
+    await until(`notes.get('Mention Src').text.includes('[[Find Test|find test]]')`, 'mention linked');
+    assert.equal(await ev(`!document.querySelector('#um')`), true, 'mention no longer unlinked');
+    await ev(`(async () => { await open('Mention Src', false); })()`);
+    await until(`document.querySelector('#title').value === 'Mention Src'`, 'open Mention Src');
+    if (await ev(`!document.querySelector('#pv')`)) await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', ctrlKey: true, bubbles: true }))`);
+    await until(`document.querySelector('#pv .callout-tip') && document.querySelector('#pv mark')`, 'callout and highlight render');
+    await ev(`(async()=>{ await open('Home', false); })()`);
+    await until(`document.querySelector('#title').value === 'Home'`, 'back to Home again');
+
     // native-app bridge: plainnote.run(id) drives the same actions as the palette (the Mac menus call it)
     const before = await ev(`notes.size`);
     await ev(`plainnote.run('new')`);

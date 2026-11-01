@@ -141,3 +141,26 @@ test('find in note: case-insensitive literal matches', () => {
   assert.deepEqual(MD.findAll('text', ''), []);
   assert.deepEqual(MD.findAll('[x] (y)', '[x]'), [{ start: 0, end: 3 }]);
 });
+
+test('callouts, highlights and footnotes', () => {
+  const c = md('> [!warning] Careful\n> be **kind**');
+  assert.match(c, /class="callout callout-warning"><div class="callout-title">Careful<\/div><div>be <b>kind<\/b>/);
+  assert.match(md('> [!note]\n'), /callout-title">Note</);
+  assert.match(md('> a\n> b'), /<blockquote>a<br>b<\/blockquote>/);
+  assert.match(md('x ==hi== y'), /<mark>hi<\/mark>/);
+  const f = md('Text[^1]\n\n[^1]: The note');
+  assert.match(f, /<sup class="fn"><a href="#fn-1" id="fnr-1">1<\/a><\/sup>/);
+  assert.match(f, /<li id="fn-1">The note /);
+});
+
+test('unlinkedMentions finds plain mentions but not linked ones', () => {
+  const notes = [
+    { name: 'Alpha', text: 'self Alpha' },
+    { name: 'a', text: 'I met alpha today' },
+    { name: 'b', text: 'see [[Alpha]] and Alpha' },
+    { name: 'c', text: 'alphabet soup, [[x|Alpha]] no' },
+    { name: 'd', text: '```\nAlpha\n```' },
+  ];
+  const r = MD.unlinkedMentions(notes, 'Alpha');
+  assert.deepEqual(r, [{ name: 'a', index: 6 }]);
+});

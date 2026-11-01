@@ -54,6 +54,12 @@ button:disabled{opacity:.4;cursor:default}
 #pv th,#pv td{border:1px solid var(--line);padding:5px 10px}#pv th{background:var(--code)}
 #pv blockquote{margin:0;padding-left:12px;border-left:3px solid var(--line);color:var(--mute)}
 #pv hr{border:0;border-top:1px solid var(--line)}
+#pv mark{background:rgba(255,200,0,.35);color:inherit;border-radius:3px;padding:0 2px}
+#pv .callout{margin:12px 0;padding:10px 14px;border-radius:8px;border-left:4px solid var(--acc);background:color-mix(in srgb,var(--acc) 10%,transparent)}
+#pv .callout-title{font-weight:600;margin-bottom:2px}
+#pv .callout-warning,#pv .callout-caution{--acc:#e8870e}#pv .callout-danger,#pv .callout-bug{--acc:#d6453d}#pv .callout-tip,#pv .callout-success{--acc:#2f9e5b}
+#pv .footnotes{font-size:.9em;color:var(--mute)}#pv sup.fn a{text-decoration:none}
+#back .um{display:block;margin-top:6px}#back .um a{margin-right:6px}#back .um b{font-weight:600}
 #gc{display:block;width:100%;height:100%;cursor:grab}
 body.side-off #app{grid-template-columns:1fr}body.side-off #side{display:none}
 /* native Mac app: the sidebar is translucent (NSVisualEffectView sits behind the web view) and content reaches under the title bar */
@@ -182,7 +188,19 @@ function renderBack() {
     for (const m of n.text.matchAll(linkRe)) { const t = m[1].trim().toLowerCase();
       if (t === cur.toLowerCase() || t === short) { hits.push(n.name); break; } }
   }
-  $('#back').innerHTML = hits.length ? 'Linked from: ' + hits.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join('') : 'No backlinks';
+  const um = MD.unlinkedMentions([...notes.values()], cur);
+  $('#back').innerHTML = (hits.length ? 'Linked from: ' + hits.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join('') : 'No backlinks')
+    + (um.length ? `<span class="um" id="um"><b>Unlinked mentions:</b> ` + um.map((u) => `<a data-note="${esc(u.name)}">${esc(u.name)}</a><a data-link="${esc(u.name)}" title="Turn the mention into a [[link]]">link</a>`).join(' ') + '</span>' : '');
+}
+async function linkMention(from) {
+  const n = notes.get(from); if (!n || !cur) return;
+  const um = MD.unlinkedMentions([n], cur)[0]; if (!um) return;
+  const short = cur.split('/').pop(), orig = n.text.slice(um.index, um.index + short.length);
+  const link = n.text.slice(0, um.index) + (cur === orig ? `[[${cur}]]` : `[[${cur}|${orig}]]`) + n.text.slice(um.index + short.length);
+  try {
+    const r = await api('/api/note?name=' + encodeURIComponent(from), { method: 'PUT', body: link, headers: { 'x-base-mtime': String(n.base ?? 0) } });
+    n.text = link; n.base = r.mtime; $('#status').textContent = `Linked in ${from}`; renderBack();
+  } catch (e) { $('#status').textContent = 'Could not link: ' + e.message; }
 }
 /* outline: headings of the open note (ignoring fenced code); click to jump */
 function headingsOf(text) {
@@ -647,6 +665,7 @@ document.addEventListener('click', (e) => {
   if (tg) { e.preventDefault(); activeTag = activeTag === tg.dataset.tag ? null : tg.dataset.tag; renderList(); return; }
   const oh = e.target.closest('[data-h]');
   if (oh) { gotoHeading(+oh.dataset.h); return; }
+  const lk = e.target.closest('[data-link]'); if (lk) { linkMention(lk.dataset.link); return; }
   const a = e.target.closest('[data-note]');
   if (a) { e.preventDefault(); open(a.dataset.note, true); }
 });
