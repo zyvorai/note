@@ -4,9 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Plainnote</title>
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
 <style>
-:root{--bg:#fff;--fg:#1d1d1f;--mute:#6e6e73;--line:#e5e5ea;--side:#f6f6f8;--acc:#5b5bd6;--code:#f0f0f3}
-@media(prefers-color-scheme:dark){:root{--bg:#18181b;--fg:#ececf0;--mute:#9a9aa3;--line:#2c2c32;--side:#1f1f24;--acc:#9d9dff;--code:#26262c}}
+:root{--bg:#fff;--fg:#1d1d1f;--mute:#6e6e73;--line:#e5e5ea;--side:#f6f6f8;--acc:#5b5bd6;--code:#f0f0f3;--str:#2f8f5b;--num:#c2570c;--sel:#5b5bd633;color-scheme:light dark}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{--bg:#18181b;--fg:#ececf0;--mute:#9a9aa3;--line:#2c2c32;--side:#1f1f24;--acc:#9d9dff;--code:#26262c;--str:#7fd6a0;--num:#ffb070;--sel:#7c7cf055;color-scheme:dark}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#18181b;--fg:#ececf0;--mute:#9a9aa3;--line:#2c2c32;--side:#1f1f24;--acc:#9d9dff;--code:#26262c;--str:#7fd6a0;--num:#ffb070;--sel:#7c7cf055}}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,system-ui,sans-serif}
 #app{display:grid;grid-template-columns:260px 1fr;height:100%}
@@ -38,10 +41,9 @@ button:disabled{opacity:.4;cursor:default}
 #hl,#ed{display:block;margin:0;padding:24px 16px 80px;width:100%;border:0;font:14px/1.7 ui-monospace,Menlo,monospace;letter-spacing:normal;tab-size:2;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word}
 #hl{position:absolute;inset:0;pointer-events:none;overflow:hidden;color:var(--fg)}
 #ed{position:relative;resize:none;outline:0;overflow:hidden;background:transparent;color:transparent;caret-color:var(--fg)}
-#ed::placeholder{color:var(--mute)}#ed::selection{background:#7c7cf055;color:transparent}
+#ed::placeholder{color:var(--mute)}#ed::selection{background:var(--sel);color:transparent}
 .mk-h{color:var(--acc);font-weight:700}.mk-m{color:var(--mute)}.mk-q{color:var(--mute);font-style:italic}.mk-b{font-weight:700}.mk-i{font-style:italic}
-.mk-c{color:#c2570c;background:var(--code);border-radius:3px}.mk-l{color:var(--acc)}.mk-u{color:#2f8f5b}.mk-t{color:var(--acc);font-weight:600}.mk-x{text-decoration:line-through;color:var(--mute)}.mk-n{color:var(--acc)}
-@media(prefers-color-scheme:dark){.mk-c{color:#ffb070}.mk-u{color:#7fd6a0}}
+.mk-c{color:var(--num);background:var(--code);border-radius:3px}.mk-l{color:var(--acc)}.mk-u{color:var(--str)}.mk-t{color:var(--acc);font-weight:600}.mk-x{text-decoration:line-through;color:var(--mute)}.mk-n{color:var(--acc)}
 #pv a{color:var(--acc)}#pv a.new{opacity:.6;border-bottom:1px dashed}
 #pv code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}
 #pv pre{background:var(--code);padding:12px;border-radius:8px;overflow:auto}#pv pre code{padding:0;background:none}
@@ -58,8 +60,7 @@ button:disabled{opacity:.4;cursor:default}
 #swq{width:100%;padding:12px;border:0;border-bottom:1px solid var(--line);outline:0;background:none}
 #swl .item{border-radius:0}
 .empty{color:var(--mute);padding:40px;text-align:center}
-.tk-c{color:var(--mute);font-style:italic}.tk-s{color:#2f8f5b}.tk-n{color:#c2570c}.tk-k{color:var(--acc);font-weight:600}
-@media(prefers-color-scheme:dark){.tk-s{color:#7fd6a0}.tk-n{color:#ffb070}}
+.tk-c{color:var(--mute);font-style:italic}.tk-s{color:var(--str)}.tk-n{color:var(--num)}.tk-k{color:var(--acc);font-weight:600}
 #ac{position:absolute;left:50%;transform:translateX(-50%);bottom:64px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px #0003;min-width:220px;max-width:90%;display:none;z-index:5;overflow:hidden}
 #ac .item{border-radius:0}
 #main{position:relative}
@@ -78,7 +79,7 @@ button:disabled{opacity:.4;cursor:default}
 <body>
 <div id="app">
   <aside id="side">
-    <header><input id="q" placeholder="Search…" autocomplete="off"><button id="new" title="New note (Ctrl/Cmd+N)">+</button></header>
+    <header><input id="q" placeholder="Search…" autocomplete="off"><button id="new" title="New note (Ctrl/Cmd+N)">+</button><button id="theme"></button></header>
     <div id="tags"></div>
     <div id="list"></div>
     <footer id="sf"><button id="sync" title="Sync notes with a git remote">Sync</button><label title="Sync every 2 minutes" style="white-space:nowrap"><input type="checkbox" id="auto"> Auto</label><button id="trash" title="Deleted notes">Trash</button><span id="ss"></span></footer>
@@ -456,6 +457,17 @@ function setAuto(on) {
 $('#auto').onchange = (e) => { setAuto(e.target.checked); if (e.target.checked) doSync(true); };
 try { if (localStorage.getItem('autoSync')) { $('#auto').checked = true; setAuto(true); } } catch {}
 syncStatus();
+/* theme: auto (follow the system) -> light -> dark */
+const THEMES = ['auto', 'light', 'dark'], ICON = { auto: '◐', light: '☀', dark: '☾' };
+function applyTheme(t, save) {
+  const root = document.documentElement;
+  if (t === 'auto') delete root.dataset.theme; else root.dataset.theme = t;
+  $('#theme').textContent = ICON[t]; $('#theme').title = `Theme: ${t} (click to change)`; $('#theme').dataset.mode = t;
+  if (save) try { t === 'auto' ? localStorage.removeItem('theme') : localStorage.setItem('theme', t); } catch {}
+}
+let savedTheme = 'auto'; try { savedTheme = localStorage.getItem('theme') || 'auto'; } catch {}
+applyTheme(THEMES.includes(savedTheme) ? savedTheme : 'auto', false);
+$('#theme').onclick = () => applyTheme(THEMES[(THEMES.indexOf($('#theme').dataset.mode) + 1) % 3], true);
 $('#new').onclick = newNote;
 $('#gr').onclick = async () => { await flush(); graphOn = !graphOn; renderPane(); };
 $('#tog').onclick = () => { if (!cur) return; graphOn = false; preview = !preview; flush(); renderPane(); };

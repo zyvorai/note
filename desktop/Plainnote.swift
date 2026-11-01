@@ -36,17 +36,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         return FileManager.default.isExecutableFile(atPath: out) ? out : nil
     }
 
+    // Prefer a fixed port: the page's saved settings (theme, auto-sync) are tied to its origin, which includes the port.
     func freePort() -> Int {
-        let fd = socket(AF_INET, SOCK_STREAM, 0); defer { close(fd) }
-        var addr = sockaddr_in(); addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_addr.s_addr = inet_addr("127.0.0.1"); addr.sin_port = 0
-        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        _ = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
-        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-        _ = withUnsafeMutablePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) } }
-        return Int(UInt16(bigEndian: addr.sin_port))
+        for preferred in [47878, 0] {
+            let fd = socket(AF_INET, SOCK_STREAM, 0); defer { close(fd) }
+            var one: Int32 = 1; setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))   // same as Node's listen(): ignore TIME_WAIT leftovers
+            var addr = sockaddr_in(); addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1"); addr.sin_port = UInt16(preferred).bigEndian
+            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            let ok = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } } == 0
+            if !ok { continue }
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            _ = withUnsafeMutablePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) } }
+            return Int(UInt16(bigEndian: addr.sin_port))
+        }
+        return 0
     }
-
     func fail(_ msg: String) {
         let a = NSAlert(); a.messageText = "Plainnote can't start"; a.informativeText = msg; a.runModal()
         NSApp.terminate(nil)

@@ -53,7 +53,7 @@ plainnote --no-window          # server only, open the printed URL yourself
 - **Editor niceties**: list continuation, Tab/Shift+Tab indent, Cmd/Ctrl+B and +I, paste or drop images (saved to `attachments/`).
 - **Safe by default**: autosave, deletes go to `.trash/` (restore from the Trash button), and if a note changes on disk underneath you (sync, another window) your version is saved as a "conflict" copy instead of overwriting.
 - **Git sync**, manual or every 2 minutes.
-- Dark mode and a narrow-screen layout.
+- Light, dark or follow-the-system theme (toggle at the top of the sidebar, remembered), and a narrow-screen layout.
 
 ## Shortcuts
 

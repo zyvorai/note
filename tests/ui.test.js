@@ -130,6 +130,30 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.ok(await ev(`document.querySelector('#pane').scrollTop > 200`), 'pane scrolled to follow the caret');
     await shot('7-highlight-bottom');
 
+    // theme toggle: auto -> light -> dark, persisted
+    const bg = () => ev(`getComputedStyle(document.body).backgroundColor`);
+    const mode = () => ev(`document.querySelector('#theme').dataset.mode`);
+    const sys = await ev(`matchMedia('(prefers-color-scheme: dark)').matches`);
+    assert.equal(await mode(), 'auto');
+    assert.equal(await bg(), sys ? 'rgb(24, 24, 27)' : 'rgb(255, 255, 255)', 'auto follows the system');
+    await ev(`document.querySelector('#theme').click()`);
+    assert.equal(await mode(), 'light'); assert.equal(await bg(), 'rgb(255, 255, 255)');
+    assert.equal(await ev(`document.documentElement.dataset.theme`), 'light');
+    await shot('8-light');
+    await ev(`document.querySelector('#theme').click()`);
+    assert.equal(await mode(), 'dark'); assert.equal(await bg(), 'rgb(24, 24, 27)');
+    await ev(`document.querySelector('#theme').click()`);
+    assert.equal(await mode(), 'auto'); assert.equal(await ev(`document.documentElement.dataset.theme === undefined`), true);
+    await ev(`document.querySelector('#theme').click()`);                                   // light again, then reload
+    await cdp('Page.navigate', { url: `http://127.0.0.1:${port}/` });
+    await until(`document.querySelector('#theme') && document.querySelector('#list .item')`, 'reloaded');
+    assert.equal(await mode(), 'light', 'choice survives reload'); assert.equal(await bg(), 'rgb(255, 255, 255)');
+    await ev(`document.querySelector('[data-note="Home"]').click()`);
+    await until(`document.querySelector('#hl')`, 'editor after reload');
+    await ev(`document.querySelector('#gr').click()`); await until(`document.querySelector('#gc')`, 'graph'); await sleep(800);
+    await shot('9-light-graph');
+    await ev(`document.querySelector('#gr').click(); document.querySelector('#theme').click(); document.querySelector('#theme').click()`);   // back to auto
+
     // narrow screens: sidebar hidden behind the menu button
     await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 800, deviceScaleFactor: 2, mobile: true });
     await sleep(300);
