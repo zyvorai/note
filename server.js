@@ -39,6 +39,14 @@ const body = (req) => new Promise((res, rej) => {
   req.on('error', rej);
 });
 
+const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
+const rawBody = (req, max = 20e6) => new Promise((res, rej) => {
+  const chunks = []; let n = 0;
+  req.on('data', (c) => { n += c.length; if (n > max) { rej(new Error('file too large (20MB max)')); req.destroy(); } else chunks.push(c); });
+  req.on('end', () => res(Buffer.concat(chunks)));
+  req.on('error', rej);
+});
+
 const send = (res, code, data, type = 'application/json') => {
   res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' });
   res.end(typeof data === 'string' || Buffer.isBuffer(data) ? data : JSON.stringify(data));
@@ -121,6 +129,24 @@ http.createServer(async (req, res) => {
       await fs.mkdir(path.dirname(b), { recursive: true });
       await fs.rename(a, b);
       return send(res, 200, { ok: true });
+    }
+    if (url.pathname === '/api/upload' && req.method === 'POST') {
+      const base = path.basename(url.searchParams.get('name') || 'image.png');
+      const ext = path.extname(base).toLowerCase();
+      if (!IMG[ext]) return send(res, 400, { error: 'unsupported image type' });
+      const safe = base.slice(0, -ext.length).replace(/[^\w.-]+/g, '-').slice(0, 60) || 'image';
+      const rel = `attachments/${Date.now()}-${safe}${ext}`;
+      await fs.mkdir(path.join(ROOT, 'attachments'), { recursive: true });
+      await fs.writeFile(path.join(ROOT, rel), await rawBody(req));
+      return send(res, 200, { path: rel });
+    }
+    if (url.pathname.startsWith('/files/') && req.method === 'GET') {
+      const f = path.resolve(ROOT, decodeURIComponent(url.pathname.slice(7)));
+      const type = IMG[path.extname(f).toLowerCase()];
+      if (!f.startsWith(ROOT + path.sep) || !type) return send(res, 404, { error: 'not found' });
+      res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'");   // SVG can't run scripts
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      return send(res, 200, await fs.readFile(f), type);
     }
     if (url.pathname === '/api/sync/status' && req.method === 'GET') return send(res, 200, await gitStatus());
     if (url.pathname === '/api/sync/setup' && req.method === 'POST') {

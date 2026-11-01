@@ -37,6 +37,9 @@ button:hover{border-color:var(--acc)}
 #pv a{color:var(--acc)}#pv a.new{opacity:.6;border-bottom:1px dashed}
 #pv code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}
 #pv pre{background:var(--code);padding:12px;border-radius:8px;overflow:auto}#pv pre code{padding:0;background:none}
+#pv img{max-width:100%;border-radius:6px}
+#pv table{border-collapse:collapse;display:block;overflow-x:auto;max-width:100%}
+#pv th,#pv td{border:1px solid var(--line);padding:5px 10px}#pv th{background:var(--code)}
 #pv blockquote{margin:0;padding-left:12px;border-left:3px solid var(--line);color:var(--mute)}
 #pv hr{border:0;border-top:1px solid var(--line)}
 #gc{display:block;width:100%;height:100%;cursor:grab}
@@ -100,11 +103,31 @@ function inline(s) {
   s = s.replace(linkRe, (_, t, a) => { const r = resolve(t);
     return `<a href="#" data-note="${esc(r || t.trim())}" class="${r ? '' : 'new'}">${a || t}</a>`; });
   s = s.replace(tagRe, (_, pre, t) => `${pre}<a href="#" class="tag" data-tag="${t.toLowerCase()}">#${t}</a>`);
+  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, u) => { u = u.trim();
+    if (/^[a-z][a-z0-9+.-]*:/i.test(u) && !/^https?:/i.test(u)) return _;       // no javascript:/data: etc.
+    const src = /^https?:/i.test(u) ? u : '/files/' + encodeURI(decodeURIComponent(u.replace(/&amp;/g, '&')).replace(/^\.?\//, ''));
+    return `<img src="${src}" alt="${alt}" loading="lazy">`; });
   s = s.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
        .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|\W)\*(?!\s)(.+?)\*(?=\W|$)/g, '$1<i>$2</i>')
        .replace(/~~(.+?)~~/g, '<s>$1</s>');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
 }
+function splitRow(line) {
+  const cells = []; let cur = '', wiki = false, code = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '\\' && line[i + 1] === '|') { cur += '|'; i++; continue; }
+    if (c === '`') code = !code;
+    if (!code && c === '[' && line[i + 1] === '[') wiki = true;
+    if (c === ']' && line[i + 1] === ']') wiki = false;
+    if (c === '|' && !wiki && !code) { cells.push(cur); cur = ''; } else cur += c;
+  }
+  cells.push(cur);
+  if (!cells[0].trim()) cells.shift();
+  if (cells.length && !cells[cells.length - 1].trim()) cells.pop();
+  return cells.map((c) => c.trim());
+}
+const sepRe = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 function md(src) {
   const out = [], L = src.replace(/\r/g, '').split('\n');
   let list = null, para = [];
@@ -117,6 +140,16 @@ function md(src) {
       out.push(`<pre><code>${esc(b.join('\n'))}</code></pre>`); continue; }
     if (m) { flushP(); flushL(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
     if (/^(-{3,}|\*{3,})\s*$/.test(l)) { flushP(); flushL(); out.push('<hr>'); continue; }
+    if (l.includes('|') && i + 1 < L.length && sepRe.test(L[i + 1]) && L[i + 1].includes('-')) {
+      const head = splitRow(l), al = splitRow(L[i + 1]).map((c) => c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : '');
+      const cell = (t, c, k) => `<${t}${al[k] ? ` style="text-align:${al[k]}"` : ''}>${inline(c)}</${t}>`;
+      const rows = []; i += 2;
+      while (i < L.length && L[i].trim() && L[i].includes('|')) rows.push(splitRow(L[i++]));
+      i--; flushP(); flushL();
+      out.push(`<table><thead><tr>${head.map((c, k) => cell('th', c, k)).join('')}</tr></thead><tbody>${
+        rows.map((r) => `<tr>${head.map((_, k) => cell('td', r[k] || '', k)).join('')}</tr>`).join('')}</tbody></table>`);
+      continue;
+    }
     const li = l.match(/^\s*([-*+]|\d+\.)\s+(.*)/);
     if (li) { flushP(); const t = /\d/.test(li[1]) ? 'ol' : 'ul';
       if (list !== t) { flushL(); out.push(`<${t}>`); list = t; }
@@ -171,7 +204,10 @@ function renderPane() {
   $('#tog').textContent = preview ? 'Edit' : 'Preview';
   if (preview) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   else { $('#pane').innerHTML = '<textarea id="ed" spellcheck="false" placeholder="Start writing… use [[links]] to connect notes"></textarea>';
-    const ed = $('#ed'); ed.value = t; ed.oninput = onInput; if (!t) ed.focus(); }
+    const ed = $('#ed'); ed.value = t; ed.oninput = onInput;
+    ed.onpaste = (e) => { if (attach(e.clipboardData.files)) { if ([...e.clipboardData.files].some((f) => f.type.startsWith('image/'))) e.preventDefault(); } };
+    ed.ondragover = (e) => { if ([...e.dataTransfer.items].some((i) => i.type.startsWith('image/'))) e.preventDefault(); };
+    ed.ondrop = (e) => { if ([...e.dataTransfer.files].some((f) => f.type.startsWith('image/'))) { e.preventDefault(); attach(e.dataTransfer.files); } }; if (!t) ed.focus(); }
 }
 async function open(name, create) {
   await flush();
@@ -186,6 +222,19 @@ async function open(name, create) {
   const t = $('#title'); t.disabled = false; t.value = name.split('/').pop();
   renderPane(); renderList(); renderBack(); $('#status').textContent = '';
   if (!notes.get(name).text) $('#ed').focus();
+}
+async function attach(files) {
+  const imgs = [...files].filter((f) => f.type.startsWith('image/'));
+  if (!imgs.length) return false;
+  const ed = $('#ed');
+  for (const f of imgs) {
+    try {
+      const r = await api('/api/upload?name=' + encodeURIComponent(f.name || 'image.' + (f.type.split('/')[1] || 'png').replace('svg+xml', 'svg')), { method: 'POST', body: f });
+      const md = `![${(f.name || '').replace(/\.\w+$/, '').replace(/[\[\]]/g, '')}](${r.path})\n`;
+      const a = ed.selectionStart; ed.setRangeText(md, a, ed.selectionEnd, 'end');
+    } catch (e) { $('#status').textContent = 'Upload failed: ' + e.message; }
+  }
+  onInput(); return true;
 }
 function onInput() {
   const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); dirty = true;
