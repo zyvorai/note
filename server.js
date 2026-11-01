@@ -8,6 +8,7 @@ const { execFile } = require('child_process');
 const ROOT = path.resolve(process.argv[2] || path.join(__dirname, 'notes'));
 const PORT = Number(process.argv[3] || process.env.PORT || 4777);
 const PUBLIC = path.join(__dirname, 'public');
+const TRASH = path.join(ROOT, '.trash');
 
 // Resolve a note name ("folder/idea") to a safe absolute .md path inside ROOT.
 function notePath(name) {
@@ -75,7 +76,7 @@ async function gitSetup(url) {
   if (!st.isRepo) {
     const r = await git(['init', '-b', 'main']);
     if (!r.ok) throw new Error(r.err);
-    await fs.writeFile(path.join(ROOT, '.gitignore'), '.DS_Store\n', { flag: 'wx' }).catch(() => {});
+    await fs.writeFile(path.join(ROOT, '.gitignore'), '.DS_Store\n.trash/\n', { flag: 'wx' }).catch(() => {});
   }
   const r = st.remote ? await git(['remote', 'set-url', 'origin', url]) : await git(['remote', 'add', 'origin', url]);
   if (!r.ok) throw new Error(r.err);
@@ -116,11 +117,40 @@ http.createServer(async (req, res) => {
     if (url.pathname === '/api/note') {
       const p = notePath(url.searchParams.get('name'));
       if (req.method === 'PUT') {
+        // Optimistic concurrency: refuse to overwrite a file that changed since the client last saw it.
+        const base = req.headers['x-base-mtime'] === undefined ? NaN : Number(req.headers['x-base-mtime']);
+        if (Number.isFinite(base)) {
+          const st = await fs.stat(p).catch(() => null);
+          if (st && st.mtimeMs > base + 1) return send(res, 409, { error: 'conflict' });
+        }
         await fs.mkdir(path.dirname(p), { recursive: true });
         await fs.writeFile(p, await body(req), 'utf8');
+        return send(res, 200, { ok: true, mtime: (await fs.stat(p)).mtimeMs });
+      }
+      if (req.method === 'DELETE') {                     // move to .trash instead of destroying
+        const name = url.searchParams.get('name').replace(/\.md$/i, '');
+        await fs.mkdir(TRASH, { recursive: true });
+        await fs.rename(p, path.join(TRASH, `${Date.now()}__${encodeURIComponent(name)}.md`));
         return send(res, 200, { ok: true });
       }
-      if (req.method === 'DELETE') { await fs.unlink(p); return send(res, 200, { ok: true }); }
+    }
+    if (url.pathname === '/api/trash' && req.method === 'GET') {
+      const files = await fs.readdir(TRASH).catch(() => []);
+      return send(res, 200, files.filter((f) => /^\d+__.+\.md$/.test(f)).sort().reverse().map((f) => ({
+        id: f, deleted: Number(f.split('__')[0]), name: decodeURIComponent(f.slice(f.indexOf('__') + 2, -3)) })));
+    }
+    if (url.pathname === '/api/trash' && req.method === 'DELETE') {
+      await fs.rm(TRASH, { recursive: true, force: true });
+      return send(res, 200, { ok: true });
+    }
+    if (url.pathname === '/api/restore' && req.method === 'POST') {
+      const { id } = JSON.parse(await body(req));
+      if (!/^\d+__[^/\\]+\.md$/.test(id || '')) return send(res, 400, { error: 'bad id' });
+      let name = decodeURIComponent(id.slice(id.indexOf('__') + 2, -3));
+      while (await fs.access(notePath(name)).then(() => true, () => false)) name += ' (restored)';
+      await fs.mkdir(path.dirname(notePath(name)), { recursive: true });
+      await fs.rename(path.join(TRASH, id), notePath(name));
+      return send(res, 200, { ok: true, name });
     }
     if (url.pathname === '/api/rename' && req.method === 'POST') {
       const { from, to } = JSON.parse(await body(req));

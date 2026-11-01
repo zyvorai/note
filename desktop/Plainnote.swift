@@ -48,13 +48,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     }
 
     func fail(_ msg: String) {
-        let a = NSAlert(); a.messageText = "Notes can't start"; a.informativeText = msg; a.runModal()
+        let a = NSAlert(); a.messageText = "Plainnote can't start"; a.informativeText = msg; a.runModal()
         NSApp.terminate(nil)
     }
 
     func startServer() {
         guard let node = findNode() else {
-            return fail("Node.js was not found. Install it from nodejs.org or with “brew install node”, then reopen Notes.")
+            return fail("Node.js was not found. Install it from nodejs.org or with “brew install node”, then reopen Plainnote.")
         }
         guard let res = Bundle.main.resourcePath, FileManager.default.fileExists(atPath: res + "/server.js") else {
             return fail("server.js is missing from the app bundle.")
@@ -98,7 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         web.uiDelegate = self; web.navigationDelegate = self
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Notes"
+        window.title = "Plainnote"
         window.contentView = web
         window.center()
         window.setFrameAutosaveName("NotesMain")
@@ -117,10 +117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
             let item = NSMenuItem(); main.addItem(item)
             let m = NSMenu(title: title); item.submenu = m; return m
         }
-        let app = submenu("Notes")
-        add(app, "Hide Notes", #selector(NSApplication.hide(_:)), "h")
+        let app = submenu("Plainnote")
+        add(app, "Hide Plainnote", #selector(NSApplication.hide(_:)), "h")
         app.addItem(.separator())
-        add(app, "Quit Notes", #selector(NSApplication.terminate(_:)), "q")
+        add(app, "Quit Plainnote", #selector(NSApplication.terminate(_:)), "q")
 
         let file = submenu("File")
         add(file, "Choose Notes Folder…", #selector(chooseFolder), "o", target: self)

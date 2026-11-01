@@ -1,0 +1,168 @@
+// Markdown rendering and editor text helpers. Pure functions, no DOM: shared by the browser UI and the tests.
+(function (root) {
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const linkRe = /\[\[([^\]\|\n]+?)(?:\|([^\]\n]+))?\]\]/g;
+  const tagRe = /(^|[\s(])#((?=[\w\/-]*[A-Za-z_])[\w\/-]+)/g;
+  const tagsOf = (text) => {
+    const t = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+    return new Set([...t.matchAll(tagRe)].map((m) => m[2].toLowerCase()));
+  };
+
+  /* ---- tiny syntax highlighter for fenced code (generic, good enough for most languages) ---- */
+  const KW = 'abstract|as|async|await|break|case|catch|class|const|continue|def|default|defer|del|do|elif|else|enum|except|export|extends|false|final|finally|fn|for|from|func|function|go|if|impl|import|in|interface|is|lambda|let|loop|match|mod|new|nil|none|None|not|null|or|and|pass|pub|raise|return|self|static|struct|super|switch|this|throw|true|True|False|try|type|typeof|use|var|void|while|with|yield';
+  const HASH_LANGS = /^(py|python|sh|bash|zsh|shell|yaml|yml|toml|rb|ruby|r|perl|make|dockerfile|conf|ini)$/i;
+  function highlight(code, lang) {
+    const comment = HASH_LANGS.test(lang || '') ? '#[^\\n]*' : '\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/';
+    const re = new RegExp(`(${comment})|("(?:\\\\.|[^"\\\\\\n])*"|'(?:\\\\.|[^'\\\\\\n])*'|\`(?:\\\\.|[^\`\\\\])*\`)|\\b(\\d+(?:\\.\\d+)?)\\b|\\b(${KW})\\b`, 'g');
+    let out = '', last = 0, m;
+    while ((m = re.exec(code))) {
+      out += esc(code.slice(last, m.index));
+      const cls = m[1] ? 'c' : m[2] ? 's' : m[3] ? 'n' : 'k';
+      out += `<span class="tk-${cls}">${esc(m[0])}</span>`;
+      last = m.index + m[0].length;
+      if (m[0].length === 0) re.lastIndex++;
+    }
+    return out + esc(code.slice(last));
+  }
+
+  function splitRow(line) {
+    const cells = []; let cur = '', wiki = false, code = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '\\' && line[i + 1] === '|') { cur += '|'; i++; continue; }
+      if (c === '`') code = !code;
+      if (!code && c === '[' && line[i + 1] === '[') wiki = true;
+      if (c === ']' && line[i + 1] === ']') wiki = false;
+      if (c === '|' && !wiki && !code) { cells.push(cur); cur = ''; } else cur += c;
+    }
+    cells.push(cur);
+    if (!cells[0].trim()) cells.shift();
+    if (cells.length && !cells[cells.length - 1].trim()) cells.pop();
+    return cells.map((c) => c.trim());
+  }
+  const sepRe = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+
+  // create({ resolve }) -> { md, inline }; resolve(name) returns the canonical note name or null.
+  function create({ resolve }) {
+    function inline(s) {
+      s = esc(s);
+      const codes = [];
+      s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+      s = s.replace(linkRe, (_, t, a) => {
+        const r = resolve(t);
+        return `<a href="#" data-note="${esc(r || t.trim())}" class="${r ? '' : 'new'}">${a || t}</a>`;
+      });
+      s = s.replace(tagRe, (_, pre, t) => `${pre}<a href="#" class="tag" data-tag="${t.toLowerCase()}">#${t}</a>`);
+      s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, u) => {
+        u = u.trim();
+        if (/^[a-z][a-z0-9+.-]*:/i.test(u) && !/^https?:/i.test(u)) return _;       // no javascript:/data: etc.
+        let src;
+        if (/^https?:/i.test(u)) src = u;
+        else { try { src = '/files/' + encodeURI(decodeURIComponent(u.replace(/&amp;/g, '&')).replace(/^\.?\//, '')); } catch { return _; } }
+        return `<img src="${src}" alt="${alt}" loading="lazy">`;
+      });
+      s = s.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+        .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|\W)\*(?!\s)(.+?)\*(?=\W|$)/g, '$1<i>$2</i>')
+        .replace(/~~(.+?)~~/g, '<s>$1</s>');
+      return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
+    }
+
+    function md(src) {
+      const out = [], L = src.replace(/\r/g, '').split('\n');
+      let list = null, para = [];
+      const flushP = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = []; };
+      const flushL = () => { if (list) out.push(`</${list}>`); list = null; };
+      for (let i = 0; i < L.length; i++) {
+        const l = L[i], m = l.match(/^(#{1,6})\s+(.*)/);
+        const fence = l.match(/^```\s*([\w+-]*)/);
+        if (fence) {
+          flushP(); flushL(); const b = [];
+          while (++i < L.length && !/^```/.test(L[i])) b.push(L[i]);
+          out.push(`<pre><code>${highlight(b.join('\n'), fence[1])}</code></pre>`); continue;
+        }
+        if (m) { flushP(); flushL(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
+        if (/^(-{3,}|\*{3,})\s*$/.test(l)) { flushP(); flushL(); out.push('<hr>'); continue; }
+        if (l.includes('|') && i + 1 < L.length && sepRe.test(L[i + 1]) && L[i + 1].includes('-')) {
+          const head = splitRow(l);
+          const al = splitRow(L[i + 1]).map((c) => c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : '');
+          const cell = (t, c, k) => `<${t}${al[k] ? ` style="text-align:${al[k]}"` : ''}>${inline(c)}</${t}>`;
+          const rows = []; i += 2;
+          while (i < L.length && L[i].trim() && L[i].includes('|')) rows.push(splitRow(L[i++]));
+          i--; flushP(); flushL();
+          out.push(`<table><thead><tr>${head.map((c, k) => cell('th', c, k)).join('')}</tr></thead><tbody>${
+            rows.map((r) => `<tr>${head.map((_, k) => cell('td', r[k] || '', k)).join('')}</tr>`).join('')}</tbody></table>`);
+          continue;
+        }
+        const li = l.match(/^\s*([-*+]|\d+\.)\s+(.*)/);
+        if (li) {
+          flushP(); const t = /\d/.test(li[1]) ? 'ol' : 'ul';
+          if (list !== t) { flushL(); out.push(`<${t}>`); list = t; }
+          const task = li[2].match(/^\[( |x)\]\s+(.*)/i);
+          out.push(task
+            ? `<li style="list-style:none;margin-left:-1.2em"><input type="checkbox" disabled ${task[1] !== ' ' ? 'checked' : ''}> ${inline(task[2])}</li>`
+            : `<li>${inline(li[2])}</li>`);
+          continue;
+        }
+        if (/^>\s?/.test(l)) { flushP(); flushL(); out.push(`<blockquote>${inline(l.replace(/^>\s?/, ''))}</blockquote>`); continue; }
+        if (!l.trim()) { flushP(); flushL(); continue; }
+        flushL(); para.push(l.trim());
+      }
+      flushP(); flushL();
+      return out.join('\n');
+    }
+    return { md, inline };
+  }
+
+  /* ---- editor helpers: each returns an edit {start, end, insert, selStart, selEnd} or null ---- */
+  const lineStart = (t, p) => t.lastIndexOf('\n', p - 1) + 1;
+  const lineEnd = (t, p) => { const i = t.indexOf('\n', p); return i < 0 ? t.length : i; };
+
+  // Enter inside a list item: continue the list, or end it if the item is empty.
+  function listEnter(t, pos) {
+    const ls = lineStart(t, pos), le = lineEnd(t, pos), line = t.slice(ls, le);
+    const m = line.match(/^(\s*)([-*+]|(\d+)\.)\s+(\[[ xX]\]\s+)?/);
+    if (!m || pos < ls + m[0].length) return null;
+    if (line.slice(m[0].length).trim() === '' && pos === le) {          // empty item: remove marker
+      return { start: ls, end: le, insert: '', selStart: ls, selEnd: ls };
+    }
+    const marker = m[3] ? `${Number(m[3]) + 1}.` : m[2];
+    const ins = `\n${m[1]}${marker} ${m[4] ? '[ ] ' : ''}`;
+    return { start: pos, end: pos, insert: ins, selStart: pos + ins.length, selEnd: pos + ins.length };
+  }
+
+  // Tab / Shift+Tab: indent or outdent every selected line by two spaces.
+  function indentLines(t, s, e, outdent) {
+    const a = lineStart(t, s), b = lineEnd(t, e > s && t[e - 1] === '\n' ? e - 1 : e);
+    const lines = t.slice(a, b).split('\n');
+    let delta0 = 0, total = 0;
+    const res = lines.map((ln, i) => {
+      let nl, d;
+      if (outdent) { const mm = ln.match(/^ {1,2}/); d = mm ? -mm[0].length : 0; nl = ln.slice(-d); }
+      else { d = 2; nl = '  ' + ln; }
+      if (i === 0) delta0 = d;
+      total += d; return nl;
+    });
+    const insert = res.join('\n');
+    return { start: a, end: b, insert, selStart: Math.max(a, s + delta0), selEnd: Math.max(a, e + total) };
+  }
+
+  // Cmd+B / Cmd+I: wrap the selection in a marker, or unwrap if already wrapped.
+  function wrap(t, s, e, mark) {
+    const n = mark.length;
+    if (s >= n && t.slice(s - n, s) === mark && t.slice(e, e + n) === mark) {
+      return { start: s - n, end: e + n, insert: t.slice(s, e), selStart: s - n, selEnd: e - n };
+    }
+    const sel = t.slice(s, e);
+    return { start: s, end: e, insert: mark + sel + mark, selStart: s + n, selEnd: s + n + sel.length };
+  }
+
+  // [[ autocomplete: returns { query, start } when the caret is inside an unclosed [[ ... ]]
+  function wikiContext(t, pos) {
+    const m = t.slice(Math.max(0, pos - 80), pos).match(/\[\[([^\]\[\n|]*)$/);
+    return m ? { query: m[1], start: pos - m[1].length } : null;
+  }
+
+  const api = { esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.MD = api;
+})(typeof window !== 'undefined' ? window : globalThis);

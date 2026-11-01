@@ -1,6 +1,6 @@
-# Notes
+# Plainnote
 
-A free, lightweight, local-first notes app. Your notes are plain Markdown files in a folder you choose. No dependencies, no build step, no accounts: just Node.js.
+A free, lightweight, local-first notes app. Your notes are plain Markdown files in a folder you choose. No dependencies, no build step, no accounts, no telemetry: just Node.js.
 
 ## Run
 
@@ -10,28 +10,29 @@ node server.js [notesDir] [port]
 node server.js ~/Notes          # http://localhost:4777
 ```
 
-`notesDir` defaults to `./notes` and `port` to `4777` (or `$PORT`). Requires Node.js 18+. You can point it at an existing Obsidian vault or any folder of `.md` files.
+`notesDir` defaults to `./notes` and `port` to `4777` (or `$PORT`). Requires Node.js 20+. You can point it at an existing Obsidian vault or any folder of `.md` files.
 
 ## Desktop app (macOS)
 
 ```sh
-./desktop/build.sh      # builds dist/Notes.app (needs Xcode command line tools)
-open dist/Notes.app
+./desktop/build.sh      # builds dist/Plainnote.app (needs Xcode command line tools)
+open dist/Plainnote.app
 ```
 
-A ~100 KB native wrapper (Swift + WKWebView, no Electron). It starts the bundled server on a free local port, shows it in a window, and stops it on quit. Node.js must be installed. Use **File → Choose Notes Folder…** to switch folders (default `~/Notes`). The app is ad-hoc signed, so on another Mac you may need to right-click → Open the first time.
+A tiny native wrapper (Swift + WKWebView, no Electron). It starts the bundled server on a free local port, shows it in a window, and stops it on quit. Node.js must be installed. **File → Choose Notes Folder…** switches folders (default `~/Notes`). The app is ad-hoc signed; to distribute it, build with `SIGN_ID="Developer ID Application: …" ./desktop/build.sh` and notarize with `notarytool`.
 
 ## Features
 
-- **Markdown files on disk**: subfolders work (`folder/name`); anything else that reads Markdown can open them.
-- **Wikilinks**: `[[Note]]` and `[[Note|alias]]`. Links to missing notes are created on click. Renaming a note updates links to it.
-- **Backlinks**: each note shows which notes link to it.
-- **Graph view**: force-directed graph of notes and links; drag, pan, zoom, click to open.
-- **Tags**: write `#tag` or `#parent/child`; filter from the sidebar chips.
-- **Search**: full-text across all notes, with snippets.
-- **Quick switcher**: jump to or create a note.
-- **Autosave** and automatic dark mode.
-- **Git sync**: optional, manual or every 2 minutes.
+- **Markdown files on disk**: subfolders work (`folder/name`); anything that reads Markdown can open them.
+- **Wikilinks** `[[Note]]` / `[[Note|alias]]` with autocomplete as you type `[[`. Links to missing notes are created on click. Renaming a note updates links to it.
+- **Backlinks** for every note, and a **graph view** (drag, pan, zoom, click to open).
+- **Tags**: `#tag` or `#parent/child`, filter from the sidebar.
+- **Full-text search** with snippets, and a **quick switcher**.
+- **Preview** with tables, images (remote or from your folder), task lists and syntax-highlighted code blocks.
+- **Editor niceties**: list continuation, Tab/Shift+Tab indent, Cmd/Ctrl+B and +I, paste or drop images (saved to `attachments/`).
+- **Safe by default**: autosave, deletes go to `.trash/` (restore from the Trash button), and if a note changes on disk underneath you (sync, another window) your version is saved as a "conflict" copy instead of overwriting.
+- **Git sync**, manual or every 2 minutes.
+- Dark mode and a narrow-screen layout.
 
 ## Shortcuts
 
@@ -42,6 +43,8 @@ A ~100 KB native wrapper (Swift + WKWebView, no Electron). It starts the bundled
 | Ctrl/Cmd+E | Toggle edit / preview |
 | Ctrl/Cmd+G | Toggle graph view |
 | Ctrl/Cmd+S | Save now |
+| Ctrl/Cmd+B / I | Bold / italic |
+| Tab / Shift+Tab | Indent / outdent |
 
 ## Sync
 
@@ -57,18 +60,30 @@ Authentication is whatever git already uses on your machine (SSH keys, credentia
 ## Security
 
 - Listens on `127.0.0.1` only and rejects requests whose `Host` isn't localhost (DNS-rebinding) or whose `Origin` is another site.
-- Note paths are confined to the notes folder.
+- Note paths are confined to the notes folder; only image files are served from it, SVGs sandboxed.
 - Sync remotes are limited to `https://`, `ssh://` and `git@host:path` URLs.
 - There is no authentication: anyone with access to your local machine's port can read your notes. Don't expose the port.
 
-## Layout
+## Development
+
+```sh
+npm test        # node --test: markdown/editor unit tests, server API tests, and a headless-Chrome UI test
+```
+
+The UI test drives the real app through the Chrome DevTools protocol (no dependencies) and is skipped if Chrome isn't installed. `UI_SHOTS=dir npm test` saves screenshots.
 
 ```
 server.js          zero-dependency HTTP server + file/git API
-public/index.html  the whole UI (HTML, CSS, JS)
-desktop/           macOS wrapper (Notes.swift) and build.sh
+public/index.html  the UI (HTML, CSS, JS)
+public/md.js       Markdown renderer and editor helpers (shared with the tests)
+desktop/           macOS wrapper (Plainnote.swift), icon generator, build.sh
+tests/             unit, API and browser tests
 ```
 
 ## Limits
 
-No syntax highlighting in preview yet; the graph layout is O(n²), fine for a few hundred notes; the layout is not designed for phones.
+The editor is a plain textarea, not a full code editor. The graph layout is O(n²): fine for a few hundred notes. Desktop wrapper is macOS-only and needs Node installed. No encryption at rest and no built-in auth (it relies on being local-only).
+
+## License
+
+MIT

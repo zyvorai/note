@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Notes</title>
+<title>Plainnote</title>
 <style>
 :root{--bg:#fff;--fg:#1d1d1f;--mute:#6e6e73;--line:#e5e5ea;--side:#f6f6f8;--acc:#5b5bd6;--code:#f0f0f3}
 @media(prefers-color-scheme:dark){:root{--bg:#18181b;--fg:#ececf0;--mute:#9a9aa3;--line:#2c2c32;--side:#1f1f24;--acc:#9d9dff;--code:#26262c}}
@@ -12,14 +12,15 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.
 #app{display:grid;grid-template-columns:260px 1fr;height:100%}
 #side{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 #side header{padding:10px;display:flex;gap:6px}
-input,button{font:inherit;color:inherit}
+input,button,textarea{font:inherit;color:inherit}
 #q{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
 button{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:4px 10px;cursor:pointer}
-button:hover{border-color:var(--acc)}
+button:hover:not(:disabled){border-color:var(--acc)}
+button:disabled{opacity:.4;cursor:default}
 #tags{padding:0 10px 8px;display:flex;flex-wrap:wrap;gap:4px}
 .chip{font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);background:var(--bg);cursor:pointer;color:var(--mute)}
 .chip:hover,.chip.on{border-color:var(--acc);color:var(--acc)}.chip.on{background:var(--acc);color:#fff}
-#sf{border-top:1px solid var(--line);padding:8px 10px;display:flex;gap:8px;align-items:center;font-size:12px;color:var(--mute)}
+#sf{border-top:1px solid var(--line);padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;color:var(--mute)}
 #ss{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #pv a.tag{text-decoration:none;background:var(--code);padding:0 6px;border-radius:99px;font-size:.9em}
 #list{overflow:auto;flex:1;padding:0 6px 10px}
@@ -33,7 +34,7 @@ button:hover{border-color:var(--acc)}
 #status{color:var(--mute);font-size:12px}
 #pane{flex:1;overflow:auto;min-height:0}
 #ed,#pv{display:block;width:100%;max-width:760px;margin:0 auto;padding:24px 16px 80px}
-#ed{height:100%;border:0;outline:0;resize:none;background:none;font:14px/1.7 ui-monospace,Menlo,monospace}
+#ed{height:100%;border:0;outline:0;resize:none;background:none;color:var(--fg);font:14px/1.7 ui-monospace,Menlo,monospace}
 #pv a{color:var(--acc)}#pv a.new{opacity:.6;border-bottom:1px dashed}
 #pv code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}
 #pv pre{background:var(--code);padding:12px;border-radius:8px;overflow:auto}#pv pre code{padding:0;background:none}
@@ -50,7 +51,21 @@ button:hover{border-color:var(--acc)}
 #swq{width:100%;padding:12px;border:0;border-bottom:1px solid var(--line);outline:0;background:none}
 #swl .item{border-radius:0}
 .empty{color:var(--mute);padding:40px;text-align:center}
-@media(max-width:700px){#app{grid-template-columns:1fr}#side{display:none}}
+.tk-c{color:var(--mute);font-style:italic}.tk-s{color:#2f8f5b}.tk-n{color:#c2570c}.tk-k{color:var(--acc);font-weight:600}
+@media(prefers-color-scheme:dark){.tk-s{color:#7fd6a0}.tk-n{color:#ffb070}}
+#ac{position:absolute;left:50%;transform:translateX(-50%);bottom:64px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px #0003;min-width:220px;max-width:90%;display:none;z-index:5;overflow:hidden}
+#ac .item{border-radius:0}
+#main{position:relative}
+#menu{display:none}
+.trashrow{display:flex;gap:6px;align-items:center}.trashrow span{flex:1;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:700px){
+  #app{grid-template-columns:1fr}
+  #menu{display:inline-block}
+  #side{display:none;position:fixed;inset:0 25% 0 0;z-index:10;box-shadow:0 0 40px #0006}
+  body.side-open #side{display:flex}
+  #bar{padding:8px 10px;flex-wrap:wrap}
+  #ed,#pv{padding:16px 12px 80px}
+}
 </style>
 </head>
 <body>
@@ -59,17 +74,19 @@ button:hover{border-color:var(--acc)}
     <header><input id="q" placeholder="Search…" autocomplete="off"><button id="new" title="New note (Ctrl/Cmd+N)">+</button></header>
     <div id="tags"></div>
     <div id="list"></div>
-    <footer id="sf"><button id="sync" title="Sync notes with a git remote">Sync</button><label title="Sync every 2 minutes" style="white-space:nowrap"><input type="checkbox" id="auto"> Auto</label><span id="ss"></span></footer>
+    <footer id="sf"><button id="sync" title="Sync notes with a git remote">Sync</button><label title="Sync every 2 minutes" style="white-space:nowrap"><input type="checkbox" id="auto"> Auto</label><button id="trash" title="Deleted notes">Trash</button><span id="ss"></span></footer>
   </aside>
   <main id="main">
-    <div id="bar"><input id="title" placeholder="Select or create a note" disabled><span id="status"></span>
+    <div id="bar"><button id="menu" title="Notes list">☰</button><input id="title" placeholder="Select or create a note" disabled><span id="status"></span>
       <button id="gr" title="Graph view (Ctrl/Cmd+G)">Graph</button><button id="tog" title="Edit / preview (Ctrl/Cmd+E)">Preview</button><button id="del" title="Delete">Delete</button></div>
     <div id="pane"><div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div></div>
     <div id="back"></div>
+    <div id="ac"></div>
   </main>
 </div>
 <div id="sw"><div><input id="swq" placeholder="Jump to or create a note…" autocomplete="off"><div id="swl"></div></div></div>
 
+<script src="md.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 let notes = new Map();   // name -> {text, mtime}
@@ -82,87 +99,16 @@ const api = async (url, opt) => {
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
   return r.json();
 };
-const esc = (s) => s.replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const linkRe = /\[\[([^\]\|\n]+?)(?:\|([^\]\n]+))?\]\]/g;
-const tagRe = /(^|[\s(])#((?=[\w\/-]*[A-Za-z_])[\w\/-]+)/g;
-const tagsOf = (text) => { const t = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
-  return new Set([...t.matchAll(tagRe)].map((m) => m[2].toLowerCase())); };
+const { esc, linkRe, tagsOf } = MD;
 const resolve = (t) => { t = t.trim(); if (notes.has(t)) return t;
   const l = t.toLowerCase(); for (const n of notes.keys()) if (n.toLowerCase() === l || n.split('/').pop().toLowerCase() === l) return n; return null; };
 
 async function load() {
-  notes = new Map((await api('/api/notes')).map((n) => [n.name, n]));
+  notes = new Map((await api('/api/notes')).map((n) => [n.name, { ...n, base: n.mtime }]));
   renderList();
 }
 
-/* ---------- Markdown ---------- */
-function inline(s) {
-  s = esc(s);
-  const codes = [];
-  s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
-  s = s.replace(linkRe, (_, t, a) => { const r = resolve(t);
-    return `<a href="#" data-note="${esc(r || t.trim())}" class="${r ? '' : 'new'}">${a || t}</a>`; });
-  s = s.replace(tagRe, (_, pre, t) => `${pre}<a href="#" class="tag" data-tag="${t.toLowerCase()}">#${t}</a>`);
-  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, u) => { u = u.trim();
-    if (/^[a-z][a-z0-9+.-]*:/i.test(u) && !/^https?:/i.test(u)) return _;       // no javascript:/data: etc.
-    const src = /^https?:/i.test(u) ? u : '/files/' + encodeURI(decodeURIComponent(u.replace(/&amp;/g, '&')).replace(/^\.?\//, ''));
-    return `<img src="${src}" alt="${alt}" loading="lazy">`; });
-  s = s.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-       .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|\W)\*(?!\s)(.+?)\*(?=\W|$)/g, '$1<i>$2</i>')
-       .replace(/~~(.+?)~~/g, '<s>$1</s>');
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
-}
-function splitRow(line) {
-  const cells = []; let cur = '', wiki = false, code = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '\\' && line[i + 1] === '|') { cur += '|'; i++; continue; }
-    if (c === '`') code = !code;
-    if (!code && c === '[' && line[i + 1] === '[') wiki = true;
-    if (c === ']' && line[i + 1] === ']') wiki = false;
-    if (c === '|' && !wiki && !code) { cells.push(cur); cur = ''; } else cur += c;
-  }
-  cells.push(cur);
-  if (!cells[0].trim()) cells.shift();
-  if (cells.length && !cells[cells.length - 1].trim()) cells.pop();
-  return cells.map((c) => c.trim());
-}
-const sepRe = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
-function md(src) {
-  const out = [], L = src.replace(/\r/g, '').split('\n');
-  let list = null, para = [];
-  const flushP = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = []; };
-  const flushL = () => { if (list) out.push(`</${list}>`); list = null; };
-  for (let i = 0; i < L.length; i++) {
-    const l = L[i], m = l.match(/^(#{1,6})\s+(.*)/);
-    if (/^```/.test(l)) { flushP(); flushL(); const b = [];
-      while (++i < L.length && !/^```/.test(L[i])) b.push(L[i]);
-      out.push(`<pre><code>${esc(b.join('\n'))}</code></pre>`); continue; }
-    if (m) { flushP(); flushL(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
-    if (/^(-{3,}|\*{3,})\s*$/.test(l)) { flushP(); flushL(); out.push('<hr>'); continue; }
-    if (l.includes('|') && i + 1 < L.length && sepRe.test(L[i + 1]) && L[i + 1].includes('-')) {
-      const head = splitRow(l), al = splitRow(L[i + 1]).map((c) => c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : '');
-      const cell = (t, c, k) => `<${t}${al[k] ? ` style="text-align:${al[k]}"` : ''}>${inline(c)}</${t}>`;
-      const rows = []; i += 2;
-      while (i < L.length && L[i].trim() && L[i].includes('|')) rows.push(splitRow(L[i++]));
-      i--; flushP(); flushL();
-      out.push(`<table><thead><tr>${head.map((c, k) => cell('th', c, k)).join('')}</tr></thead><tbody>${
-        rows.map((r) => `<tr>${head.map((_, k) => cell('td', r[k] || '', k)).join('')}</tr>`).join('')}</tbody></table>`);
-      continue;
-    }
-    const li = l.match(/^\s*([-*+]|\d+\.)\s+(.*)/);
-    if (li) { flushP(); const t = /\d/.test(li[1]) ? 'ol' : 'ul';
-      if (list !== t) { flushL(); out.push(`<${t}>`); list = t; }
-      const task = li[2].match(/^\[( |x)\]\s+(.*)/i);
-      out.push(task ? `<li style="list-style:none;margin-left:-1.2em"><input type="checkbox" disabled ${task[1] !== ' ' ? 'checked' : ''}> ${inline(task[2])}</li>` : `<li>${inline(li[2])}</li>`);
-      continue; }
-    if (/^>\s?/.test(l)) { flushP(); flushL(); out.push(`<blockquote>${inline(l.replace(/^>\s?/, ''))}</blockquote>`); continue; }
-    if (!l.trim()) { flushP(); flushL(); continue; }
-    flushL(); para.push(l.trim());
-  }
-  flushP(); flushL();
-  return out.join('\n');
-}
+const { md } = MD.create({ resolve: (t) => resolve(t) });
 
 /* ---------- UI ---------- */
 function renderTags() {
@@ -173,6 +119,7 @@ function renderTags() {
     .map(([t, c]) => `<span class="chip${t === activeTag ? ' on' : ''}" data-tag="${esc(t)}">#${esc(t)} ${c}</span>`).join('');
 }
 function renderList() {
+  if (trashMode) return;
   renderTags();
   const q = $('#q').value.trim().toLowerCase();
   let rows = [...notes.values()];
@@ -197,6 +144,7 @@ function renderBack() {
   $('#back').innerHTML = hits.length ? 'Linked from: ' + hits.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join('') : 'No backlinks';
 }
 function renderPane() {
+  $('#tog').disabled = $('#del').disabled = !cur;
   if (graphOn) return drawGraph();
   stopGraph(); $('#gr').textContent = 'Graph';
   if (!cur) { $('#pane').innerHTML = '<div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div>'; return; }
@@ -204,7 +152,7 @@ function renderPane() {
   $('#tog').textContent = preview ? 'Edit' : 'Preview';
   if (preview) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   else { $('#pane').innerHTML = '<textarea id="ed" spellcheck="false" placeholder="Start writing… use [[links]] to connect notes"></textarea>';
-    const ed = $('#ed'); ed.value = t; ed.oninput = onInput;
+    const ed = $('#ed'); ed.value = t; ed.oninput = () => { onInput(); acUpdate(); }; ed.onkeydown = edKey; ed.onblur = () => setTimeout(acHide, 150);
     ed.onpaste = (e) => { if (attach(e.clipboardData.files)) { if ([...e.clipboardData.files].some((f) => f.type.startsWith('image/'))) e.preventDefault(); } };
     ed.ondragover = (e) => { if ([...e.dataTransfer.items].some((i) => i.type.startsWith('image/'))) e.preventDefault(); };
     ed.ondrop = (e) => { if ([...e.dataTransfer.files].some((f) => f.type.startsWith('image/'))) { e.preventDefault(); attach(e.dataTransfer.files); } }; if (!t) ed.focus(); }
@@ -215,14 +163,62 @@ async function open(name, create) {
   if (!name) return;
   if (!notes.has(name)) {
     if (!create) return;
-    notes.set(name, { name, text: '', mtime: Date.now() });
-    await api('/api/note?name=' + encodeURIComponent(name), { method: 'PUT', body: '' });
+    try {
+      const r = await api('/api/note?name=' + encodeURIComponent(name), { method: 'PUT', body: '', headers: { 'x-base-mtime': '0' } });
+      notes.set(name, { name, text: '', mtime: Date.now(), base: r.mtime });
+    } catch (e) { await load(); if (!notes.has(name)) return; }
   }
+  document.body.classList.remove('side-open');
   cur = name; preview = false; graphOn = false; location.hash = encodeURIComponent(name);
   const t = $('#title'); t.disabled = false; t.value = name.split('/').pop();
   renderPane(); renderList(); renderBack(); $('#status').textContent = '';
   if (!notes.get(name).text) $('#ed').focus();
 }
+/* ---------- editor helpers ---------- */
+function applyEdit(ed, x) {
+  ed.focus(); ed.setSelectionRange(x.start, x.end);
+  if (!document.execCommand('insertText', false, x.insert)) ed.setRangeText(x.insert, x.start, x.end, 'end');   // execCommand keeps native undo
+  ed.setSelectionRange(x.selStart, x.selEnd); onInput();
+}
+let acRows = [], acSel = 0;
+const acHide = () => { acRows = []; $('#ac').style.display = 'none'; };
+function acUpdate() {
+  const ed = $('#ed'); if (!ed) return;
+  const c = MD.wikiContext(ed.value, ed.selectionStart);
+  if (!c) return acHide();
+  const q = c.query.toLowerCase();
+  acRows = [...notes.keys()].filter((n) => n !== cur && n.toLowerCase().includes(q)).sort((a, b) => a.length - b.length).slice(0, 6);
+  acSel = Math.min(acSel, Math.max(0, acRows.length - 1));
+  const box = $('#ac');
+  if (!acRows.length) return acHide();
+  box.innerHTML = acRows.map((n, i) => `<div class="item${i === acSel ? ' on' : ''}" data-ac="${i}">${esc(n)}</div>`).join('');
+  box.style.display = 'block';
+}
+function acPick(i) {
+  const ed = $('#ed'), c = MD.wikiContext(ed.value, ed.selectionStart), name = acRows[i];
+  if (!c || !name) return;
+  const after = ed.value.slice(ed.selectionStart, ed.selectionStart + 2) === ']]' ? 2 : 0;
+  const end = ed.selectionStart + after, ins = name + ']]', at = c.start + ins.length;
+  acHide(); applyEdit(ed, { start: c.start, end, insert: ins, selStart: at, selEnd: at });
+}
+$('#ac').onmousedown = (e) => { const r = e.target.closest('[data-ac]'); if (r) { e.preventDefault(); acPick(+r.dataset.ac); } };
+function edKey(e) {
+  const ed = e.target, v = ed.value, s = ed.selectionStart, en = ed.selectionEnd, mod = e.metaKey || e.ctrlKey;
+  if (acRows.length) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); acSel = (acSel + 1) % acRows.length; return acUpdate(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); acSel = (acSel + acRows.length - 1) % acRows.length; return acUpdate(); }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); return acPick(acSel); }
+    if (e.key === 'Escape') { e.preventDefault(); return acHide(); }
+  }
+  if (e.key === 'Enter' && !mod && !e.shiftKey && s === en) {
+    const x = MD.listEnter(v, s); if (x) { e.preventDefault(); applyEdit(ed, x); }
+  } else if (e.key === 'Tab' && !mod) {
+    e.preventDefault(); applyEdit(ed, MD.indentLines(v, s, en, e.shiftKey));
+  } else if (mod && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'i')) {
+    e.preventDefault(); applyEdit(ed, MD.wrap(v, s, en, e.key === 'b' ? '**' : '*'));
+  }
+}
+
 async function attach(files) {
   const imgs = [...files].filter((f) => f.type.startsWith('image/'));
   if (!imgs.length) return false;
@@ -244,9 +240,19 @@ async function flush() {
   clearTimeout(timer);
   if (!dirty || !cur) return;
   dirty = false;
-  try { await api('/api/note?name=' + encodeURIComponent(cur), { method: 'PUT', body: notes.get(cur).text });
-    $('#status').textContent = 'Saved'; renderList(); }
-  catch (e) { dirty = true; $('#status').textContent = 'Save failed: ' + e.message; }
+  const name = cur, n = notes.get(name), text = n.text;
+  try {
+    const r = await api('/api/note?name=' + encodeURIComponent(name), { method: 'PUT', body: text, headers: { 'x-base-mtime': String(n.base ?? 0) } });
+    n.base = r.mtime; $('#status').textContent = 'Saved'; renderList();
+  } catch (e) {
+    if (e.message !== 'conflict') { dirty = true; $('#status').textContent = 'Save failed: ' + e.message; return; }
+    // The file changed on disk (sync, another window…). Keep both versions: ours as a conflict copy.
+    const copy = `${name} (conflict ${new Date().toTimeString().slice(0, 8).replace(/:/g, '-')})`;
+    try { await api('/api/note?name=' + encodeURIComponent(copy), { method: 'PUT', body: text }); } catch {}
+    const was = cur; await load();
+    if (was === name && notes.has(name)) { cur = name; renderPane(); renderBack(); }
+    $('#status').textContent = `Changed elsewhere — your version saved as “${copy}”`;
+  }
 }
 async function newNote() {
   let i = 0, n; do { n = i ? `Untitled ${i}` : 'Untitled'; i++; } while (notes.has(n));
@@ -264,7 +270,7 @@ async function rename() {
   const re = new RegExp(`\\[\\[\\s*${cur.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(\\||\\]\\])`, 'g');
   for (const o of notes.values()) if (re.test(o.text)) {            // keep links working
     o.text = o.text.replace(re, `[[${full}$1`);
-    api('/api/note?name=' + encodeURIComponent(o.name), { method: 'PUT', body: o.text }); }
+    api('/api/note?name=' + encodeURIComponent(o.name), { method: 'PUT', body: o.text }).then((r) => { o.base = r.mtime; }, () => {}); }
   cur = full; location.hash = encodeURIComponent(full); renderList(); renderBack(); renderPane();
 }
 
@@ -362,6 +368,10 @@ function swPick(i) { const r = swRows[i]; swClose(); if (r) open(r.create || r, 
 
 /* events */
 document.addEventListener('click', (e) => {
+  if (document.body.classList.contains('side-open') && !e.target.closest('#side, #menu')) document.body.classList.remove('side-open');
+  if (e.target.id === 'emptytrash') { if (confirm('Permanently delete everything in the trash?')) api('/api/trash', { method: 'DELETE' }).then(() => { trashMode = true; showTrash(); }); return; }
+  const rs = e.target.closest('[data-restore]');
+  if (rs) { api('/api/restore', { method: 'POST', body: JSON.stringify({ id: rs.dataset.restore }) }).then(async (r) => { await load(); trashMode = false; $('#trash').textContent = 'Trash'; renderList(); open(r.name, false); }); return; }
   const tg = e.target.closest('[data-tag]');
   if (tg) { e.preventDefault(); activeTag = activeTag === tg.dataset.tag ? null : tg.dataset.tag; renderList(); return; }
   const a = e.target.closest('[data-note]');
@@ -412,11 +422,22 @@ $('#new').onclick = newNote;
 $('#gr').onclick = async () => { await flush(); graphOn = !graphOn; renderPane(); };
 $('#tog').onclick = () => { if (!cur) return; graphOn = false; preview = !preview; flush(); renderPane(); };
 $('#del').onclick = async () => {
-  if (!cur || !confirm(`Delete “${cur}”?`)) return;
+  if (!cur || !confirm(`Move “${cur}” to the trash?`)) return;
   await api('/api/note?name=' + encodeURIComponent(cur), { method: 'DELETE' });
-  notes.delete(cur); cur = null; dirty = false; $('#title').value = ''; $('#title').disabled = true;
+  notes.delete(cur); cur = null; dirty = false; $('#status').textContent = ''; $('#title').value = ''; $('#title').disabled = true;
   location.hash = ''; renderList(); renderPane(); renderBack();
 };
+let trashMode = false;
+async function showTrash() {
+  trashMode = !trashMode; $('#trash').textContent = trashMode ? 'Notes' : 'Trash';
+  if (!trashMode) return renderList();
+  const items = await api('/api/trash');
+  $('#tags').innerHTML = '';
+  $('#list').innerHTML = (items.length ? `<div class="trashrow" style="padding:4px 8px"><span>${items.length} deleted</span><button id="emptytrash">Empty</button></div>` : '')
+    + (items.map((t) => `<div class="item trashrow" data-restore="${esc(t.id)}" title="Click to restore"><span>${esc(t.name)}</span><small>↩</small></div>`).join('') || '<div class="empty">Trash is empty</div>');
+}
+$('#trash').onclick = showTrash;
+$('#menu').onclick = () => document.body.classList.toggle('side-open');
 $('#title').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } };
 $('#title').onchange = rename;
 $('#swq').oninput = () => { swSel = 0; swRender(); };
