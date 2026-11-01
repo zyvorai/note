@@ -29,7 +29,7 @@ A single downloadable executable, no Node install needed. Build it on the target
 node scripts/build-sea.js      # -> dist/plainnote-<platform>-<arch>[.exe]
 ```
 
-CI builds all three platforms: run the **build-desktop** workflow, or push a `v*` tag to attach the executables to a GitHub release.
+CI builds all three platforms: run the **build-desktop** workflow, or push a `v*` tag to attach the executables to a GitHub release (the macOS build also attaches a `Plainnote-<version>-arm64.dmg`).
 
 It starts the notes server on `127.0.0.1` and opens it in a standalone app window using an installed Chrome, Edge, Chromium or Brave (Edge ships with Windows), falling back to your default browser. Closing the window quits the app. Launching it again opens another window on the running instance.
 
