@@ -80,7 +80,7 @@ button:disabled{opacity:.4;cursor:default}
 <body>
 <div id="app">
   <aside id="side">
-    <header><input id="q" placeholder="Search…" autocomplete="off"><button id="new" title="New note (Ctrl/Cmd+N)">+</button><button id="theme"></button></header>
+    <header><input id="q" placeholder="Search…" autocomplete="off"><button id="new" title="New note (Ctrl/Cmd+N)">+</button><button id="today" title="Today's daily note (Ctrl/Cmd+Shift+T)">Today</button><button id="theme"></button></header>
     <div id="tags"></div>
     <div id="list"></div>
     <footer id="sf"><button id="sync" title="Sync notes with a git remote">Sync</button><label title="Sync every 2 minutes" style="white-space:nowrap"><input type="checkbox" id="auto"> Auto</label><button id="trash" title="Deleted notes">Trash</button><span id="ss"></span></footer>
@@ -305,6 +305,11 @@ async function newNote() {
   let i = 0, n; do { n = i ? `Untitled ${i}` : 'Untitled'; i++; } while (notes.has(n));
   await open(n, true);
 }
+async function openToday() {
+  const d = new Date(), p = (x) => String(x).padStart(2, '0');
+  const name = `daily/${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  await open(name, !notes.has(name));
+}
 async function rename() {
   const to = $('#title').value.trim().replace(/[\\:*?"<>|]/g, '');
   const dir = cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/') + 1) : '';
@@ -477,6 +482,7 @@ let savedTheme = 'auto'; try { savedTheme = localStorage.getItem('theme') || 'au
 applyTheme(THEMES.includes(savedTheme) ? savedTheme : 'auto', false);
 $('#theme').onclick = () => applyTheme(THEMES[(THEMES.indexOf($('#theme').dataset.mode) + 1) % 3], true);
 $('#new').onclick = newNote;
+$('#today').onclick = openToday;
 $('#gr').onclick = async () => { await flush(); graphOn = !graphOn; renderPane(); };
 $('#tog').onclick = () => { if (!cur) return; graphOn = false; preview = !preview; flush(); renderPane(); };
 $('#del').onclick = async () => {
@@ -517,6 +523,7 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'g') { e.preventDefault(); $('#gr').click(); }
   else if (k === 'e') { e.preventDefault(); $('#tog').click(); }
   else if (k === 's') { e.preventDefault(); flush(); }
+  else if (k === 't' && e.shiftKey) { e.preventDefault(); openToday(); }
   else if (k === 'l' && e.shiftKey) { e.preventDefault(); $('#theme').click(); }
 });
 window.addEventListener('focus', async () => {

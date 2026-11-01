@@ -70,6 +70,15 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await sleep(1200); await shot('2-graph');
     await ev(`document.querySelector('#gr').click()`);
 
+    // today's daily note is created in daily/ and reopened (not duplicated) on a second click
+    await ev(`document.querySelector('#today').click()`);
+    await until(`/^\\d{4}-\\d{2}-\\d{2}$/.test(document.querySelector('#title').value) && document.querySelector('#ed')`, 'daily note');
+    const daily = await ev(`document.querySelector('#title').value`);
+    await sleep(500);
+    assert.ok(fs.existsSync(path.join(dir, 'daily', daily + '.md')), 'daily note file created');
+    await ev(`document.querySelector('#today').click()`); await sleep(300);
+    assert.equal(fs.readdirSync(path.join(dir, 'daily')).length, 1);
+
     // editor: list continuation, [[ autocomplete, bold, tab indent
     await ev(`(async()=>{ document.querySelector('#new').click(); })()`);
     await until(`document.querySelector('#ed') && document.querySelector('#title').value.startsWith('Untitled')`, 'new note');

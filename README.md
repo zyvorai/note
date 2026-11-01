@@ -64,6 +64,7 @@ plainnote --no-window          # server only, open the printed URL yourself
 | Ctrl/Cmd+E | Toggle edit / preview |
 | Ctrl/Cmd+G | Toggle graph view |
 | Ctrl/Cmd+S | Save now |
+| Ctrl/Cmd+Shift+T | Open today's daily note (`daily/YYYY-MM-DD`) |
 | Ctrl/Cmd+Shift+L | Cycle theme (auto / light / dark) |
 | Ctrl/Cmd+B / I | Bold / italic |
 | Tab / Shift+Tab | Indent / outdent |
