@@ -21,6 +21,26 @@ open dist/Plainnote.app
 
 A tiny native wrapper (Swift + WKWebView, no Electron). It starts the bundled server on a free local port, shows it in a window, and stops it on quit. Node.js must be installed. **File → Choose Notes Folder…** switches folders (default `~/Notes`). The app is ad-hoc signed; to distribute it, build with `SIGN_ID="Developer ID Application: …" ./desktop/build.sh` and notarize with `notarytool`.
 
+## Desktop app (Windows and Linux)
+
+A single downloadable executable, no Node install needed. Build it on the target OS:
+
+```sh
+node scripts/build-sea.js      # -> dist/plainnote-<platform>-<arch>[.exe]
+```
+
+CI builds all three platforms: run the **build-desktop** workflow, or push a `v*` tag to attach the executables to a GitHub release.
+
+It starts the notes server on `127.0.0.1` and opens it in a standalone app window using an installed Chrome, Edge, Chromium or Brave (Edge ships with Windows), falling back to your default browser. Closing the window quits the app. Launching it again opens another window on the running instance.
+
+```sh
+plainnote                      # notes in ~/Notes
+plainnote --notes D:\Notes     # or set PLAINNOTE_DIR
+plainnote --no-window          # server only, open the printed URL yourself
+```
+
+`PLAINNOTE_BROWSER` points at a specific browser. On Linux, `desktop/linux/plainnote.desktop` is a starter launcher entry. Without Node installed you can also run the launcher directly with `node desktop/launcher.js`. On Windows a console window stays open while the app runs; the executable is unsigned, so SmartScreen may warn on first run.
+
 ## Features
 
 - **Markdown files on disk**: subfolders work (`folder/name`); anything that reads Markdown can open them.
@@ -76,13 +96,14 @@ The UI test drives the real app through the Chrome DevTools protocol (no depende
 server.js          zero-dependency HTTP server + file/git API
 public/index.html  the UI (HTML, CSS, JS)
 public/md.js       Markdown renderer and editor helpers (shared with the tests)
-desktop/           macOS wrapper (Plainnote.swift), icon generator, build.sh
+desktop/           macOS wrapper (Plainnote.swift, build.sh), cross-platform launcher.js, Linux .desktop
+scripts/build-sea.js  builds the single-file executable
 tests/             unit, API and browser tests
 ```
 
 ## Limits
 
-The editor is a plain textarea, not a full code editor. The graph layout is O(n²): fine for a few hundred notes. Desktop wrapper is macOS-only and needs Node installed. No encryption at rest and no built-in auth (it relies on being local-only).
+The editor is a plain textarea, not a full code editor. The graph layout is O(n²): fine for a few hundred notes. The Windows/Linux builds are produced by CI and haven't been tested by hand on those systems; the macOS wrapper needs Node installed. No encryption at rest and no built-in auth (it relies on being local-only).
 
 ## License
 

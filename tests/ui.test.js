@@ -87,9 +87,10 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.match(await ev(`document.querySelector('#ed').value`), /see \[\[Home\]\]$/);
 
     // autosave reaches disk, then a conflicting external write is detected
-    await until(`document.querySelector('#status').textContent === 'Saved'`, 'autosave');
     const untitled = fs.readdirSync(dir).find((f) => f.startsWith('Untitled'));
+    for (let i = 0; i < 50 && !/see \[\[Home\]\]$/.test(fs.readFileSync(path.join(dir, untitled), 'utf8')); i++) await sleep(100);   // wait for autosave
     assert.match(fs.readFileSync(path.join(dir, untitled), 'utf8'), /^- one\n {2}- two see \[\[Home\]\]$/);
+    await until(`document.querySelector('#status').textContent === 'Saved'`, 'save finished');
     await sleep(50);
     fs.writeFileSync(path.join(dir, untitled), 'changed on disk');
     await ev(`document.querySelector('#ed').focus()`);

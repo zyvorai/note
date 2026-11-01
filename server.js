@@ -5,9 +5,23 @@ const fs = require('fs/promises');
 const path = require('path');
 const { execFile } = require('child_process');
 
-const ROOT = path.resolve(process.argv[2] || path.join(__dirname, 'notes'));
-const PORT = Number(process.argv[3] || process.env.PORT || 4777);
-const PUBLIC = path.join(__dirname, 'public');
+const PUBLIC = path.resolve(__dirname, 'public');
+
+// UI files come from ./public, or from assets embedded in a single-file executable (see scripts/build-sea.js).
+let sea = null;
+try { const m = require('node:sea'); if (m.isSea()) sea = m; } catch {}
+async function readPublic(rel) {
+  if (sea) {
+    if (rel.includes('..') || rel.includes('/')) throw Object.assign(new Error('not found'), { code: 'ENOENT' });
+    try { return Buffer.from(sea.getRawAsset(rel)); } catch { throw Object.assign(new Error('not found'), { code: 'ENOENT' }); }
+  }
+  const f = path.resolve(PUBLIC, rel);
+  if (!f.startsWith(PUBLIC + path.sep)) throw Object.assign(new Error('forbidden'), { code: 'EACCES' });
+  return fs.readFile(f);
+}
+
+function createServer(ROOT, hooks = {}) {
+ROOT = path.resolve(ROOT);
 const TRASH = path.join(ROOT, '.trash');
 
 // Resolve a note name ("folder/idea") to a safe absolute .md path inside ROOT.
@@ -105,7 +119,7 @@ async function gitSync() {
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
 
-http.createServer(async (req, res) => {
+return http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     // Only answer to localhost (blocks DNS-rebinding), and block cross-site requests: only same-origin (or non-browser) callers.
@@ -113,6 +127,7 @@ http.createServer(async (req, res) => {
     const origin = req.headers.origin;
     if (origin && new URL(origin).host !== req.headers.host) return send(res, 403, { error: 'forbidden' });
 
+    if (url.pathname === '/api/ping') { hooks.onPing?.(); return send(res, 200, { app: 'plainnote' }); }
     if (url.pathname === '/api/notes' && req.method === 'GET') return send(res, 200, await walk(ROOT));
     if (url.pathname === '/api/note') {
       const p = notePath(url.searchParams.get('name'));
@@ -189,17 +204,32 @@ http.createServer(async (req, res) => {
     }
     if (req.method === 'GET') {
       const rel = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1));
-      const f = path.resolve(PUBLIC, rel);
-      if (!f.startsWith(PUBLIC + path.sep)) return send(res, 403, { error: 'forbidden' });
-      return send(res, 200, await fs.readFile(f), TYPES[path.extname(f)] || 'application/octet-stream');
+      return send(res, 200, await readPublic(rel), TYPES[path.extname(rel)] || 'application/octet-stream');
     }
     send(res, 404, { error: 'not found' });
   } catch (e) {
-    send(res, e.code === 'ENOENT' ? 404 : 400, { error: e.message });
+    send(res, e.code === 'ENOENT' ? 404 : e.code === 'EACCES' ? 403 : 400, { error: e.message });
   }
-}).listen(PORT, '127.0.0.1', async () => {
-  // Desktop wrapper: exit when the parent app dies and closes our stdin.
-  if (process.env.NOTES_WATCH_STDIN) { process.stdin.resume(); process.stdin.on('end', () => process.exit(0)); }
-  await fs.mkdir(ROOT, { recursive: true });
-  console.log(`Notes: ${ROOT}\nOpen:  http://localhost:${PORT}`);
 });
+}
+
+// Start a server on 127.0.0.1. port 0 picks a free port. Resolves { server, port, root }.
+async function listen(root, port, hooks) {
+  root = path.resolve(root);
+  await fs.mkdir(root, { recursive: true });
+  const server = createServer(root, hooks);
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
+  return { server, port: server.address().port, root };
+}
+
+module.exports = { createServer, listen };
+
+if (require.main === module) {
+  const root = process.argv[2] || path.join(__dirname, 'notes');
+  const port = Number(process.argv[3] || process.env.PORT || 4777);
+  listen(root, port).then((r) => {
+    // Desktop wrapper: exit when the parent app dies and closes our stdin.
+    if (process.env.NOTES_WATCH_STDIN) { process.stdin.resume(); process.stdin.on('end', () => process.exit(0)); }
+    console.log(`Notes: ${r.root}\nOpen:  http://localhost:${r.port}`);
+  }, (e) => { console.error(e.message); process.exit(1); });
+}

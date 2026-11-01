@@ -104,7 +104,10 @@ const resolve = (t) => { t = t.trim(); if (notes.has(t)) return t;
   const l = t.toLowerCase(); for (const n of notes.keys()) if (n.toLowerCase() === l || n.split('/').pop().toLowerCase() === l) return n; return null; };
 
 async function load() {
-  notes = new Map((await api('/api/notes')).map((n) => [n.name, { ...n, base: n.mtime }]));
+  const fresh = await api('/api/notes');
+  const keep = dirty && cur ? notes.get(cur) : null;      // never replace text the user typed but hasn't saved yet
+  notes = new Map(fresh.map((n) => [n.name, { ...n, base: n.mtime }]));
+  if (keep) notes.set(keep.name, keep);
   renderList();
 }
 
@@ -460,8 +463,15 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'e') { e.preventDefault(); $('#tog').click(); }
   else if (k === 's') { e.preventDefault(); flush(); }
 });
-window.addEventListener('focus', async () => { if (!dirty) { const c = cur; await load(); if (c && !notes.has(c)) { cur = null; renderPane(); } } });
+window.addEventListener('focus', async () => {
+  if (dirty) return;
+  const c = cur, before = c && notes.get(c)?.text;
+  await load();
+  if (c && cur === c && !notes.has(c)) { cur = null; renderPane(); renderBack(); }
+  else if (c && cur === c && !dirty && !graphOn && notes.get(c).text !== before) renderPane();   // changed on disk meanwhile
+});
 
+setInterval(() => fetch('/api/ping').catch(() => {}), 10000);   // lets the desktop launcher notice when the window is closed
 load().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h) open(h, false); });
 </script>
 </body>
