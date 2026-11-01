@@ -64,6 +64,7 @@ plainnote --no-window          # server only, open the printed URL yourself
 | Ctrl/Cmd+E | Toggle edit / preview |
 | Ctrl/Cmd+G | Toggle graph view |
 | Ctrl/Cmd+S | Save now |
+| Ctrl/Cmd + / - / 0 | Larger / smaller / reset text size |
 | Ctrl/Cmd+[ / ] | Back / forward through opened notes |
 | Ctrl/Cmd+Shift+T | Open today's daily note (`daily/YYYY-MM-DD`) |
 | Ctrl/Cmd+Shift+L | Cycle theme (auto / light / dark) |

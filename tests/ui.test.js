@@ -119,6 +119,14 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.equal(out.at, '### Three');
     assert.ok(out.top > 0, 'editor scrolled to the heading');
 
+    // text size: Ctrl+= grows the editor font and the highlight layer stays aligned; Ctrl+0 resets
+    const fs0 = await ev(`parseFloat(getComputedStyle(document.querySelector('#ed')).fontSize)`);
+    await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '=', ctrlKey: true, bubbles: true }))`);
+    const fs1 = await ev(`[parseFloat(getComputedStyle(document.querySelector('#ed')).fontSize), parseFloat(getComputedStyle(document.querySelector('#hl')).fontSize), document.querySelector('#ed').offsetHeight, document.querySelector('#hl').scrollHeight]`);
+    assert.equal(fs1[0], fs0 + 1); assert.equal(fs1[1], fs0 + 1);
+    await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '0', ctrlKey: true, bubbles: true }))`);
+    assert.equal(await ev(`parseFloat(getComputedStyle(document.querySelector('#ed')).fontSize)`), 14);
+
     // history: back returns to the previously opened note, forward comes back
     const h0 = await ev(`document.querySelector('#title').value`);
     await ev(`open(notes.keys().next().value === $('#title').value ? [...notes.keys()][1] : notes.keys().next().value, false)`);

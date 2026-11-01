@@ -37,9 +37,9 @@ button:disabled{opacity:.4;cursor:default}
 #status{color:var(--mute);font-size:12px}
 #wc{color:var(--mute);font-size:12px;white-space:nowrap}
 #pane{flex:1;overflow:auto;min-height:0}
-#pv{display:block;width:100%;max-width:760px;margin:0 auto;padding:24px 16px 80px}
+#pv{font-size:calc(var(--fs,14px) + 1px);display:block;width:100%;max-width:760px;margin:0 auto;padding:24px 16px 80px}
 #edwrap{position:relative;max-width:760px;margin:0 auto}
-#hl,#ed{display:block;margin:0;padding:24px 16px 80px;width:100%;border:0;font:14px/1.7 ui-monospace,Menlo,monospace;letter-spacing:normal;tab-size:2;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word}
+#hl,#ed{display:block;margin:0;padding:24px 16px 80px;width:100%;border:0;font:var(--fs,14px)/1.7 ui-monospace,Menlo,monospace;letter-spacing:normal;tab-size:2;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word}
 #hl{position:absolute;inset:0;pointer-events:none;overflow:hidden;color:var(--fg)}
 #ed{position:relative;resize:none;outline:0;overflow:hidden;background:transparent;color:transparent;caret-color:var(--fg)}
 #ed::placeholder{color:var(--mute)}#ed::selection{background:var(--sel);color:transparent}
@@ -522,6 +522,15 @@ function setAuto(on) {
 $('#auto').onchange = (e) => { setAuto(e.target.checked); if (e.target.checked) doSync(true); };
 try { if (localStorage.getItem('autoSync')) { $('#auto').checked = true; setAuto(true); } } catch {}
 syncStatus();
+/* text size: Ctrl/Cmd + / - / 0 (editor and preview), remembered */
+let fontSize = 14; try { fontSize = Number(localStorage.getItem('fontSize')) || 14; } catch {}
+function setFontSize(n, save) {
+  fontSize = Math.min(28, Math.max(10, n));
+  document.documentElement.style.setProperty('--fs', fontSize + 'px');
+  if (save) try { fontSize === 14 ? localStorage.removeItem('fontSize') : localStorage.setItem('fontSize', fontSize); } catch {}
+  syncEditor(); caretIntoView();
+}
+document.documentElement.style.setProperty('--fs', fontSize + 'px');
 /* theme: auto (follow the system) -> light -> dark */
 const THEMES = ['auto', 'light', 'dark'], ICON = { auto: '◐', light: '☀', dark: '☾' };
 function applyTheme(t, save) {
@@ -578,6 +587,9 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'e') { e.preventDefault(); $('#tog').click(); }
   else if (k === 's') { e.preventDefault(); flush(); }
   else if (k === 't' && e.shiftKey) { e.preventDefault(); openToday(); }
+  else if (e.key === '=' || e.key === '+') { e.preventDefault(); setFontSize(fontSize + 1, true); }
+  else if (e.key === '-') { e.preventDefault(); setFontSize(fontSize - 1, true); }
+  else if (e.key === '0') { e.preventDefault(); setFontSize(14, true); }
   else if (e.key === '[') { e.preventDefault(); history.back(); }
   else if (e.key === ']') { e.preventDefault(); history.forward(); }
   else if (k === 'l' && e.shiftKey) { e.preventDefault(); $('#theme').click(); }
