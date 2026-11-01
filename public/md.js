@@ -3,10 +3,51 @@
   const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const linkRe = /\[\[([^\]\|\n]+?)(?:\|([^\]\n]+))?\]\]/g;
   const tagRe = /(^|[\s(])#((?=[\w\/-]*[A-Za-z_])[\w\/-]+)/g;
+  // Leading `---` YAML-ish block: simple `key: value`, `key: [a, b]` and `- item` lists. -> { data, body }
+  function frontmatter(text) {
+    const m = text.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
+    if (!m) return { data: {}, body: text };
+    const data = {}; let key = null;
+    for (const line of m[1].split(/\r?\n/)) {
+      const kv = line.match(/^([\w-]+):\s*(.*)$/), it = line.match(/^\s+-\s+(.*)$|^-\s+(.*)$/);
+      const clean = (v) => v.trim().replace(/^["']|["']$/g, '');
+      if (kv) {
+        key = kv[1].toLowerCase(); const v = kv[2].trim();
+        data[key] = v.startsWith('[') && v.endsWith(']') ? v.slice(1, -1).split(',').map(clean).filter(Boolean) : v ? clean(v) : [];
+      } else if (it && key) { if (!Array.isArray(data[key])) data[key] = data[key] ? [data[key]] : []; data[key].push(clean(it[1] ?? it[2])); }
+    }
+    return { data, body: text.slice(m[0].length) };
+  }
   const tagsOf = (text) => {
-    const t = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
-    return new Set([...t.matchAll(tagRe)].map((m) => m[2].toLowerCase()));
+    const fm = frontmatter(text), t = fm.body.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+    const set = new Set([...t.matchAll(tagRe)].map((m) => m[2].toLowerCase()));
+    const ft = fm.data.tags || fm.data.tag;
+    for (const x of [].concat(ft || [])) for (const y of String(x).split(/[\s,]+/)) if (y) set.add(y.replace(/^#/, '').toLowerCase());
+    return set;
   };
+  // The part of a note under `heading` (up to the next heading of the same or higher level).
+  function section(text, heading) {
+    const L = text.split('\n'), want = heading.trim().toLowerCase();
+    let a = -1, lvl = 0, fence = false;
+    for (let i = 0; i < L.length; i++) {
+      if (/^```/.test(L[i])) fence = !fence;
+      const m = !fence && L[i].match(/^(#{1,6})\s+(.*?)\s*#*\s*$/);
+      if (!m) continue;
+      if (a < 0) { if (m[2].trim().toLowerCase() === want) { a = i; lvl = m[1].length; } }
+      else if (m[1].length <= lvl) return L.slice(a, i).join('\n');
+    }
+    return a < 0 ? null : L.slice(a).join('\n');
+  }
+  // `- [ ]` / `- [x]` items outside code fences: [{line, done, text}] (line is 0-based in the whole text)
+  function tasksOf(text) {
+    const out = []; let fence = false;
+    text.split('\n').forEach((l, line) => {
+      if (/^```/.test(l)) { fence = !fence; return; }
+      const m = !fence && l.match(/^\s*(?:[-*+]|\d+\.)\s+\[( |x|X)\]\s+(.*)$/);
+      if (m) out.push({ line, done: m[1] !== ' ', text: m[2] });
+    });
+    return out;
+  }
 
   /* ---- tiny syntax highlighter for fenced code (generic, good enough for most languages) ---- */
   const KW = 'abstract|as|async|await|break|case|catch|class|const|continue|def|default|defer|del|do|elif|else|enum|except|export|extends|false|final|finally|fn|for|from|func|function|go|if|impl|import|in|interface|is|lambda|let|loop|match|mod|new|nil|none|None|not|null|or|and|pass|pub|raise|return|self|static|struct|super|switch|this|throw|true|True|False|try|type|typeof|use|var|void|while|with|yield';
@@ -43,7 +84,8 @@
   const sepRe = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
   // create({ resolve }) -> { md, inline }; resolve(name) returns the canonical note name or null.
-  function create({ resolve }) {
+  function create({ resolve, embed }) {
+    let depth = 0;
     function inline(s) {
       s = esc(s);
       const codes = [];
@@ -69,7 +111,15 @@
     }
 
     function md(src) {
-      const out = [], L = src.replace(/\r/g, '').split('\n');
+      const fm = frontmatter(src.replace(/\r/g, ''));
+      const out = [], L = fm.body.split('\n');
+      const metaKeys = Object.keys(fm.data);
+      if (metaKeys.length) out.push(`<div class="fm">${metaKeys.map((k) => {
+        const v = [].concat(fm.data[k]).filter((x) => x !== '');
+        if (!v.length) return '';
+        const html = k === 'tags' || k === 'tag' ? v.flatMap((x) => String(x).split(/[\s,]+/)).filter(Boolean).map((t) => t.replace(/^#/, '')).map((t) => `<a href="#" class="tag" data-tag="${esc(t.toLowerCase())}">#${esc(t)}</a>`).join(' ') : esc(v.join(', '));
+        return `<span><b>${esc(k)}</b> ${html}</span>`;
+      }).join('')}</div>`);
       let list = null, para = []; const notesFn = [];
       const flushP = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = []; };
       const flushL = () => { if (list) out.push(`</${list}>`); list = null; };
@@ -80,6 +130,14 @@
           flushP(); flushL(); const b = [];
           while (++i < L.length && !/^```/.test(L[i])) b.push(L[i]);
           out.push(`<pre><code>${highlight(b.join('\n'), fence[1])}</code></pre>`); continue;
+        }
+        const em = embed && l.match(/^!\[\[([^\]|#\n]+)(?:#([^\]|\n]+))?(?:\|[^\]\n]*)?\]\]\s*$/);
+        if (em) {
+          flushP(); flushL();
+          const r = resolve(em[1]), body = r && depth < 2 ? embed(r, em[2]) : null;
+          if (body != null) { depth++; const inner = md(body); depth--; out.push(`<div class="embed"><div class="embed-title"><a href="#" data-note="${esc(r)}">${esc(r)}${em[2] ? ' › ' + esc(em[2]) : ''}</a></div>${inner}</div>`); }
+          else out.push(`<p><a href="#" data-note="${esc(r || em[1].trim())}" class="${r ? '' : 'new'}">${esc(em[1].trim())}</a></p>`);
+          continue;
         }
         if (m) { flushP(); flushL(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
         if (/^(-{3,}|\*{3,})\s*$/.test(l)) { flushP(); flushL(); out.push('<hr>'); continue; }
@@ -279,7 +337,7 @@
     return out;
   }
 
-  const api = { unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
+  const api = { frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);

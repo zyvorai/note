@@ -186,6 +186,15 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`(async()=>{ await open('Home', false); })()`);
     await until(`document.querySelector('#title').value === 'Home'`, 'back to Home again');
 
+    // tasks view lists open tasks across notes; ticking one writes back to the note
+    await ev(`(async () => { await api('/api/note?name=Task%20Src', { method: 'PUT', body: '---\\ntags: [work]\\n---\\n- [ ] ship the thing\\n- [x] done already', headers: { 'x-base-mtime': '0' } }); await load(); plainnote.run('tasks'); })()`);
+    await until(`[...document.querySelectorAll('#swl .item')].some((i) => i.textContent.includes('ship the thing'))`, 'open task listed');
+    assert.equal(await ev(`[...document.querySelectorAll('#swl .item')].some((i) => i.textContent.includes('done already'))`), false, 'done tasks are not listed');
+    await ev(`[...document.querySelectorAll('#swl .item')].find((i) => i.textContent.includes('ship the thing')).querySelector('.tk').click()`);
+    await until(`notes.get('Task Src').text.includes('- [x] ship the thing')`, 'task written back');
+    await ev(`swClose()`);
+    assert.equal(await ev(`[...tagsOf(notes.get('Task Src').text)].join()`), 'work', 'frontmatter tag counted');
+
     // native-app bridge: plainnote.run(id) drives the same actions as the palette (the Mac menus call it)
     const before = await ev(`notes.size`);
     await ev(`plainnote.run('new')`);

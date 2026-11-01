@@ -70,6 +70,8 @@ plainnote --no-window          # server only, open the printed URL yourself
 - **Preview** with tables, images (remote or from your folder), task lists and syntax-highlighted code blocks.
 - **Live syntax highlighting while you edit** (headings, bold, links, wikilinks, tags, code blocks with per-language colours).
 - **Slash menu**: type `/` at the start of a line for headings, tasks, tables, code blocks, dividers, links and today's date.
+- **Writing tools**: note templates (`templates/` folder, `{{date}}` `{{title}}`), find and replace (Ctrl/Cmd+F), focus mode (Ctrl/Cmd+Shift+F).
+- **Knowledge tools**: `> [!tip]` callouts, `==highlights==`, footnotes, `![[Note]]` / `![[Note#Heading]]` embeds, YAML frontmatter (`tags:` count as tags), unlinked mentions with one-click linking, and an all-notes open-tasks view (command palette).
 - **Editor niceties**: list continuation, Tab/Shift+Tab indent, Cmd/Ctrl+B and +I, paste or drop images (saved to `attachments/`).
 - **Safe by default**: autosave, deletes go to `.trash/` (restore from the Trash button), and if a note changes on disk underneath you (sync, another window) your version is saved as a "conflict" copy instead of overwriting.
 - **Git sync**, manual or every 2 minutes.
@@ -89,6 +91,8 @@ plainnote --no-window          # server only, open the printed URL yourself
 | Ctrl/Cmd+[ / ] | Back / forward through opened notes |
 | Ctrl/Cmd+Shift+T | Open today's daily note (`daily/YYYY-MM-DD`) |
 | Ctrl/Cmd+Shift+L | Cycle theme (auto / light / dark) |
+| Ctrl/Cmd+F | Find and replace in the note |
+| Ctrl/Cmd+Shift+F | Focus mode |
 | Ctrl/Cmd+B / I | Bold / italic |
 | Tab / Shift+Tab | Indent / outdent |
 

@@ -164,3 +164,30 @@ test('unlinkedMentions finds plain mentions but not linked ones', () => {
   const r = MD.unlinkedMentions(notes, 'Alpha');
   assert.deepEqual(r, [{ name: 'a', index: 6 }]);
 });
+
+test('frontmatter: parsed, hidden from body, tags feed tagsOf', () => {
+  const t = '---\ntitle: "Hi"\ntags: [a, B]\naliases:\n  - x\n  - y\n---\nBody #inline';
+  const fm = MD.frontmatter(t);
+  assert.deepEqual(fm.data, { title: 'Hi', tags: ['a', 'B'], aliases: ['x', 'y'] });
+  assert.equal(fm.body, 'Body #inline');
+  assert.deepEqual([...MD.tagsOf(t)].sort(), ['a', 'b', 'inline']);
+  assert.equal(MD.frontmatter('no\n---\nfm').body, 'no\n---\nfm');
+  const h = md(t);
+  assert.match(h, /class="fm"/); assert.match(h, /data-tag="b"/); assert.ok(!h.includes('title: '));
+});
+
+test('section and embeds', () => {
+  const doc = '# A\nintro\n## B\nbee\n### B2\nsub\n## C\nsea';
+  assert.equal(MD.section(doc, 'b'), '## B\nbee\n### B2\nsub');
+  assert.equal(MD.section(doc, 'nope'), null);
+  const notes = { Home: '# Home\nhello **there**', Self: '![[Self]]\nx' };
+  const e = MD.create({ resolve: (t) => (notes[t.trim()] ? t.trim() : null), embed: (n, h) => (h ? MD.section(notes[n], h) : notes[n]) }).md;
+  assert.match(e('![[Home]]'), /class="embed"><div class="embed-title"><a href="#" data-note="Home">Home<\/a><\/div><h1>Home<\/h1>\n<p>hello <b>there<\/b>/);
+  assert.match(e('![[Home#Home]]'), /Home › Home/);
+  assert.match(e('![[Missing]]'), /class="new"/);
+  assert.ok(e('![[Self]]').length < 2000, 'self-embed stops recursing');
+});
+
+test('tasksOf ignores fenced code', () => {
+  assert.deepEqual(MD.tasksOf('- [ ] a\n```\n- [ ] no\n```\n  1. [x] b'), [{ line: 0, done: false, text: 'a' }, { line: 4, done: true, text: 'b' }]);
+});

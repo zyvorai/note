@@ -54,6 +54,9 @@ button:disabled{opacity:.4;cursor:default}
 #pv th,#pv td{border:1px solid var(--line);padding:5px 10px}#pv th{background:var(--code)}
 #pv blockquote{margin:0;padding-left:12px;border-left:3px solid var(--line);color:var(--mute)}
 #pv hr{border:0;border-top:1px solid var(--line)}
+#pv .fm{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--mute);border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:12px}#pv .fm b{text-transform:uppercase;letter-spacing:.04em;font-size:10px;margin-right:4px}
+#pv .embed{margin:12px 0;padding:2px 14px;border-left:3px solid var(--acc);background:color-mix(in srgb,var(--acc) 6%,transparent);border-radius:0 8px 8px 0}#pv .embed-title{font-size:11px;margin-top:6px}
+#swl .tk{margin-right:8px;cursor:pointer}
 #pv mark{background:rgba(255,200,0,.35);color:inherit;border-radius:3px;padding:0 2px}
 #pv .callout{margin:12px 0;padding:10px 14px;border-radius:8px;border-left:4px solid var(--acc);background:color-mix(in srgb,var(--acc) 10%,transparent)}
 #pv .callout-title{font-weight:600;margin-bottom:2px}
@@ -152,7 +155,11 @@ async function load() {
   renderList();
 }
 
-const { md } = MD.create({ resolve: (t) => resolve(t) });
+const { md } = MD.create({ resolve: (t) => resolve(t), embed: (name, h) => {
+  const n = notes.get(name); if (!n) return null;
+  const body = MD.frontmatter(n.text).body;
+  return h ? MD.section(body, h) : body;
+} });
 
 /* ---------- UI ---------- */
 function renderTags() {
@@ -606,6 +613,7 @@ const COMMANDS = [
   { id: 'sync', name: 'Sync now', run: () => $('#sync').click() },
   { id: 'trash', name: 'Show trash', run: () => $('#trash').click() },
   { id: 'focus', name: 'Toggle focus mode', hint: 'Ctrl/Cmd+Shift+F', run: () => toggleFocus() },
+  { id: 'tasks', name: 'Show open tasks from all notes', run: () => swOpen('tasks') },
   { id: 'find', name: 'Find and replace in this note', hint: 'Ctrl/Cmd+F', run: () => openFind() },
   { id: 'starter', name: 'Add starter templates (Daily, Meeting, Project)', run: () => addStarterTemplates() },
   { id: 'back', name: 'Go back', hint: 'Ctrl/Cmd+[', run: () => history.back() },
@@ -633,7 +641,19 @@ document.addEventListener('mousedown', (e) => {                       // the tit
 document.addEventListener('dblclick', (e) => {
   if (document.documentElement.classList.contains('mac') && e.target.closest('#bar, #side header') && !e.target.closest('button,input,a,label')) macPost({ t: 'zoom' });
 });
+function allTasks() {
+  const out = [];
+  for (const n of notes.values()) for (const t of MD.tasksOf(n.text)) if (!t.done) out.push({ ...t, name: n.name });
+  return out;
+}
 function swRender() {
+  if (swMode === 'tasks') {
+    const l = $('#swq').value.trim().toLowerCase();
+    swRows = allTasks().filter((t) => !l || (t.text + ' ' + t.name).toLowerCase().includes(l)).slice(0, 50);
+    swSel = Math.min(swSel, Math.max(0, swRows.length - 1));
+    $('#swl').innerHTML = swRows.map((t, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}"><input type="checkbox" class="tk" data-tk="${i}" title="Mark done">${esc(t.text)}<span class="snip" style="float:right">${esc(t.name)}</span></div>`).join('') || '<div class="empty">No open tasks 🎉</div>';
+    return;
+  }
   if (swMode === 'cmds') {
     const l = $('#swq').value.trim().toLowerCase();
     const tpls = [...notes.keys()].filter((n) => /^templates\//i.test(n)).sort().map((n) => ({ name: 'New note from template: ' + n.slice(10), run: () => newFromTemplate(n) }));
@@ -651,9 +671,21 @@ function swRender() {
   swSel = Math.min(swSel, swRows.length - 1);
   $('#swl').innerHTML = swRows.map((r, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${r.create ? `Create “${esc(r.create)}”` : esc(r)}</div>`).join('');
 }
-function swOpen(mode) { swMode = mode || 'notes'; $('#swq').placeholder = swMode === 'cmds' ? 'Type a command…' : 'Jump to or create a note…'; $('#sw').style.display = 'flex'; $('#swq').value = ''; swSel = 0; swRender(); $('#swq').focus(); }
+function swOpen(mode) { swMode = mode || 'notes'; $('#swq').placeholder = swMode === 'cmds' ? 'Type a command…' : swMode === 'tasks' ? 'Filter open tasks…' : 'Jump to or create a note…'; $('#sw').style.display = 'flex'; $('#swq').value = ''; swSel = 0; swRender(); $('#swq').focus(); }
 function swClose() { $('#sw').style.display = 'none'; }
-function swPick(i) { const r = swRows[i]; swClose(); if (!r) return; if (r.run) setTimeout(r.run, 0); else open(r.create || r, !!r.create); }
+async function toggleTask(t) {
+  const n = notes.get(t.name); if (!n) return;
+  const L = n.text.split('\n'); if (!/\[ \]/.test(L[t.line] || '')) return;
+  L[t.line] = L[t.line].replace('[ ]', '[x]'); const text = L.join('\n');
+  try {
+    const r = await api('/api/note?name=' + encodeURIComponent(t.name), { method: 'PUT', body: text, headers: { 'x-base-mtime': String(n.base ?? 0) } });
+    n.text = text; n.base = r.mtime;
+    if (cur === t.name) { const ed = $('#ed'); if (ed) { ed.value = text; syncEditor(); } else renderPane(); }
+    $('#status').textContent = 'Task done';
+  } catch (e) { $('#status').textContent = 'Could not update task: ' + e.message; }
+  swRender();
+}
+function swPick(i) { const r = swRows[i]; swClose(); if (!r) return; if (swMode === 'tasks') { open(r.name, false); return; } if (r.run) setTimeout(r.run, 0); else open(r.create || r, !!r.create); }
 
 /* events */
 document.addEventListener('click', (e) => {
@@ -758,7 +790,7 @@ $('#menu').onclick = () => document.body.classList.toggle('side-open');
 $('#title').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } };
 $('#title').onchange = rename;
 $('#swq').oninput = () => { swSel = 0; swRender(); };
-$('#swl').onclick = (e) => { const i = e.target.closest('[data-i]'); if (i) swPick(+i.dataset.i); };
+$('#swl').onclick = (e) => { const tk = e.target.closest('[data-tk]'); if (tk) { e.stopPropagation(); toggleTask(swRows[+tk.dataset.tk]); return; } const i = e.target.closest('[data-i]'); if (i) swPick(+i.dataset.i); };
 $('#sw').onmousedown = (e) => { if (e.target.id === 'sw') swClose(); };
 document.addEventListener('keydown', (e) => {
   const mod = e.metaKey || e.ctrlKey;
