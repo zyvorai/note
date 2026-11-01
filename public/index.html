@@ -63,6 +63,7 @@ button:disabled{opacity:.4;cursor:default}
 #pv .callout-warning,#pv .callout-caution{--acc:#e8870e}#pv .callout-danger,#pv .callout-bug{--acc:#d6453d}#pv .callout-tip,#pv .callout-success{--acc:#2f9e5b}
 #pv .footnotes{font-size:.9em;color:var(--mute)}#pv sup.fn a{text-decoration:none}
 #back .um{display:block;margin-top:6px}#back .um a{margin-right:6px}#back .um b{font-weight:600}
+#pane{position:relative}#gmode{position:absolute;top:10px;right:12px;font-size:12px;padding:4px 10px;border-radius:999px;background:var(--code);color:var(--mute);cursor:pointer;user-select:none}#gmode:hover{color:var(--acc)}
 #gc{display:block;width:100%;height:100%;cursor:grab}
 body.side-off #app{grid-template-columns:1fr}body.side-off #side{display:none}
 /* native Mac app: the sidebar is translucent (NSVisualEffectView sits behind the web view) and content reaches under the title bar */
@@ -135,7 +136,7 @@ body.focus #hl,body.focus #ed{padding-bottom:45vh}
 const $ = (s) => document.querySelector(s);
 let notes = new Map();   // name -> {text, mtime}
 let activeTag = null;
-let graphOn = false, gRaf = 0;
+let graphOn = false, gRaf = 0, graphScope = 0;   // graphScope: 0 = all notes, 1/2 = neighbourhood of the open note
 let cur = null, preview = false, timer = null, dirty = false;
 
 const api = async (url, opt) => {
@@ -515,7 +516,7 @@ function drawGraph() {
   stopGraph();
   $('#gr').textContent = 'Close graph';
   const pane = $('#pane');
-  pane.innerHTML = '<canvas id="gc"></canvas>';
+  pane.innerHTML = '<canvas id="gc"></canvas><div id="gmode" title="Click to change: all notes / this note and its links / two steps out"></div>';
   const cv = $('#gc'), ctx = cv.getContext('2d'), dpr = devicePixelRatio || 1;
   const ids = new Map(), nodes = [], links = [];
   const node = (id, label, ghost) => { let n = ids.get(id);
@@ -530,7 +531,19 @@ function drawGraph() {
       const t = node(key, r ? r.split('/').pop() : m[1].trim(), !r), s = ids.get(o.name);
       links.push([s, t]); s.deg++; t.deg++;
     } }
+  if (graphScope && cur && ids.has(cur)) {           // keep only notes within graphScope links of the open note
+    const dist = new Map([[cur, 0]]), q = [cur];
+    while (q.length) { const id = q.shift(), d = dist.get(id); if (d >= graphScope) continue;
+      for (const [a, b] of links) { const o = a.id === id ? b.id : b.id === id ? a.id : null; if (o && !dist.has(o)) { dist.set(o, d + 1); q.push(o); } } }
+    for (let i = nodes.length - 1; i >= 0; i--) if (!dist.has(nodes[i].id)) nodes.splice(i, 1);
+    for (let i = links.length - 1; i >= 0; i--) if (!dist.has(links[i][0].id) || !dist.has(links[i][1].id)) links.splice(i, 1);
+    for (const n of nodes) { n.deg = 0; n.x *= 0.3; n.y *= 0.3; }
+    for (const [a, b] of links) { a.deg++; b.deg++; }
+  } else if (graphScope) graphScope = 0;
+  $('#gmode').textContent = graphScope ? `Around “${cur.split('/').pop()}” · ${graphScope === 1 ? '1 step' : '2 steps'}` : 'All notes';
+  $('#gmode').onclick = () => { graphScope = cur ? (graphScope + 1) % 3 : 0; drawGraph(); };
   if (!nodes.length) { pane.innerHTML = '<div class="empty">No notes yet</div>'; return; }
+  cv.dataset.nodes = nodes.length;
   const css = getComputedStyle(document.documentElement), C = (v) => css.getPropertyValue(v).trim();
   let userView = false, frames = 0, W, H, scale = 1, ox = 0, oy = 0, alpha = 1, drag = null, pan = null, hover = null, moved = false;
   const size = () => { W = pane.clientWidth; H = pane.clientHeight; cv.width = W * dpr; cv.height = H * dpr; };
@@ -604,6 +617,7 @@ const COMMANDS = [
   { id: 'today', name: 'Open today’s daily note', hint: 'Ctrl/Cmd+Shift+T', run: () => openToday() },
   { id: 'toggle', name: 'Toggle edit / preview', hint: 'Ctrl/Cmd+E', run: () => $('#tog').click() },
   { id: 'graph', name: 'Toggle graph view', hint: 'Ctrl/Cmd+G', run: () => $('#gr').click() },
+  { id: 'localgraph', name: 'Graph of this note and its links', run: async () => { if (!cur) return; await flush(); graphScope = 1; graphOn = true; renderPane(); } },
   { id: 'pin', name: 'Pin / unpin this note', run: () => $('#pin').click() },
   { id: 'export', name: 'Export this note as HTML', run: () => exportHtml() },
   { id: 'theme', name: 'Cycle theme (auto / light / dark)', hint: 'Ctrl/Cmd+Shift+L', run: () => $('#theme').click() },

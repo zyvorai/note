@@ -195,6 +195,17 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`swClose()`);
     assert.equal(await ev(`[...tagsOf(notes.get('Task Src').text)].join()`), 'work', 'frontmatter tag counted');
 
+    // local graph: only the open note's neighbourhood; the pill cycles 1 step / 2 steps / all
+    await ev(`(async () => { for (const [n, t] of [['Loc A', '[[Loc B]]'], ['Loc B', '[[Loc C]]'], ['Loc C', 'end'], ['Loc D', 'alone']]) await api('/api/note?name=' + encodeURIComponent(n), { method: 'PUT', body: t, headers: { 'x-base-mtime': '0' } }); await load(); await open('Loc A', false); await plainnote.run('localgraph'); })()`);
+    await until(`document.querySelector('#gc') && document.querySelector('#gc').dataset.nodes === '2'`, 'local graph: A and B only');
+    assert.match(await ev(`document.querySelector('#gmode').textContent`), /Around “Loc A” · 1 step/);
+    await ev(`document.querySelector('#gmode').click()`);
+    await until(`document.querySelector('#gc').dataset.nodes === '3'`, 'two steps reaches C');
+    await ev(`document.querySelector('#gmode').click()`);
+    await until(`+document.querySelector('#gc').dataset.nodes > 4 && document.querySelector('#gmode').textContent === 'All notes'`, 'back to all notes');
+    await ev(`(async () => { graphScope = 0; graphOn = false; await open('Home', false); })()`);
+    await until(`document.querySelector('#title').value === 'Home'`, 'home after local graph');
+
     // native-app bridge: plainnote.run(id) drives the same actions as the palette (the Mac menus call it)
     const before = await ev(`notes.size`);
     await ev(`plainnote.run('new')`);
