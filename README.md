@@ -12,6 +12,15 @@ node server.js ~/Notes          # http://localhost:4777
 
 `notesDir` defaults to `./notes` and `port` to `4777` (or `$PORT`). Requires Node.js 18+. You can point it at an existing Obsidian vault or any folder of `.md` files.
 
+## Desktop app (macOS)
+
+```sh
+./desktop/build.sh      # builds dist/Notes.app (needs Xcode command line tools)
+open dist/Notes.app
+```
+
+A ~100 KB native wrapper (Swift + WKWebView, no Electron). It starts the bundled server on a free local port, shows it in a window, and stops it on quit. Node.js must be installed. Use **File → Choose Notes Folder…** to switch folders (default `~/Notes`). The app is ad-hoc signed, so on another Mac you may need to right-click → Open the first time.
+
 ## Features
 
 - **Markdown files on disk**: subfolders work (`folder/name`); anything else that reads Markdown can open them.
@@ -55,10 +64,11 @@ Authentication is whatever git already uses on your machine (SSH keys, credentia
 ## Layout
 
 ```
-server.js        zero-dependency HTTP server + file/git API
+server.js          zero-dependency HTTP server + file/git API
 public/index.html  the whole UI (HTML, CSS, JS)
+desktop/           macOS wrapper (Notes.swift) and build.sh
 ```
 
 ## Limits
 
-No tables, images or syntax highlighting in preview yet; the graph layout is O(n²), fine for a few hundred notes; the layout is not designed for phones.
+No syntax highlighting in preview yet; the graph layout is O(n²), fine for a few hundred notes; the layout is not designed for phones.

@@ -168,6 +168,8 @@ http.createServer(async (req, res) => {
     send(res, e.code === 'ENOENT' ? 404 : 400, { error: e.message });
   }
 }).listen(PORT, '127.0.0.1', async () => {
+  // Desktop wrapper: exit when the parent app dies and closes our stdin.
+  if (process.env.NOTES_WATCH_STDIN) { process.stdin.resume(); process.stdin.on('end', () => process.exit(0)); }
   await fs.mkdir(ROOT, { recursive: true });
   console.log(`Notes: ${ROOT}\nOpen:  http://localhost:${PORT}`);
 });
