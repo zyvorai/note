@@ -130,3 +130,19 @@ test('sync rejects dangerous remotes and syncs between two folders', async () =>
     assert.equal(st.isRepo, true); assert.equal(st.dirty, 0);
   } finally { a.stop(); b.stop(); fs.rmSync(path.dirname(remote), { recursive: true, force: true }); }
 });
+
+test('append creates or extends a note and stays inside the notes folder', async () => {
+  const s = await start();
+  try {
+    const post = (b) => s.j('/api/append', { method: 'POST', body: JSON.stringify(b) });
+    assert.equal((await post({ name: 'daily/2026-11-01', text: '- 09:00 first' })).status, 200);
+    assert.equal((await post({ name: 'daily/2026-11-01', text: '- 09:05 second\n\n' })).status, 200);
+    assert.equal(fs.readFileSync(path.join(s.dir, 'daily', '2026-11-01.md'), 'utf8'), '- 09:00 first\n- 09:05 second\n');
+    fs.writeFileSync(path.join(s.dir, 'nonl.md'), 'no newline');
+    await post({ name: 'nonl', text: 'next' });
+    assert.equal(fs.readFileSync(path.join(s.dir, 'nonl.md'), 'utf8'), 'no newline\nnext\n');
+    assert.equal((await post({ name: '../escape', text: 'x' })).status >= 400, true);
+    assert.equal((await post({ name: 'x' })).status, 400);
+    assert.equal(fs.existsSync(path.join(s.dir, '..', 'escape.md')), false);
+  } finally { s.stop(); }
+});

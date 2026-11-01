@@ -138,6 +138,18 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`history.back()`);
     await until(`document.querySelector('#title').value === ${JSON.stringify(h0)}`, 'back again');
 
+    // native-app bridge: plainnote.run(id) drives the same actions as the palette (the Mac menus call it)
+    const before = await ev(`notes.size`);
+    await ev(`plainnote.run('new')`);
+    await until(`notes.size === ${before} + 1`, 'plainnote.run("new") creates a note');
+    await ev(`plainnote.run('sidebar')`);
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#side')).display`), 'none');
+    await ev(`plainnote.run('sidebar')`);
+    assert.notEqual(await ev(`getComputedStyle(document.querySelector('#side')).display`), 'none');
+    assert.equal(await ev(`typeof plainnote.run('nonexistent')`), 'undefined', 'unknown ids are ignored');
+    await ev(`(async()=>{ await open('Home', false); })()`);
+    await until(`document.querySelector('#title').value === 'Home'`, 'back to Home');
+
     // command palette: Ctrl+Shift+P lists actions, filtering and Enter run one
     await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'P', ctrlKey: true, shiftKey: true, bubbles: true }))`);
     assert.equal(await ev(`document.querySelector('#sw').style.display`), 'flex');

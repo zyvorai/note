@@ -149,6 +149,15 @@ return http.createServer(async (req, res) => {
         return send(res, 200, { ok: true });
       }
     }
+    if (url.pathname === '/api/append' && req.method === 'POST') {      // quick capture / URL scheme: append a block to a note (created if missing)
+      const { name, text } = JSON.parse(await body(req));
+      if (typeof text !== 'string') return send(res, 400, { error: 'text required' });
+      const p = notePath(name);
+      await fs.mkdir(path.dirname(p), { recursive: true });
+      const prev = await fs.readFile(p, 'utf8').catch(() => '');
+      await fs.writeFile(p, prev + (prev && !prev.endsWith('\n') ? '\n' : '') + text.replace(/\n*$/, '\n'), 'utf8');
+      return send(res, 200, { ok: true, mtime: (await fs.stat(p)).mtimeMs });
+    }
     if (url.pathname === '/api/trash' && req.method === 'GET') {
       const files = await fs.readdir(TRASH).catch(() => []);
       return send(res, 200, files.filter((f) => /^\d+__.+\.md$/.test(f)).sort().reverse().map((f) => ({

@@ -6,7 +6,7 @@ APP=dist/Plainnote.app
 TMP=$(mktemp -d)
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-swiftc -O -swift-version 5 desktop/Plainnote.swift -o "$APP/Contents/MacOS/Plainnote"
+swiftc -O -swift-version 5 desktop/main.swift desktop/App.swift desktop/Window.swift desktop/Menus.swift -o "$APP/Contents/MacOS/Plainnote"
 swiftc -O -swift-version 5 desktop/icon.swift -o "$TMP/icon"
 "$TMP/icon" "$TMP/Plainnote.iconset"
 iconutil -c icns "$TMP/Plainnote.iconset" -o "$APP/Contents/Resources/Plainnote.icns"

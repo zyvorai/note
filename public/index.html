@@ -55,6 +55,14 @@ button:disabled{opacity:.4;cursor:default}
 #pv blockquote{margin:0;padding-left:12px;border-left:3px solid var(--line);color:var(--mute)}
 #pv hr{border:0;border-top:1px solid var(--line)}
 #gc{display:block;width:100%;height:100%;cursor:grab}
+body.side-off #app{grid-template-columns:1fr}body.side-off #side{display:none}
+/* native Mac app: the sidebar is translucent (NSVisualEffectView sits behind the web view) and content reaches under the title bar */
+html.mac,html.mac body{background:transparent}
+html.mac #main{background:var(--bg)}
+html.mac #side{background:transparent}
+html.mac #side header{padding-top:40px;-webkit-user-select:none}
+html.mac #bar{min-height:52px;-webkit-user-select:none}
+html.mac #bar #title{-webkit-user-select:text}
 #back{border-top:1px solid var(--line);padding:8px 16px;font-size:13px;color:var(--mute);max-height:20%;overflow:auto}
 #back a{color:var(--acc);cursor:pointer;margin-right:12px}
 #outline{border-top:1px solid var(--line);padding:6px 16px;font-size:13px;color:var(--mute);max-height:14%;overflow:auto;display:none}
@@ -218,6 +226,7 @@ async function open(name, create) {
   }
   document.body.classList.remove('side-open');
   cur = name; preview = false; graphOn = false; location.hash = encodeURIComponent(name);
+  try { localStorage.setItem('last', name); } catch {}
   const t = $('#title'); t.disabled = false; t.value = name.split('/').pop();
   renderPane(); renderList(); renderBack(); $('#status').textContent = '';
   if (!notes.get(name).text) $('#ed').focus();
@@ -471,21 +480,38 @@ let swSel = 0, swRows = [];
 /* command palette: same overlay as the switcher, listing actions instead of notes (Ctrl/Cmd+Shift+P) */
 let swMode = 'notes';
 const COMMANDS = [
-  { name: 'New note', hint: 'Ctrl/Cmd+N', run: () => newNote() },
-  { name: 'Open today’s daily note', hint: 'Ctrl/Cmd+Shift+T', run: () => openToday() },
-  { name: 'Toggle edit / preview', hint: 'Ctrl/Cmd+E', run: () => $('#tog').click() },
-  { name: 'Toggle graph view', hint: 'Ctrl/Cmd+G', run: () => $('#gr').click() },
-  { name: 'Pin / unpin this note', run: () => $('#pin').click() },
-  { name: 'Export this note as HTML', run: () => exportHtml() },
-  { name: 'Cycle theme (auto / light / dark)', hint: 'Ctrl/Cmd+Shift+L', run: () => $('#theme').click() },
-  { name: 'Larger text', hint: 'Ctrl/Cmd +', run: () => setFontSize(fontSize + 1, true) },
-  { name: 'Smaller text', hint: 'Ctrl/Cmd −', run: () => setFontSize(fontSize - 1, true) },
-  { name: 'Reset text size', hint: 'Ctrl/Cmd 0', run: () => setFontSize(14, true) },
-  { name: 'Sync now', run: () => $('#sync').click() },
-  { name: 'Show trash', run: () => $('#trash').click() },
-  { name: 'Go back', hint: 'Ctrl/Cmd+[', run: () => history.back() },
-  { name: 'Go forward', hint: 'Ctrl/Cmd+]', run: () => history.forward() },
+  { id: 'new', name: 'New note', hint: 'Ctrl/Cmd+N', run: () => newNote() },
+  { id: 'today', name: 'Open today’s daily note', hint: 'Ctrl/Cmd+Shift+T', run: () => openToday() },
+  { id: 'toggle', name: 'Toggle edit / preview', hint: 'Ctrl/Cmd+E', run: () => $('#tog').click() },
+  { id: 'graph', name: 'Toggle graph view', hint: 'Ctrl/Cmd+G', run: () => $('#gr').click() },
+  { id: 'pin', name: 'Pin / unpin this note', run: () => $('#pin').click() },
+  { id: 'export', name: 'Export this note as HTML', run: () => exportHtml() },
+  { id: 'theme', name: 'Cycle theme (auto / light / dark)', hint: 'Ctrl/Cmd+Shift+L', run: () => $('#theme').click() },
+  { id: 'bigger', name: 'Larger text', hint: 'Ctrl/Cmd +', run: () => setFontSize(fontSize + 1, true) },
+  { id: 'smaller', name: 'Smaller text', hint: 'Ctrl/Cmd −', run: () => setFontSize(fontSize - 1, true) },
+  { id: 'reset', name: 'Reset text size', hint: 'Ctrl/Cmd 0', run: () => setFontSize(14, true) },
+  { id: 'sync', name: 'Sync now', run: () => $('#sync').click() },
+  { id: 'trash', name: 'Show trash', run: () => $('#trash').click() },
+  { id: 'back', name: 'Go back', hint: 'Ctrl/Cmd+[', run: () => history.back() },
+  { id: 'forward', name: 'Go forward', hint: 'Ctrl/Cmd+]', run: () => history.forward() },
 ];
+/* bridge for the native Mac app (menus call plainnote.run('<id>')); also handy for tests */
+const EXTRA = {
+  palette: () => swOpen('cmds'), switcher: () => swOpen(),
+  sidebar: () => { document.body.classList.toggle('side-off'); reportSide(); },
+};
+window.plainnote = { run(id) { const c = COMMANDS.find((x) => x.id === id); (c ? c.run : EXTRA[id])?.(); } };
+const macPost = (m) => { try { window.webkit?.messageHandlers?.mac?.postMessage(m); } catch {} };
+if (/[?&]mac\b/.test(location.search)) document.documentElement.classList.add('mac');   // ?mac previews the native-app layout in a browser
+function reportSide() { const sd = $('#side'); macPost({ t: 'side', w: getComputedStyle(sd).display === 'none' ? 0 : Math.round(sd.getBoundingClientRect().width) }); }
+new ResizeObserver(reportSide).observe($('#side'));
+document.addEventListener('mousedown', (e) => {                       // the title bar is web content in the Mac app: drag the window from empty bar space
+  if (!document.documentElement.classList.contains('mac') || e.button !== 0 || e.target.closest('button,input,a,select,label,textarea,canvas,.item,.chip')) return;
+  if (e.target.closest('#bar, #side header, #sf')) macPost({ t: 'drag' });
+});
+document.addEventListener('dblclick', (e) => {
+  if (document.documentElement.classList.contains('mac') && e.target.closest('#bar, #side header') && !e.target.closest('button,input,a,label')) macPost({ t: 'zoom' });
+});
 function swRender() {
   if (swMode === 'cmds') {
     const l = $('#swq').value.trim().toLowerCase();
@@ -576,6 +602,7 @@ function applyTheme(t, save) {
   const root = document.documentElement;
   if (t === 'auto') delete root.dataset.theme; else root.dataset.theme = t;
   $('#theme').textContent = ICON[t]; $('#theme').title = `Theme: ${t} (click or Ctrl/Cmd+Shift+L to change)`; $('#theme').dataset.mode = t;
+  macPost({ t: 'theme', v: t });
   if (save) try { t === 'auto' ? localStorage.removeItem('theme') : localStorage.setItem('theme', t); } catch {}
 }
 let savedTheme = 'auto'; try { savedTheme = localStorage.getItem('theme') || 'auto'; } catch {}
@@ -649,7 +676,8 @@ window.addEventListener('hashchange', () => {
   if (h && h !== cur && notes.has(h)) open(h, false);
 });
 load().then(async () => {
-  const h = decodeURIComponent(location.hash.slice(1)); if (h) await open(h, false);
+  let h = decodeURIComponent(location.hash.slice(1)); if (!h) try { h = localStorage.getItem('last') || ''; } catch {}   // reopen where you left off
+  if (h) await open(h, false);
   if (/[?&]graph\b/.test(location.search)) { graphOn = true; renderPane(); }   // ?graph opens the graph view (used for screenshots)
   if (/[?&]preview\b/.test(location.search) && cur) { preview = true; renderPane(); }
 });

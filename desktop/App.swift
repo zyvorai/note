@@ -1,10 +1,12 @@
-// Minimal macOS wrapper: runs server.js with the system Node and shows it in a WKWebView.
+// Plainnote for macOS: runs server.js with the system Node and shows it in a native window (Window.swift, Menus.swift).
 import Cocoa
 import WebKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate {
     var window: NSWindow!
     var web: WKWebView!
+    var effect: NSVisualEffectView!      // translucent sidebar behind the web view (see Window.swift)
+    var lastMouseDown: NSEvent?          // used to start window drags requested by the page
     var server: Process?
     var stopping = false
     var port = 0
@@ -96,59 +98,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         }.resume()
     }
 
-    // MARK: window
-    func buildWindow() {
-        let cfg = WKWebViewConfiguration()
-        web = WKWebView(frame: .zero, configuration: cfg)
-        web.uiDelegate = self; web.navigationDelegate = self
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
-                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Plainnote"
-        window.contentView = web
-        window.center()
-        window.setFrameAutosaveName("NotesMain")
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+    func js(_ code: String) { web?.evaluateJavaScript(code, completionHandler: nil) }
+    @objc func run(_ sender: NSMenuItem) { if let id = sender.representedObject as? String { js("plainnote.run('\(id)')") } }
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let m = NSMenu()
+        for (title, id) in [("New Note", "new"), ("Today’s Note", "today")] {
+            let i = NSMenuItem(title: title, action: #selector(run(_:)), keyEquivalent: ""); i.target = self; i.representedObject = id; m.addItem(i)
+        }
+        return m
     }
-
-    // MARK: menus
-    func buildMenu() {
-        let main = NSMenu()
-        func add(_ menu: NSMenu, _ title: String, _ sel: Selector?, _ key: String = "", target: AnyObject? = nil, mods: NSEvent.ModifierFlags = .command) {
-            let i = NSMenuItem(title: title, action: sel, keyEquivalent: key)
-            i.keyEquivalentModifierMask = mods; i.target = target; menu.addItem(i)
-        }
-        func submenu(_ title: String) -> NSMenu {
-            let item = NSMenuItem(); main.addItem(item)
-            let m = NSMenu(title: title); item.submenu = m; return m
-        }
-        let app = submenu("Plainnote")
-        add(app, "Hide Plainnote", #selector(NSApplication.hide(_:)), "h")
-        app.addItem(.separator())
-        add(app, "Quit Plainnote", #selector(NSApplication.terminate(_:)), "q")
-
-        let file = submenu("File")
-        add(file, "Choose Notes Folder…", #selector(chooseFolder), "o", target: self)
-        add(file, "Reveal Notes in Finder", #selector(reveal), "", target: self)
-        add(file, "Close Window", #selector(NSWindow.performClose(_:)), "w")
-
-        let edit = submenu("Edit")
-        add(edit, "Undo", NSSelectorFromString("undo:"), "z")
-        add(edit, "Redo", NSSelectorFromString("redo:"), "z", mods: [.command, .shift])
-        edit.addItem(.separator())
-        add(edit, "Cut", NSSelectorFromString("cut:"), "x")
-        add(edit, "Copy", NSSelectorFromString("copy:"), "c")
-        add(edit, "Paste", NSSelectorFromString("paste:"), "v")
-        add(edit, "Select All", NSSelectorFromString("selectAll:"), "a")
-
-        let view = submenu("View")
-        add(view, "Reload", #selector(reload), "r", target: self)
-        add(view, "Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", mods: [.command, .control])
-
-        let win = submenu("Window")
-        add(win, "Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")
-        NSApp.mainMenu = main
-        NSApp.windowsMenu = win
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { window?.makeKeyAndOrderFront(nil) }
+        return true
     }
 
     @objc func reload() { web.reload() }
@@ -187,9 +148,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         else { decisionHandler(.allow) }
     }
 }
-
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.regular)
-app.run()
