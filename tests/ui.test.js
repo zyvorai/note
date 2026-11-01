@@ -102,6 +102,17 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.match(exp.html, /#pv/, 'preview styles are embedded');
     assert.doesNotMatch(exp.html, /data-note|<script/, 'no app hooks or scripts');
 
+    // history: back returns to the previously opened note, forward comes back
+    const h0 = await ev(`document.querySelector('#title').value`);
+    await ev(`open(notes.keys().next().value === $('#title').value ? [...notes.keys()][1] : notes.keys().next().value, false)`);
+    await until(`document.querySelector('#title').value !== ${JSON.stringify(h0)}`, 'second note');
+    await ev(`history.back()`);
+    await until(`document.querySelector('#title').value === ${JSON.stringify(h0)}`, 'back to first note');
+    await ev(`history.forward()`);
+    await until(`document.querySelector('#title').value !== ${JSON.stringify(h0)}`, 'forward again');
+    await ev(`history.back()`);
+    await until(`document.querySelector('#title').value === ${JSON.stringify(h0)}`, 'back again');
+
     // editor: list continuation, [[ autocomplete, bold, tab indent
     await ev(`(async()=>{ document.querySelector('#new').click(); })()`);
     await until(`document.querySelector('#ed') && document.querySelector('#title').value.startsWith('Untitled')`, 'new note');

@@ -550,6 +550,8 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'e') { e.preventDefault(); $('#tog').click(); }
   else if (k === 's') { e.preventDefault(); flush(); }
   else if (k === 't' && e.shiftKey) { e.preventDefault(); openToday(); }
+  else if (e.key === '[') { e.preventDefault(); history.back(); }
+  else if (e.key === ']') { e.preventDefault(); history.forward(); }
   else if (k === 'l' && e.shiftKey) { e.preventDefault(); $('#theme').click(); }
 });
 window.addEventListener('focus', async () => {
@@ -561,6 +563,11 @@ window.addEventListener('focus', async () => {
 });
 
 setInterval(() => fetch('/api/ping').catch(() => {}), 10000);   // lets the desktop launcher notice when the window is closed
+/* back / forward: every opened note is a history entry, so the browser buttons, Alt+Arrows and Ctrl/Cmd+[ ] walk through them */
+window.addEventListener('hashchange', () => {
+  let h = ''; try { h = decodeURIComponent(location.hash.slice(1)); } catch {}
+  if (h && h !== cur && notes.has(h)) open(h, false);
+});
 load().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h) open(h, false); });
 </script>
 </body>
