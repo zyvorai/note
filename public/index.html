@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Notes</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--mute:#6e6e73;--line:#e5e5ea;--side:#f6f6f8;--acc:#5b5bd6;--code:#f0f0f3}
+@media(prefers-color-scheme:dark){:root{--bg:#18181b;--fg:#ececf0;--mute:#9a9aa3;--line:#2c2c32;--side:#1f1f24;--acc:#9d9dff;--code:#26262c}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,system-ui,sans-serif}
+#app{display:grid;grid-template-columns:260px 1fr;height:100%}
+#side{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+#side header{padding:10px;display:flex;gap:6px}
+input,button{font:inherit;color:inherit}
+#q{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+button{border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:4px 10px;cursor:pointer}
+button:hover{border-color:var(--acc)}
+#tags{padding:0 10px 8px;display:flex;flex-wrap:wrap;gap:4px}
+.chip{font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);background:var(--bg);cursor:pointer;color:var(--mute)}
+.chip:hover,.chip.on{border-color:var(--acc);color:var(--acc)}.chip.on{background:var(--acc);color:#fff}
+#sf{border-top:1px solid var(--line);padding:8px 10px;display:flex;gap:8px;align-items:center;font-size:12px;color:var(--mute)}
+#ss{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#pv a.tag{text-decoration:none;background:var(--code);padding:0 6px;border-radius:99px;font-size:.9em}
+#list{overflow:auto;flex:1;padding:0 6px 10px}
+.item{padding:5px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item:hover{background:var(--line)}.item.on{background:var(--acc);color:#fff}
+.snip{display:block;color:var(--mute);font-size:12px;overflow:hidden;text-overflow:ellipsis}
+.item.on .snip{color:#ffffffcc}
+#main{display:flex;flex-direction:column;min-width:0;min-height:0}
+#bar{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--line)}
+#title{flex:1;border:0;background:none;font-size:17px;font-weight:600;outline:0}
+#status{color:var(--mute);font-size:12px}
+#pane{flex:1;overflow:auto;min-height:0}
+#ed,#pv{display:block;width:100%;max-width:760px;margin:0 auto;padding:24px 16px 80px}
+#ed{height:100%;border:0;outline:0;resize:none;background:none;font:14px/1.7 ui-monospace,Menlo,monospace}
+#pv a{color:var(--acc)}#pv a.new{opacity:.6;border-bottom:1px dashed}
+#pv code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}
+#pv pre{background:var(--code);padding:12px;border-radius:8px;overflow:auto}#pv pre code{padding:0;background:none}
+#pv blockquote{margin:0;padding-left:12px;border-left:3px solid var(--line);color:var(--mute)}
+#pv hr{border:0;border-top:1px solid var(--line)}
+#gc{display:block;width:100%;height:100%;cursor:grab}
+#back{border-top:1px solid var(--line);padding:8px 16px;font-size:13px;color:var(--mute);max-height:20%;overflow:auto}
+#back a{color:var(--acc);cursor:pointer;margin-right:12px}
+#sw{position:fixed;inset:0;background:#0006;display:none;align-items:flex-start;justify-content:center;padding-top:15vh}
+#sw div{background:var(--bg);border:1px solid var(--line);border-radius:10px;width:min(480px,92vw);overflow:hidden}
+#swq{width:100%;padding:12px;border:0;border-bottom:1px solid var(--line);outline:0;background:none}
+#swl .item{border-radius:0}
+.empty{color:var(--mute);padding:40px;text-align:center}
+@media(max-width:700px){#app{grid-template-columns:1fr}#side{display:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <header><input id="q" placeholder="Search…" autocomplete="off"><button id="new" title="New note (Ctrl/Cmd+N)">+</button></header>
+    <div id="tags"></div>
+    <div id="list"></div>
+    <footer id="sf"><button id="sync" title="Sync notes with a git remote">Sync</button><label title="Sync every 2 minutes" style="white-space:nowrap"><input type="checkbox" id="auto"> Auto</label><span id="ss"></span></footer>
+  </aside>
+  <main id="main">
+    <div id="bar"><input id="title" placeholder="Select or create a note" disabled><span id="status"></span>
+      <button id="gr" title="Graph view (Ctrl/Cmd+G)">Graph</button><button id="tog" title="Edit / preview (Ctrl/Cmd+E)">Preview</button><button id="del" title="Delete">Delete</button></div>
+    <div id="pane"><div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div></div>
+    <div id="back"></div>
+  </main>
+</div>
+<div id="sw"><div><input id="swq" placeholder="Jump to or create a note…" autocomplete="off"><div id="swl"></div></div></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let notes = new Map();   // name -> {text, mtime}
+let activeTag = null;
+let graphOn = false, gRaf = 0;
+let cur = null, preview = false, timer = null, dirty = false;
+
+const api = async (url, opt) => {
+  const r = await fetch(url, opt);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+  return r.json();
+};
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const linkRe = /\[\[([^\]\|\n]+?)(?:\|([^\]\n]+))?\]\]/g;
+const tagRe = /(^|[\s(])#((?=[\w\/-]*[A-Za-z_])[\w\/-]+)/g;
+const tagsOf = (text) => { const t = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+  return new Set([...t.matchAll(tagRe)].map((m) => m[2].toLowerCase())); };
+const resolve = (t) => { t = t.trim(); if (notes.has(t)) return t;
+  const l = t.toLowerCase(); for (const n of notes.keys()) if (n.toLowerCase() === l || n.split('/').pop().toLowerCase() === l) return n; return null; };
+
+async function load() {
+  notes = new Map((await api('/api/notes')).map((n) => [n.name, n]));
+  renderList();
+}
+
+/* ---------- Markdown ---------- */
+function inline(s) {
+  s = esc(s);
+  const codes = [];
+  s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+  s = s.replace(linkRe, (_, t, a) => { const r = resolve(t);
+    return `<a href="#" data-note="${esc(r || t.trim())}" class="${r ? '' : 'new'}">${a || t}</a>`; });
+  s = s.replace(tagRe, (_, pre, t) => `${pre}<a href="#" class="tag" data-tag="${t.toLowerCase()}">#${t}</a>`);
+  s = s.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+       .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|\W)\*(?!\s)(.+?)\*(?=\W|$)/g, '$1<i>$2</i>')
+       .replace(/~~(.+?)~~/g, '<s>$1</s>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
+}
+function md(src) {
+  const out = [], L = src.replace(/\r/g, '').split('\n');
+  let list = null, para = [];
+  const flushP = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = []; };
+  const flushL = () => { if (list) out.push(`</${list}>`); list = null; };
+  for (let i = 0; i < L.length; i++) {
+    const l = L[i], m = l.match(/^(#{1,6})\s+(.*)/);
+    if (/^```/.test(l)) { flushP(); flushL(); const b = [];
+      while (++i < L.length && !/^```/.test(L[i])) b.push(L[i]);
+      out.push(`<pre><code>${esc(b.join('\n'))}</code></pre>`); continue; }
+    if (m) { flushP(); flushL(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
+    if (/^(-{3,}|\*{3,})\s*$/.test(l)) { flushP(); flushL(); out.push('<hr>'); continue; }
+    const li = l.match(/^\s*([-*+]|\d+\.)\s+(.*)/);
+    if (li) { flushP(); const t = /\d/.test(li[1]) ? 'ol' : 'ul';
+      if (list !== t) { flushL(); out.push(`<${t}>`); list = t; }
+      const task = li[2].match(/^\[( |x)\]\s+(.*)/i);
+      out.push(task ? `<li style="list-style:none;margin-left:-1.2em"><input type="checkbox" disabled ${task[1] !== ' ' ? 'checked' : ''}> ${inline(task[2])}</li>` : `<li>${inline(li[2])}</li>`);
+      continue; }
+    if (/^>\s?/.test(l)) { flushP(); flushL(); out.push(`<blockquote>${inline(l.replace(/^>\s?/, ''))}</blockquote>`); continue; }
+    if (!l.trim()) { flushP(); flushL(); continue; }
+    flushL(); para.push(l.trim());
+  }
+  flushP(); flushL();
+  return out.join('\n');
+}
+
+/* ---------- UI ---------- */
+function renderTags() {
+  const counts = new Map();
+  for (const n of notes.values()) for (const t of tagsOf(n.text)) counts.set(t, (counts.get(t) || 0) + 1);
+  if (activeTag && !counts.has(activeTag)) activeTag = null;
+  $('#tags').innerHTML = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 40)
+    .map(([t, c]) => `<span class="chip${t === activeTag ? ' on' : ''}" data-tag="${esc(t)}">#${esc(t)} ${c}</span>`).join('');
+}
+function renderList() {
+  renderTags();
+  const q = $('#q').value.trim().toLowerCase();
+  let rows = [...notes.values()];
+  if (activeTag) rows = rows.filter((n) => tagsOf(n.text).has(activeTag));
+  if (q) rows = rows.filter((n) => n.name.toLowerCase().includes(q) || n.text.toLowerCase().includes(q));
+  rows.sort((a, b) => b.mtime - a.mtime);
+  $('#list').innerHTML = rows.map((n) => {
+    let snip = '';
+    if (q && !n.name.toLowerCase().includes(q)) { const i = n.text.toLowerCase().indexOf(q);
+      snip = `<span class="snip">${esc(n.text.slice(Math.max(0, i - 20), i + 50).replace(/\n/g, ' '))}</span>`; }
+    return `<div class="item${n.name === cur ? ' on' : ''}" data-note="${esc(n.name)}">${esc(n.name)}${snip}</div>`;
+  }).join('') || '<div class="empty">No notes</div>';
+}
+function renderBack() {
+  if (!cur) { $('#back').innerHTML = ''; return; }
+  const short = cur.split('/').pop().toLowerCase(), hits = [];
+  for (const n of notes.values()) {
+    if (n.name === cur) continue;
+    for (const m of n.text.matchAll(linkRe)) { const t = m[1].trim().toLowerCase();
+      if (t === cur.toLowerCase() || t === short) { hits.push(n.name); break; } }
+  }
+  $('#back').innerHTML = hits.length ? 'Linked from: ' + hits.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join('') : 'No backlinks';
+}
+function renderPane() {
+  if (graphOn) return drawGraph();
+  stopGraph(); $('#gr').textContent = 'Graph';
+  if (!cur) { $('#pane').innerHTML = '<div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div>'; return; }
+  const t = notes.get(cur).text;
+  $('#tog').textContent = preview ? 'Edit' : 'Preview';
+  if (preview) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
+  else { $('#pane').innerHTML = '<textarea id="ed" spellcheck="false" placeholder="Start writing… use [[links]] to connect notes"></textarea>';
+    const ed = $('#ed'); ed.value = t; ed.oninput = onInput; if (!t) ed.focus(); }
+}
+async function open(name, create) {
+  await flush();
+  name = name.trim().replace(/^\/+|\.md$/gi, '');
+  if (!name) return;
+  if (!notes.has(name)) {
+    if (!create) return;
+    notes.set(name, { name, text: '', mtime: Date.now() });
+    await api('/api/note?name=' + encodeURIComponent(name), { method: 'PUT', body: '' });
+  }
+  cur = name; preview = false; graphOn = false; location.hash = encodeURIComponent(name);
+  const t = $('#title'); t.disabled = false; t.value = name.split('/').pop();
+  renderPane(); renderList(); renderBack(); $('#status').textContent = '';
+  if (!notes.get(name).text) $('#ed').focus();
+}
+function onInput() {
+  const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); dirty = true;
+  $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
+}
+async function flush() {
+  clearTimeout(timer);
+  if (!dirty || !cur) return;
+  dirty = false;
+  try { await api('/api/note?name=' + encodeURIComponent(cur), { method: 'PUT', body: notes.get(cur).text });
+    $('#status').textContent = 'Saved'; renderList(); }
+  catch (e) { dirty = true; $('#status').textContent = 'Save failed: ' + e.message; }
+}
+async function newNote() {
+  let i = 0, n; do { n = i ? `Untitled ${i}` : 'Untitled'; i++; } while (notes.has(n));
+  await open(n, true);
+}
+async function rename() {
+  const to = $('#title').value.trim().replace(/[\\:*?"<>|]/g, '');
+  const dir = cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/') + 1) : '';
+  const full = dir + to;
+  if (!to || full === cur) { $('#title').value = cur.split('/').pop(); return; }
+  await flush();
+  try { await api('/api/rename', { method: 'POST', body: JSON.stringify({ from: cur, to: full }) }); }
+  catch (e) { $('#status').textContent = 'Rename failed: ' + e.message; $('#title').value = cur.split('/').pop(); return; }
+  const n = notes.get(cur); notes.delete(cur); n.name = full; notes.set(full, n);
+  const re = new RegExp(`\\[\\[\\s*${cur.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(\\||\\]\\])`, 'g');
+  for (const o of notes.values()) if (re.test(o.text)) {            // keep links working
+    o.text = o.text.replace(re, `[[${full}$1`);
+    api('/api/note?name=' + encodeURIComponent(o.name), { method: 'PUT', body: o.text }); }
+  cur = full; location.hash = encodeURIComponent(full); renderList(); renderBack(); renderPane();
+}
+
+/* ---------- Graph ---------- */
+function stopGraph() { cancelAnimationFrame(gRaf); gRaf = 0; }
+function drawGraph() {
+  stopGraph();
+  $('#gr').textContent = 'Close graph';
+  const pane = $('#pane');
+  pane.innerHTML = '<canvas id="gc"></canvas>';
+  const cv = $('#gc'), ctx = cv.getContext('2d'), dpr = devicePixelRatio || 1;
+  const ids = new Map(), nodes = [], links = [];
+  const node = (id, label, ghost) => { let n = ids.get(id);
+    if (!n) { const a = Math.random() * 6.28, d = 40 + Math.random() * 120;
+      n = { id, label, ghost, x: Math.cos(a) * d, y: Math.sin(a) * d, vx: 0, vy: 0, deg: 0 }; ids.set(id, n); nodes.push(n); } return n; };
+  for (const name of notes.keys()) node(name, name.split('/').pop(), false);
+  for (const o of notes.values()) {
+    const seen = new Set();
+    for (const m of o.text.matchAll(linkRe)) {
+      const r = resolve(m[1]), key = r || m[1].trim().toLowerCase();
+      if (key === o.name || seen.has(key)) continue; seen.add(key);
+      const t = node(key, r ? r.split('/').pop() : m[1].trim(), !r), s = ids.get(o.name);
+      links.push([s, t]); s.deg++; t.deg++;
+    } }
+  if (!nodes.length) { pane.innerHTML = '<div class="empty">No notes yet</div>'; return; }
+  const css = getComputedStyle(document.documentElement), C = (v) => css.getPropertyValue(v).trim();
+  let W, H, scale = 1, ox = 0, oy = 0, alpha = 1, drag = null, pan = null, hover = null, moved = false;
+  const size = () => { W = pane.clientWidth; H = pane.clientHeight; cv.width = W * dpr; cv.height = H * dpr; };
+  size(); const ro = new ResizeObserver(() => { if (cv.isConnected) size(); else ro.disconnect(); }); ro.observe(pane);
+  const rad = (n) => 4 + Math.sqrt(n.deg) * 3;
+  const toW = (px, py) => [(px - W / 2 - ox) / scale, (py - H / 2 - oy) / scale];
+  const pick = (px, py) => { const [x, y] = toW(px, py); let best = null, bd = 1e9;
+    for (const n of nodes) { const d = Math.hypot(n.x - x, n.y - y); if (d < rad(n) + 4 / scale && d < bd) { best = n; bd = d; } } return best; };
+
+  function step() {
+    const N = nodes.length;
+    for (let i = 0; i < N; i++) { const a = nodes[i];
+      for (let j = i + 1; j < N; j++) { const b = nodes[j];
+        let dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy + 0.01;
+        if (d2 > 90000) continue;
+        const f = 1800 / d2, d = Math.sqrt(d2); dx = dx / d * f; dy = dy / d * f;
+        a.vx += dx; a.vy += dy; b.vx -= dx; b.vy -= dy; } }
+    for (const [a, b] of links) { const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, f = (d - 70) * 0.02;
+      a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; }
+    for (const n of nodes) { n.vx -= n.x * 0.004; n.vy -= n.y * 0.004;
+      if (n === drag) { n.vx = n.vy = 0; continue; }
+      n.vx *= 0.82; n.vy *= 0.82; n.x += n.vx * alpha; n.y += n.vy * alpha; }
+    alpha = Math.max(alpha * 0.994, 0.02);
+  }
+  function paint() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    ctx.translate(W / 2 + ox, H / 2 + oy); ctx.scale(scale, scale);
+    const hot = new Set(); if (hover) { hot.add(hover); for (const [a, b] of links) { if (a === hover) hot.add(b); if (b === hover) hot.add(a); } }
+    ctx.lineWidth = 1 / scale;
+    for (const [a, b] of links) { const on = hover && (a === hover || b === hover);
+      ctx.strokeStyle = on ? C('--acc') : C('--line'); ctx.globalAlpha = hover && !on ? 0.3 : 1;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+    ctx.font = `${12 / scale}px -apple-system,system-ui,sans-serif`; ctx.textAlign = 'center';
+    for (const n of nodes) {
+      const dim = hover && !hot.has(n), isCur = n.id === cur;
+      ctx.globalAlpha = dim ? 0.25 : 1;
+      ctx.fillStyle = isCur ? C('--acc') : n.ghost ? C('--line') : C('--mute');
+      ctx.beginPath(); ctx.arc(n.x, n.y, rad(n), 0, 6.283); ctx.fill();
+      if (isCur) { ctx.strokeStyle = C('--acc'); ctx.beginPath(); ctx.arc(n.x, n.y, rad(n) + 3 / scale, 0, 6.283); ctx.stroke(); }
+      if (scale > 0.6 || hot.has(n) || isCur) { ctx.fillStyle = C('--fg'); ctx.fillText(n.label, n.x, n.y + rad(n) + 13 / scale); } }
+    ctx.globalAlpha = 1;
+  }
+  const loop = () => { if (!cv.isConnected) return; step(); paint(); gRaf = requestAnimationFrame(loop); };
+  const pos = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  cv.onpointerdown = (e) => { const [px, py] = pos(e); cv.setPointerCapture(e.pointerId); moved = false;
+    const n = pick(px, py); if (n) drag = n; else { pan = [px - ox, py - oy]; } cv.style.cursor = 'grabbing'; };
+  cv.onpointermove = (e) => { const [px, py] = pos(e);
+    if (drag) { [drag.x, drag.y] = toW(px, py); alpha = 0.6; moved = true; }
+    else if (pan) { ox = px - pan[0]; oy = py - pan[1]; moved = true; }
+    else { const h = pick(px, py); if (h !== hover) { hover = h; cv.style.cursor = h ? 'pointer' : 'grab'; } } };
+  cv.onpointerup = () => { if (drag && !moved) { const n = drag; drag = null; graphOn = false; open(n.id, true); return; }
+    drag = pan = null; cv.style.cursor = hover ? 'pointer' : 'grab'; };
+  cv.onwheel = (e) => { e.preventDefault(); const [px, py] = pos(e), k = Math.exp(-e.deltaY * 0.0015), ns = Math.min(4, Math.max(0.2, scale * k));
+    const [wx, wy] = toW(px, py); scale = ns; ox = px - W / 2 - wx * scale; oy = py - H / 2 - wy * scale; };
+  loop();
+}
+
+/* quick switcher */
+let swSel = 0, swRows = [];
+function swRender() {
+  const v = $('#swq').value.trim(), l = v.toLowerCase();
+  swRows = [...notes.keys()].filter((n) => n.toLowerCase().includes(l)).slice(0, 8);
+  if (v && !notes.has(v)) swRows.push({ create: v });
+  swSel = Math.min(swSel, swRows.length - 1);
+  $('#swl').innerHTML = swRows.map((r, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${r.create ? `Create “${esc(r.create)}”` : esc(r)}</div>`).join('');
+}
+function swOpen() { $('#sw').style.display = 'flex'; $('#swq').value = ''; swSel = 0; swRender(); $('#swq').focus(); }
+function swClose() { $('#sw').style.display = 'none'; }
+function swPick(i) { const r = swRows[i]; swClose(); if (r) open(r.create || r, !!r.create); }
+
+/* events */
+document.addEventListener('click', (e) => {
+  const tg = e.target.closest('[data-tag]');
+  if (tg) { e.preventDefault(); activeTag = activeTag === tg.dataset.tag ? null : tg.dataset.tag; renderList(); return; }
+  const a = e.target.closest('[data-note]');
+  if (a) { e.preventDefault(); open(a.dataset.note, true); }
+});
+$('#q').oninput = renderList;
+
+/* sync */
+async function syncStatus() {
+  try { const s = await api('/api/sync/status');
+    $('#ss').textContent = !s.isRepo || !s.remote ? 'Not set up' : s.dirty ? `${s.dirty} unsynced` : 'Up to date';
+    return s; } catch { return null; }
+}
+let syncing = false;
+async function doSync(auto) {
+  if (syncing) return; syncing = true;
+  const btn = $('#sync'); btn.disabled = true;
+  try {
+    await flush();
+    let s = await syncStatus();
+    if (!s?.isRepo || !s.remote) {
+      if (auto) return;
+      const url = prompt('Git remote URL for syncing (https://…, ssh://… or git@host:user/repo.git).\nCreate an empty private repo first.', s?.remote || '');
+      if (!url) return;
+      await api('/api/sync/setup', { method: 'POST', body: JSON.stringify({ url: url.trim() }) });
+    }
+    $('#ss').textContent = 'Syncing…';
+    const before = cur && notes.get(cur)?.text;
+    const r = await api('/api/sync', { method: 'POST' });
+    if (dirty) { $('#ss').textContent = r.message; return; }   // user typed meanwhile; don't clobber
+    await load();
+    if (cur && !notes.has(cur)) { cur = null; renderPane(); renderBack(); }
+    else if (cur && notes.get(cur).text !== before) renderPane();
+    $('#ss').textContent = r.message; $('#ss').title = '';
+  } catch (e) { $('#ss').textContent = e.message; $('#ss').title = e.message; }
+  finally { btn.disabled = false; syncing = false; }
+}
+$('#sync').onclick = () => doSync(false);
+let autoTimer = null;
+function setAuto(on) {
+  clearInterval(autoTimer); autoTimer = on ? setInterval(() => { if (!document.hidden) doSync(true); }, 120000) : null;
+  try { localStorage.setItem('autoSync', on ? '1' : ''); } catch {}
+}
+$('#auto').onchange = (e) => { setAuto(e.target.checked); if (e.target.checked) doSync(true); };
+try { if (localStorage.getItem('autoSync')) { $('#auto').checked = true; setAuto(true); } } catch {}
+syncStatus();
+$('#new').onclick = newNote;
+$('#gr').onclick = async () => { await flush(); graphOn = !graphOn; renderPane(); };
+$('#tog').onclick = () => { if (!cur) return; graphOn = false; preview = !preview; flush(); renderPane(); };
+$('#del').onclick = async () => {
+  if (!cur || !confirm(`Delete “${cur}”?`)) return;
+  await api('/api/note?name=' + encodeURIComponent(cur), { method: 'DELETE' });
+  notes.delete(cur); cur = null; dirty = false; $('#title').value = ''; $('#title').disabled = true;
+  location.hash = ''; renderList(); renderPane(); renderBack();
+};
+$('#title').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } };
+$('#title').onchange = rename;
+$('#swq').oninput = () => { swSel = 0; swRender(); };
+$('#swl').onclick = (e) => { const i = e.target.closest('[data-i]'); if (i) swPick(+i.dataset.i); };
+$('#sw').onmousedown = (e) => { if (e.target.id === 'sw') swClose(); };
+document.addEventListener('keydown', (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if ($('#sw').style.display === 'flex') {
+    if (e.key === 'Escape') swClose();
+    else if (e.key === 'ArrowDown') { e.preventDefault(); swSel = Math.min(swSel + 1, swRows.length - 1); swRender(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); swSel = Math.max(swSel - 1, 0); swRender(); }
+    else if (e.key === 'Enter') swPick(swSel);
+    return;
+  }
+  if (!mod) return;
+  const k = e.key.toLowerCase();
+  if (k === 'k') { e.preventDefault(); swOpen(); }
+  else if (k === 'n') { e.preventDefault(); newNote(); }
+  else if (k === 'g') { e.preventDefault(); $('#gr').click(); }
+  else if (k === 'e') { e.preventDefault(); $('#tog').click(); }
+  else if (k === 's') { e.preventDefault(); flush(); }
+});
+window.addEventListener('focus', async () => { if (!dirty) { const c = cur; await load(); if (c && !notes.has(c)) { cur = null; renderPane(); } } });
+
+load().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h) open(h, false); });
+</script>
+</body>
+</html>
