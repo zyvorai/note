@@ -138,6 +138,41 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`history.back()`);
     await until(`document.querySelector('#title').value === ${JSON.stringify(h0)}`, 'back again');
 
+    // templates: notes in templates/ become palette commands and fill {{title}} / {{date}}
+    await ev(`api('/api/note?name=' + encodeURIComponent('templates/Meeting'), { method: 'PUT', body: '# {{title}}\\n{{date}} {{time}}\\n', headers: { 'x-base-mtime': '0' } }).then(() => load())`);
+    await ev(`swOpen('cmds'); $('#swq').value = 'template: meeting'; swRender()`);
+    assert.deepEqual(await ev(`swRows.map((r) => r.name)`), ['New note from template: Meeting']);
+    await ev(`swClose(); newFromTemplate('templates/Meeting', 'Meeting Notes')`);
+    await until(`document.querySelector('#ed') && document.querySelector('#title').value === 'Meeting Notes' && document.querySelector('#ed').value.startsWith('# Meeting Notes')`, 'template applied');
+    assert.match(await ev(`document.querySelector('#ed').value`), /^# Meeting Notes\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}\n$/);
+
+    // find and replace in the note
+    await ev(`open('Find Test', true)`);
+    await until(`document.querySelector('#ed') && document.querySelector('#title').value === 'Find Test'`, 'find test note');
+    await ev(`(() => { const e = document.querySelector('#ed'); e.value = 'Alpha beta alpha\\nALPHA gamma'; e.dispatchEvent(new Event('input')); })()`);
+    await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }))`);
+    assert.equal(await ev(`document.querySelector('#fr').classList.contains('on')`), true, 'find bar opens with Ctrl+F');
+    await ev(`(() => { const q = document.querySelector('#frq'); q.value = 'alpha'; q.dispatchEvent(new Event('input')); })()`);
+    assert.equal(await ev(`document.querySelector('#frc').textContent`), '1 of 3');
+    if (await ev(`!!(window.CSS && CSS.highlights && typeof Highlight !== 'undefined')`)) assert.equal(await ev(`CSS.highlights.get('find').size`), 3, 'all matches highlighted');
+    await ev(`document.querySelector('#frn').click()`);
+    assert.equal(await ev(`document.querySelector('#frc').textContent`), '2 of 3');
+    await ev(`document.querySelector('#frs').click()`);                           // replaces the current match only
+    assert.equal(await ev(`document.querySelector('#ed').value`), 'Alpha beta \nALPHA gamma', 'only the current match was replaced (with the empty replacement)');
+    await ev(`(() => { const r = document.querySelector('#frr'); r.value = 'omega'; })()`);
+    await ev(`document.querySelector('#fra').click()`);
+    assert.equal(await ev(`document.querySelector('#ed').value`), 'omega beta \nomega gamma', 'replace all');
+    await ev(`document.querySelector('#frq').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    assert.equal(await ev(`document.querySelector('#fr').classList.contains('on')`), false, 'Escape closes the find bar');
+
+    // focus mode hides the chrome and Escape leaves it
+    await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F', ctrlKey: true, shiftKey: true, bubbles: true }))`);
+    assert.equal(await ev(`document.body.classList.contains('focus') && getComputedStyle(document.querySelector('#side')).display`), 'none');
+    await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    assert.equal(await ev(`document.body.classList.contains('focus')`), false, 'Escape leaves focus mode');
+    await ev(`(async()=>{ await open('Home', false); })()`);
+    await until(`document.querySelector('#title').value === 'Home'`, 'back to Home');
+
     // native-app bridge: plainnote.run(id) drives the same actions as the palette (the Mac menus call it)
     const before = await ev(`notes.size`);
     await ev(`plainnote.run('new')`);

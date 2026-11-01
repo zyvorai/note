@@ -127,3 +127,17 @@ test('slash menu: filtering and block insertion data', () => {
   const t = MD.slashItems('table', when)[0];
   assert.equal(t.text.slice(t.caret - 2, t.caret), '| ', 'caret sits in the first empty cell');
 });
+
+test('templates fill date, time and title placeholders', () => {
+  const when = new Date(2026, 10, 1, 9, 5);
+  assert.equal(MD.fillTemplate('# {{title}}\n{{date}} {{ TIME }}\n{{datetime}} {{other}}', 'Standup', when), '# Standup\n2026-11-01 09:05\n2026-11-01 09:05 {{other}}');
+  assert.equal(MD.fillTemplate('no placeholders', 'x', when), 'no placeholders');
+});
+
+test('find in note: case-insensitive literal matches', () => {
+  assert.deepEqual(MD.findAll('Foo foo FOO', 'foo'), [{ start: 0, end: 3 }, { start: 4, end: 7 }, { start: 8, end: 11 }]);
+  assert.deepEqual(MD.findAll('a.b a.b', 'a.b').length, 2, 'regex characters are literal');
+  assert.deepEqual(MD.findAll('axb', 'a.b'), []);
+  assert.deepEqual(MD.findAll('text', ''), []);
+  assert.deepEqual(MD.findAll('[x] (y)', '[x]'), [{ start: 0, end: 3 }]);
+});

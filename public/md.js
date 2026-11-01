@@ -162,6 +162,22 @@
     return m ? { query: m[1], start: pos - m[1].length } : null;
   }
 
+  // templates: {{date}} {{time}} {{datetime}} {{title}} (case-insensitive); unknown {{x}} are left alone
+  function fillTemplate(text, title, now) {
+    const d = now || new Date(), p = (x) => String(x).padStart(2, '0');
+    const date = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, time = `${p(d.getHours())}:${p(d.getMinutes())}`;
+    const vars = { date, time, datetime: date + ' ' + time, title: title || '' };
+    return String(text).replace(/\{\{\s*(date|time|datetime|title)\s*\}\}/gi, (_, k) => vars[k.toLowerCase()]);
+  }
+
+  // find in note: case-insensitive literal matches as [{start, end}]
+  function findAll(text, query) {
+    if (!query) return [];
+    const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), out = [];
+    for (const m of text.matchAll(re)) out.push({ start: m.index, end: m.index + m[0].length });
+    return out;
+  }
+
   // slash menu: "/" at the start of a line (after indentation) opens a block picker; returns { query, start } or null
   function slashContext(t, pos) {
     const ls = t.lastIndexOf('\n', pos - 1) + 1, m = t.slice(ls, pos).match(/^\s*\/([a-z0-9]*)$/i);
@@ -233,7 +249,7 @@
     return out.join('\n');
   }
 
-  const api = { highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems };
+  const api = { highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);
