@@ -232,18 +232,24 @@ let acRows = [], acSel = 0;
 const acHide = () => { acRows = []; $('#ac').style.display = 'none'; };
 function acUpdate() {
   const ed = $('#ed'); if (!ed) return;
-  const c = MD.wikiContext(ed.value, ed.selectionStart);
-  if (!c) return acHide();
-  const q = c.query.toLowerCase();
-  acRows = [...notes.keys()].filter((n) => n !== cur && n.toLowerCase().includes(q)).sort((a, b) => a.length - b.length).slice(0, 6);
+  const sl = MD.slashContext(ed.value, ed.selectionStart), c = sl ? null : MD.wikiContext(ed.value, ed.selectionStart);
+  if (!sl && !c) return acHide();
+  if (sl) acRows = MD.slashItems(sl.query);
+  else { const q = c.query.toLowerCase();
+    acRows = [...notes.keys()].filter((n) => n !== cur && n.toLowerCase().includes(q)).sort((a, b) => a.length - b.length).slice(0, 6); }
   acSel = Math.min(acSel, Math.max(0, acRows.length - 1));
   const box = $('#ac');
   if (!acRows.length) return acHide();
-  box.innerHTML = acRows.map((n, i) => `<div class="item${i === acSel ? ' on' : ''}" data-ac="${i}">${esc(n)}</div>`).join('');
+  box.innerHTML = acRows.map((n, i) => `<div class="item${i === acSel ? ' on' : ''}" data-ac="${i}">${esc(typeof n === 'string' ? n : n.label)}</div>`).join('');
   box.style.display = 'block';
 }
 function acPick(i) {
-  const ed = $('#ed'), c = MD.wikiContext(ed.value, ed.selectionStart), name = acRows[i];
+  const ed = $('#ed'), sl = MD.slashContext(ed.value, ed.selectionStart);
+  if (sl && acRows[i] && typeof acRows[i] === 'object') {                       // slash menu: replace "/query" with the block
+    const it = acRows[i], at = sl.start + it.caret;
+    acHide(); applyEdit(ed, { start: sl.start, end: ed.selectionStart, insert: it.text, selStart: at, selEnd: at }); acUpdate(); return;
+  }
+  const c = MD.wikiContext(ed.value, ed.selectionStart), name = acRows[i];
   if (!c || !name) return;
   const after = ed.value.slice(ed.selectionStart, ed.selectionStart + 2) === ']]' ? 2 : 0;
   const end = ed.selectionStart + after, ins = name + ']]', at = c.start + ins.length;
@@ -455,7 +461,32 @@ function drawGraph() {
 
 /* quick switcher */
 let swSel = 0, swRows = [];
+/* command palette: same overlay as the switcher, listing actions instead of notes (Ctrl/Cmd+Shift+P) */
+let swMode = 'notes';
+const COMMANDS = [
+  { name: 'New note', hint: 'Ctrl/Cmd+N', run: () => newNote() },
+  { name: 'Open today’s daily note', hint: 'Ctrl/Cmd+Shift+T', run: () => openToday() },
+  { name: 'Toggle edit / preview', hint: 'Ctrl/Cmd+E', run: () => $('#tog').click() },
+  { name: 'Toggle graph view', hint: 'Ctrl/Cmd+G', run: () => $('#gr').click() },
+  { name: 'Pin / unpin this note', run: () => $('#pin').click() },
+  { name: 'Export this note as HTML', run: () => exportHtml() },
+  { name: 'Cycle theme (auto / light / dark)', hint: 'Ctrl/Cmd+Shift+L', run: () => $('#theme').click() },
+  { name: 'Larger text', hint: 'Ctrl/Cmd +', run: () => setFontSize(fontSize + 1, true) },
+  { name: 'Smaller text', hint: 'Ctrl/Cmd −', run: () => setFontSize(fontSize - 1, true) },
+  { name: 'Reset text size', hint: 'Ctrl/Cmd 0', run: () => setFontSize(14, true) },
+  { name: 'Sync now', run: () => $('#sync').click() },
+  { name: 'Show trash', run: () => $('#trash').click() },
+  { name: 'Go back', hint: 'Ctrl/Cmd+[', run: () => history.back() },
+  { name: 'Go forward', hint: 'Ctrl/Cmd+]', run: () => history.forward() },
+];
 function swRender() {
+  if (swMode === 'cmds') {
+    const l = $('#swq').value.trim().toLowerCase();
+    swRows = COMMANDS.filter((c) => !l || c.name.toLowerCase().includes(l) || l.split(/\s+/).every((w) => c.name.toLowerCase().includes(w)));
+    swSel = Math.min(swSel, Math.max(0, swRows.length - 1));
+    $('#swl').innerHTML = swRows.map((r, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${esc(r.name)}${r.hint ? `<span class="snip" style="float:right">${esc(r.hint)}</span>` : ''}</div>`).join('') || '<div class="empty">No matching command</div>';
+    return;
+  }
   const v = $('#swq').value.trim(), l = v.toLowerCase();
   // most recently edited first; names that start with the query beat names that merely contain it
   const rank = (n) => (l && n.toLowerCase().startsWith(l) ? 0 : 1);
@@ -465,9 +496,9 @@ function swRender() {
   swSel = Math.min(swSel, swRows.length - 1);
   $('#swl').innerHTML = swRows.map((r, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${r.create ? `Create “${esc(r.create)}”` : esc(r)}</div>`).join('');
 }
-function swOpen() { $('#sw').style.display = 'flex'; $('#swq').value = ''; swSel = 0; swRender(); $('#swq').focus(); }
+function swOpen(mode) { swMode = mode || 'notes'; $('#swq').placeholder = swMode === 'cmds' ? 'Type a command…' : 'Jump to or create a note…'; $('#sw').style.display = 'flex'; $('#swq').value = ''; swSel = 0; swRender(); $('#swq').focus(); }
 function swClose() { $('#sw').style.display = 'none'; }
-function swPick(i) { const r = swRows[i]; swClose(); if (r) open(r.create || r, !!r.create); }
+function swPick(i) { const r = swRows[i]; swClose(); if (!r) return; if (r.run) setTimeout(r.run, 0); else open(r.create || r, !!r.create); }
 
 /* events */
 document.addEventListener('click', (e) => {
@@ -582,7 +613,8 @@ document.addEventListener('keydown', (e) => {
   }
   if (!mod) return;
   const k = e.key.toLowerCase();
-  if (k === 'k') { e.preventDefault(); swOpen(); }
+  if (k === 'p' && e.shiftKey) { e.preventDefault(); swOpen('cmds'); }
+  else if (k === 'k') { e.preventDefault(); swOpen(); }
   else if (k === 'n') { e.preventDefault(); newNote(); }
   else if (k === 'g') { e.preventDefault(); $('#gr').click(); }
   else if (k === 'e') { e.preventDefault(); $('#tog').click(); }

@@ -138,6 +138,19 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`history.back()`);
     await until(`document.querySelector('#title').value === ${JSON.stringify(h0)}`, 'back again');
 
+    // command palette: Ctrl+Shift+P lists actions, filtering and Enter run one
+    await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'P', ctrlKey: true, shiftKey: true, bubbles: true }))`);
+    assert.equal(await ev(`document.querySelector('#sw').style.display`), 'flex');
+    assert.ok((await ev(`document.querySelectorAll('#swl .item').length`)) >= 10, 'lists commands');
+    await ev(`(()=>{ const q = document.querySelector('#swq'); q.value = 'theme'; q.dispatchEvent(new Event('input')); })()`);
+    assert.equal(await ev(`document.querySelectorAll('#swl .item').length`), 1);
+    const th0 = await ev(`document.querySelector('#theme').dataset.mode`);
+    await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`);
+    await sleep(100);
+    assert.notEqual(await ev(`document.querySelector('#theme').dataset.mode`), th0, 'command ran');
+    assert.equal(await ev(`document.querySelector('#sw').style.display`), 'none');
+    await ev(`document.querySelector('#theme').click(); document.querySelector('#theme').click()`);   // back to the original mode (3-way cycle)
+
     // editor: list continuation, [[ autocomplete, bold, tab indent
     await ev(`(async()=>{ document.querySelector('#new').click(); })()`);
     await until(`document.querySelector('#ed') && document.querySelector('#title').value.startsWith('Untitled')`, 'new note');
@@ -154,10 +167,19 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await key('Enter');
     assert.match(await ev(`document.querySelector('#ed').value`), /see \[\[Home\]\]$/);
 
+    // slash menu: "/" at line start offers blocks; picking one inserts it with the caret in place
+    await ev(`(()=>{ const e = document.querySelector('#ed'); e.value += '\\n\\n'; e.setSelectionRange(e.value.length, e.value.length); e.focus(); })()`);
+    await cdp('Input.insertText', { text: '/tab' });
+    await until(`document.querySelector('#ac').style.display === 'block' && document.querySelector('#ac .item').textContent === 'Table'`, 'slash menu');
+    await key('Enter');
+    assert.match(await ev(`document.querySelector('#ed').value`), /\n\| Column \| Column \|\n\| --- \| --- \|\n\|  \|  \|$/);
+    assert.equal(await ev(`(()=>{ const e = document.querySelector('#ed'); return e.value.slice(e.selectionStart - 2, e.selectionStart); })()`), '| ');
+    assert.equal(await ev(`document.querySelector('#ac').style.display`), 'none');
+
     // autosave reaches disk, then a conflicting external write is detected
     const untitled = fs.readdirSync(dir).find((f) => f.startsWith('Untitled'));
     for (let i = 0; i < 50 && !/see \[\[Home\]\]$/.test(fs.readFileSync(path.join(dir, untitled), 'utf8')); i++) await sleep(100);   // wait for autosave
-    assert.match(fs.readFileSync(path.join(dir, untitled), 'utf8'), /^- one\n {2}- two see \[\[Home\]\]$/);
+    assert.match(fs.readFileSync(path.join(dir, untitled), 'utf8'), /^- one\n {2}- two see \[\[Home\]\]\n\n\| Column \| Column \|/);
     await until(`document.querySelector('#status').textContent === 'Saved'`, 'save finished');
     await sleep(50);
     fs.writeFileSync(path.join(dir, untitled), 'changed on disk');

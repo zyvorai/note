@@ -162,6 +162,33 @@
     return m ? { query: m[1], start: pos - m[1].length } : null;
   }
 
+  // slash menu: "/" at the start of a line (after indentation) opens a block picker; returns { query, start } or null
+  function slashContext(t, pos) {
+    const ls = t.lastIndexOf('\n', pos - 1) + 1, m = t.slice(ls, pos).match(/^\s*\/([a-z0-9]*)$/i);
+    return m ? { query: m[1].toLowerCase(), start: pos - m[1].length - 1 } : null;
+  }
+  const SLASH = [
+    { label: 'Heading 1', keys: 'h1 heading title', text: '# ' },
+    { label: 'Heading 2', keys: 'h2 heading', text: '## ' },
+    { label: 'Heading 3', keys: 'h3 heading', text: '### ' },
+    { label: 'Task', keys: 'task todo checkbox', text: '- [ ] ' },
+    { label: 'Bullet list', keys: 'bullet list ul', text: '- ' },
+    { label: 'Numbered list', keys: 'numbered list ol', text: '1. ' },
+    { label: 'Quote', keys: 'quote blockquote', text: '> ' },
+    { label: 'Code block', keys: 'code fence', text: '```\n\n```', caret: 4 },
+    { label: 'Table', keys: 'table grid', text: '| Column | Column |\n| --- | --- |\n|  |  |', caret: 36 },
+    { label: 'Divider', keys: 'divider rule hr line', text: '---\n' },
+    { label: 'Link to note', keys: 'link wikilink note', text: '[[', caret: 2 },
+    { label: 'Today’s date', keys: 'date today', date: true },
+  ];
+  // items whose label or keywords match; `now` makes the date item testable
+  function slashItems(query, now) {
+    const q = (query || '').toLowerCase(), d = now || new Date(), p = (x) => String(x).padStart(2, '0');
+    const iso = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    return SLASH.filter((i) => !q || i.label.toLowerCase().startsWith(q) || i.keys.split(' ').some((k) => k.startsWith(q)))
+      .map((i) => { const text = i.date ? iso : i.text; return { label: i.label, text, caret: i.caret === undefined ? text.length : i.caret }; });
+  }
+
   /* ---- live editor highlighting ----
      Returns HTML whose text content is EXACTLY the input (only <span>s added), so it can sit behind a transparent textarea. */
   const INLINE = /(`[^`\n]+`)|(\[\[[^\]\n]+\]\])|(!?\[[^\]\n]*\]\([^)\n]*\))|(\*\*[^*\n]+\*\*)|(\*[^*\s][^*\n]*\*)|(~~[^~\n]+~~)|(^|[\s(])(#(?=[\w\/-]*[A-Za-z_])[\w\/-]+)/g;
@@ -206,7 +233,7 @@
     return out.join('\n');
   }
 
-  const api = { highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext };
+  const api = { highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);

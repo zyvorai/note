@@ -106,3 +106,24 @@ test('highlightMarkdown marks the main constructs', () => {
   for (const c of ['mk-h', 'mk-m', 'mk-b', 'mk-l', 'mk-t', 'mk-c', 'mk-q', 'tk-k', 'tk-n']) assert.ok(h.includes(c), c);
   assert.ok(!MD.highlightMarkdown('<script>alert(1)</script>').includes('<script>'));
 });
+
+test('slash menu: context only at the start of a line', () => {
+  assert.deepEqual(MD.slashContext('/', 1), { query: '', start: 0 });
+  assert.deepEqual(MD.slashContext('hello\n  /ta', 11), { query: 'ta', start: 8 });
+  assert.equal(MD.slashContext('see /usr', 8), null, 'mid-line slash is ignored');
+  assert.equal(MD.slashContext('a/b', 3), null);
+  assert.equal(MD.slashContext('/a b', 4), null, 'a space ends the command');
+});
+
+test('slash menu: filtering and block insertion data', () => {
+  const when = new Date(2026, 10, 1);
+  assert.ok(MD.slashItems('', when).length >= 10);
+  assert.deepEqual(MD.slashItems('tab', when).map((i) => i.label), ['Table']);
+  assert.deepEqual(MD.slashItems('head', when).map((i) => i.label), ['Heading 1', 'Heading 2', 'Heading 3']);
+  assert.equal(MD.slashItems('usr', when).length, 0);
+  assert.equal(MD.slashItems('date', when)[0].text, '2026-11-01');
+  const code = MD.slashItems('code', when)[0];
+  assert.equal(code.text.slice(0, code.caret + 1), '```\n\n', 'caret sits between the fences');
+  const t = MD.slashItems('table', when)[0];
+  assert.equal(t.text.slice(t.caret - 2, t.caret), '| ', 'caret sits in the first empty cell');
+});
