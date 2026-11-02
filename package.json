@@ -1,6 +1,6 @@
 {
   "name": "plainnote",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Free, lightweight, local-first Markdown notes",
   "private": true,
   "license": "MIT",
