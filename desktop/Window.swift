@@ -54,6 +54,8 @@ extension AppDelegate: WKScriptMessageHandler {
             if let e = lastMouseDown, e.window === window { window.performDrag(with: e) }
         case "zoom":
             window.performZoom(nil)
+        case "closewindow":
+            window.performClose(nil)
         case "theme":                                             // keep title bar and vibrancy in step with the page's theme
             switch d["v"] as? String {
             case "light": NSApp.appearance = NSAppearance(named: .aqua)

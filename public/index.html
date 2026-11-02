@@ -21,10 +21,14 @@
     <div id="bar"><button id="menu" title="Notes list">☰</button><input id="title" placeholder="Select or create a note" disabled><span id="status"></span><span id="wc" title="Words · characters"></span>
       <button id="pin" title="Pin to top of the list" aria-label="Pin" aria-pressed="false">Pin</button><button id="gr" title="Graph view (Ctrl/Cmd+G)" aria-label="Graph view">Graph</button><button id="tog" title="Edit / preview (Ctrl/Cmd+E)" aria-label="Preview">Preview</button><button id="del" title="Delete" aria-label="Delete note">Delete</button><button id="more" title="More" aria-label="More" aria-haspopup="true">…</button></div>
     <div id="moremenu" role="menu"><button id="exp" role="menuitem" title="Download as a standalone HTML page">Export as HTML</button><button id="pdfb" role="menuitem">Export as PDF / Print…</button><button id="gfb" role="menuitem">Find in all notes…</button></div>
+    <div id="tabs" role="tablist"></div>
     <div id="fr"><input id="frq" placeholder="Find" autocomplete="off" spellcheck="false"><input id="frr" placeholder="Replace" autocomplete="off" spellcheck="false"><span id="frc"></span>
       <button id="frp" title="Previous (Shift+Enter)">↑</button><button id="frn" title="Next (Enter)">↓</button><button id="frs">Replace</button><button id="fra">All</button><button id="frx" title="Close (Esc)">✕</button></div>
     <div id="props"></div>
+    <div id="panes">
     <div id="pane"><div class="empty"><kbd>Ctrl/Cmd+K</kbd> jump or create · <kbd>Ctrl/Cmd+N</kbd> new note · <kbd>Ctrl/Cmd+E</kbd> preview</div></div>
+      <aside id="split"><div class="sphead"><a id="sptitle" title="Open in the main pane"></a><button id="spx" aria-label="Close split" title="Close split">×</button></div><div id="sppv"></div></aside>
+    </div>
     <div id="outline"></div>
     <div id="back"></div>
     <div id="ac"></div>

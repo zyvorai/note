@@ -296,6 +296,37 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.equal(await ev(`document.querySelector('#props').textContent.trim()`), '+ Add property', 'a note without properties only offers to add one');
     assert.equal(await ev(`document.querySelectorAll('#props .prow').length`), 0);
 
+    // tabs: open in a new tab (ctrl-click / palette), switch, close, rename follows, persisted
+    await ev(`(async () => { for (const n of ['T1', 'T2', 'T3']) await api('/api/note?name=' + n, { method: 'PUT', body: n + ' body', headers: { 'x-base-mtime': '0' } }); await load(); await open('T1', false); })()`);
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#tabs')).display`), 'none', 'a single tab shows no tab bar');
+    await ev(`openInNewTab('T2', false)`); await until(`tabs.length === 2 && cur === 'T2'`, 'second tab');
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#tabs')).display`), 'flex');
+    assert.equal(await ev(`[...document.querySelectorAll('#tabs .tab')].map((t) => t.textContent.replace('×', '')).join(',')`), 'T1,T2');
+    await ev(`document.querySelector('#tabs [data-tab="0"] span').click()`); await until(`cur === 'T1' && ti === 0`, 'switch tab');
+    await ev(`document.querySelector('#list [data-note="T3"]').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }))`);
+    await until(`tabs.length === 3 && cur === 'T3' && ti === 1`, 'ctrl-click opens a new tab next to the current one');
+    assert.deepEqual(JSON.parse(await ev(`JSON.stringify(tabs.map((t) => t.name))`)), ['T1', 'T3', 'T2']);
+    assert.deepEqual(JSON.parse(await ev(`localStorage.getItem('tabs')`)).tabs.map((t) => t.name), ['T1', 'T3', 'T2'], 'persisted');
+    await ev(`document.querySelector('#title').value = 'T3b'; document.querySelector('#title').dispatchEvent(new Event('change'))`);
+    await until(`tabs[1].name === 'T3b'`, 'rename updates the tab');
+    await ev(`document.querySelector('#tabs [data-tabclose="1"]').click()`); await until(`tabs.length === 2 && cur === 'T2'`, 'closing the active tab shows its neighbour');
+    await ev(`plainnote.run('prevtab')`); await until(`cur === 'T1'`, 'previous tab command');
+    await ev(`plainnote.run('closetab')`); await until(`tabs.length === 1 && cur === 'T2'`, 'close tab command');
+    await ev(`(async () => { await open('Home', false); })()`);
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#tabs')).display`), 'none');
+
+    // split pane: a live read-only preview of a second note, follows renames, closes
+    await ev(`openSplit('T2')`);
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#split')).display`), 'flex');
+    assert.match(await ev(`document.querySelector('#sppv').textContent`), /T2 body/);
+    assert.equal(await ev(`document.querySelector('#sptitle').textContent`), 'T2');
+    await ev(`(async () => { await open('T2', false); const ed = document.querySelector('#ed'); ed.value = 'T2 edited live'; ed.dispatchEvent(new Event('input')); })()`);
+    await until(`/T2 edited live/.test(document.querySelector('#sppv').textContent)`, 'split follows edits of the same note');
+    await ev(`(async () => { await open('Home', false); })()`);
+    await ev(`document.querySelector('#spx').click()`);
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#split')).display`), 'none', 'split closes');
+    assert.equal(await ev(`localStorage.getItem('split')`), null);
+
     // icon toolbar: every icon button has an accessible name; the overflow menu opens, runs an item and closes
     assert.equal(await ev(`[...document.querySelectorAll('button.ico')].every((b) => b.getAttribute('aria-label') && b.querySelector('svg'))`), true);
     await ev(`document.querySelector('#more').click()`);

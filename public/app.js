@@ -138,6 +138,7 @@ function updateWC() {
   el.textContent = `${w.toLocaleString()} word${w === 1 ? '' : 's'} · ${t.length.toLocaleString()} chars`;
 }
 function renderPane() {
+  if (cur && tabs[ti]) { tabs[ti].preview = preview; saveTabs(); }
   updateWC(); renderPin(); renderOutline(); renderProps(true);
   $('#tog').disabled = $('#del').disabled = !cur;
   if (graphOn) return drawGraph();
@@ -152,6 +153,56 @@ function renderPane() {
     ed.ondragover = (e) => { if ([...e.dataTransfer.items].some((i) => i.type.startsWith('image/'))) e.preventDefault(); };
     ed.ondrop = (e) => { if ([...e.dataTransfer.files].some((f) => f.type.startsWith('image/'))) { e.preventDefault(); attach(e.dataTransfer.files); } }; if (!t) ed.focus(); }
 }
+/* ---------- split: a live, read-only preview of a second note beside the main pane ---------- */
+let split = null, splitTimer = 0; try { split = localStorage.getItem('split') || null; } catch {}
+function renderSplit() {
+  const el = $('#split'), n = split && notes.get(split);
+  if (!n) { if (split) { split = null; try { localStorage.removeItem('split'); } catch {} } el.style.display = 'none'; return; }
+  el.style.display = 'flex'; $('#sptitle').textContent = n.name.split('/').pop(); $('#sptitle').title = `Open “${n.name}” in the main pane`;
+  const pv = $('#sppv'), top = pv.scrollTop;
+  pv.innerHTML = md(n.text); pv.scrollTop = top;
+}
+const renderSplitSoon = () => { clearTimeout(splitTimer); splitTimer = setTimeout(renderSplit, 250); };
+function openSplit(name) { if (!notes.has(name)) return; split = name; try { localStorage.setItem('split', name); } catch {} renderSplit(); }
+function closeSplit() { split = null; try { localStorage.removeItem('split'); } catch {} renderSplit(); }
+$('#spx').onclick = closeSplit;
+$('#sptitle').onclick = () => { if (split) open(split, false); };
+
+/* ---------- tabs: each tab shows one note; the active tab's note is `cur` ---------- */
+let tabs = [{ name: null, preview: false }], ti = 0, pendingPreview = false;
+const saveTabs = () => { try { localStorage.setItem('tabs', JSON.stringify({ i: ti, tabs: tabs.map((t) => ({ name: t.name, preview: !!t.preview })) })); } catch {} };
+function renderTabs() {
+  const el = $('#tabs'); el.style.display = tabs.length > 1 ? 'flex' : 'none';
+  el.innerHTML = tabs.map((t, i) => `<div class="tab${i === ti ? ' on' : ''}" role="tab" aria-selected="${i === ti}" data-tab="${i}" title="${esc(t.name || 'New tab')}"><span>${esc(t.name ? t.name.split('/').pop() : 'New tab')}</span><button class="x" data-tabclose="${i}" aria-label="Close tab" title="Close tab">×</button></div>`).join('')
+    + '<button id="newtab" title="New tab (Ctrl/Cmd+T)" aria-label="New tab">+</button>';
+}
+function showEmpty() {
+  cur = null; dirty = false; preview = false; $('#status').textContent = ''; $('#title').value = ''; $('#title').disabled = true;
+  location.hash = ''; renderList(); renderPane(); renderBack();
+}
+async function openInNewTab(name, create) {
+  await flush(); tabs.splice(ti + 1, 0, { name: null, preview: false }); ti++;
+  await open(name, create);
+  if (tabs[ti] && !tabs[ti].name) await closeTab(ti);           // the note did not exist
+  renderTabs(); saveTabs();
+}
+async function newTab() { await flush(); tabs.splice(ti + 1, 0, { name: null, preview: false }); ti++; showEmpty(); renderTabs(); saveTabs(); swOpen(); }
+async function switchTab(i) {
+  if (i === ti || !tabs[i]) return; await flush();
+  ti = i; const t = tabs[i]; pendingPreview = !!t.preview;
+  if (t.name && notes.has(t.name)) await open(t.name, false); else showEmpty();
+  renderTabs(); saveTabs();
+}
+async function closeTab(i = ti) {
+  if (!tabs[i]) return; await flush();
+  if (tabs.length === 1) { tabs[0] = { name: null, preview: false }; ti = 0; showEmpty(); renderTabs(); saveTabs(); return; }
+  tabs.splice(i, 1);
+  if (i < ti) ti--;
+  else if (i === ti) { ti = Math.min(i, tabs.length - 1); const t = tabs[ti]; pendingPreview = !!t.preview; if (t.name && notes.has(t.name)) await open(t.name, false); else showEmpty(); }
+  renderTabs(); saveTabs();
+}
+const closeTabCmd = () => (tabs.length === 1 && !tabs[0].name ? macPost({ t: 'closewindow' }) : closeTab());
+const stepTab = (d) => switchTab((ti + d + tabs.length) % tabs.length);
 async function open(name, create) {
   await flush();
   name = name.trim().replace(/^\/+|\.md$/gi, '');
@@ -165,7 +216,7 @@ async function open(name, create) {
   }
   document.body.classList.remove('side-open');
   if (name.includes('/')) { const d = name.slice(0, name.lastIndexOf('/')); for (let i = d.indexOf('/'); i >= 0; i = d.indexOf('/', i + 1)) openFolders.add(d.slice(0, i)); openFolders.add(d); saveOpenFolders(); }
-  addingProp = false; cur = name; preview = false; graphOn = false; location.hash = encodeURIComponent(name);
+  addingProp = false; cur = name; preview = pendingPreview; pendingPreview = false; graphOn = false; tabs[ti].name = name; renderTabs(); location.hash = encodeURIComponent(name);
   try { localStorage.setItem('last', name); } catch {}
   const t = $('#title'); t.disabled = false; t.value = name.split('/').pop();
   renderPane(); renderList(); renderBack(); $('#status').textContent = '';
@@ -270,7 +321,7 @@ function caretIntoView(top) {
 }
 function onInput() {
   syncEditor();
-  const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); aliasMap = null; dirty = true; updateWC(); renderOutline(); renderProps();
+  const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); aliasMap = null; dirty = true; updateWC(); renderOutline(); renderProps(); if (split && split === cur) renderSplitSoon();
   $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
 }
 async function flush() {
@@ -403,6 +454,8 @@ async function renameNote(from, to) {
   try { await api('/api/rename', { method: 'POST', body: JSON.stringify({ from, to }) }); }
   catch (e) { $('#status').textContent = 'Rename failed: ' + (e.message === 'exists' ? 'a note with that name already exists' : e.message); return false; }
   const n = notes.get(from); notes.delete(from); n.name = to; notes.set(to, n); aliasMap = null;
+  tabs.forEach((t) => { if (t.name === from) t.name = to; }); renderTabs(); saveTabs();
+  if (split === from) { split = to; try { localStorage.setItem('split', to); } catch {} renderSplit(); }
   const re = new RegExp(`\\[\\[(\\s*)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s*)(?=[|\\]#^])`, 'g');
   for (const o of notes.values()) if (o.text.match(re)) {            // keep links working, including [[Note#Heading]] and [[Note^id]]
     o.text = o.text.replace(re, `[[$1${to}$2`);
@@ -544,6 +597,12 @@ const COMMANDS = [
   { id: 'tasks', name: 'Show open tasks from all notes', run: () => swOpen('tasks') },
   { id: 'find', name: 'Find and replace in this note', hint: 'Ctrl/Cmd+F', run: () => openFind() },
   { id: 'starter', name: 'Add starter templates (Daily, Meeting, Project)', run: () => addStarterTemplates() },
+  { id: 'splitcur', name: 'Open this note in a split pane to the right', hint: 'Ctrl/Cmd+Alt+\\', run: () => cur && openSplit(cur) },
+  { id: 'splitclose', name: 'Close the split pane', run: () => closeSplit() },
+  { id: 'newtab', name: 'New tab', hint: 'Ctrl/Cmd+T', run: () => newTab() },
+  { id: 'closetab', name: 'Close tab', hint: 'Ctrl/Cmd+W', run: () => closeTabCmd() },
+  { id: 'nexttab', name: 'Next tab', hint: 'Ctrl/Cmd+Shift+]', run: () => stepTab(1) },
+  { id: 'prevtab', name: 'Previous tab', hint: 'Ctrl/Cmd+Shift+[', run: () => stepTab(-1) },
   { id: 'back', name: 'Go back', hint: 'Ctrl/Cmd+[', run: () => history.back() },
   { id: 'forward', name: 'Go forward', hint: 'Ctrl/Cmd+]', run: () => history.forward() },
 ];
@@ -672,6 +731,11 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'emptytrash') { if (confirm('Permanently delete everything in the trash?')) api('/api/trash', { method: 'DELETE' }).then(() => { trashMode = true; showTrash(); }); return; }
   const rs = e.target.closest('[data-restore]');
   if (rs) { api('/api/restore', { method: 'POST', body: JSON.stringify({ id: rs.dataset.restore }) }).then(async (r) => { await load(); trashMode = false; trashIcon(false); renderList(); open(r.name, false); }); return; }
+  const tcl = e.target.closest('[data-tabclose]');
+  if (tcl) { e.stopPropagation(); closeTab(+tcl.dataset.tabclose); return; }
+  const tb = e.target.closest('[data-tab]');
+  if (tb) { switchTab(+tb.dataset.tab); return; }
+  if (e.target.closest('#newtab')) { newTab(); return; }
   const fo = e.target.closest('[data-folder]');
   if (fo) { const f = fo.dataset.folder; openFolders.has(f) ? openFolders.delete(f) : openFolders.add(f); saveOpenFolders(); renderList(); return; }
   const ssd = e.target.closest('[data-ssdel]');
@@ -686,9 +750,16 @@ document.addEventListener('click', (e) => {
   if (oh) { gotoHeading(+oh.dataset.h); return; }
   const lk = e.target.closest('[data-link]'); if (lk) { linkMention(lk.dataset.link); return; }
   const a = e.target.closest('[data-note]');
-  if (a) { e.preventDefault(); const anchor = a.dataset.anchor, block = a.dataset.block; open(a.dataset.note || cur, true).then(() => { if (anchor) gotoAnchor(anchor); else if (block) gotoBlock(block); }); }
+  if (a) { e.preventDefault(); const anchor = a.dataset.anchor, block = a.dataset.block;
+    if (e.altKey && notes.has(a.dataset.note)) { openSplit(a.dataset.note); return; }
+    (e.metaKey || e.ctrlKey ? openInNewTab : open)(a.dataset.note || cur, true).then(() => { if (anchor) gotoAnchor(anchor); else if (block) gotoBlock(block); }); }
 });
 $('#q').oninput = renderList;
+document.addEventListener('auxclick', (e) => {                      // middle-click: close a tab / open a link in a new tab
+  if (e.button !== 1) return;
+  const tb = e.target.closest?.('[data-tab]'), a = e.target.closest?.('[data-note]');
+  if (tb) { e.preventDefault(); closeTab(+tb.dataset.tab); } else if (a) { e.preventDefault(); openInNewTab(a.dataset.note, true); }
+});
 
 
 /* ---------- file tree ---------- */
@@ -766,7 +837,7 @@ $('#list').addEventListener('contextmenu', (e) => {
   e.preventDefault();
   if (n) {
     const name = n.dataset.note, dir = name.includes('/') ? name.slice(0, name.lastIndexOf('/') + 1) : '';
-    showCtx([['Open', () => open(name, false)], null,
+    showCtx([['Open', () => open(name, false)], ['Open in new tab', () => openInNewTab(name, false)], ['Open to the right', () => openSplit(name)], null,
       ['Rename…', async () => { const v = (prompt('Rename note', name.split('/').pop()) || '').trim().replace(/[\\:*?"<>|]/g, ''); if (v && dir + v !== name) await renameNote(name, dir + v); }],
       ['Duplicate', () => duplicateNote(name)],
       ['Move to folder…', async () => { const v = prompt('Move to folder (empty for the top level)', dir.replace(/\/$/, '')); if (v !== null) await moveNote(name, v.trim().replace(/^\/+|\/+$/g, '')); }],
@@ -805,7 +876,7 @@ function setNoteText(t) {
   const n = notes.get(cur); if (!n || n.text === t) return;
   n.text = t; n.mtime = Date.now(); aliasMap = null; dirty = true;
   const ed = $('#ed'); if (ed) { ed.value = t; syncEditor(); } else if ($('#pv')) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
-  updateWC(); renderOutline(); renderList(); renderProps(true);
+  updateWC(); renderOutline(); renderList(); renderProps(true); if (split && split === cur) renderSplitSoon();
   $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
 }
 $('#props').addEventListener('change', (e) => {
@@ -939,7 +1010,8 @@ $('#tog').onclick = () => { if (!cur) return; graphOn = false; preview = !previe
 $('#del').onclick = async () => {
   if (!cur || !confirm(`Move “${cur}” to the trash?`)) return;
   await api('/api/note?name=' + encodeURIComponent(cur), { method: 'DELETE' });
-  notes.delete(cur); cur = null; dirty = false; $('#status').textContent = ''; $('#title').value = ''; $('#title').disabled = true;
+  const gone = cur, keep = tabs[ti]; tabs = tabs.filter((t) => t === keep || t.name !== gone); keep.name = null; ti = tabs.indexOf(keep); renderTabs(); saveTabs();
+  notes.delete(cur); cur = null; dirty = false; if (split === gone) closeSplit(); $('#status').textContent = ''; $('#title').value = ''; $('#title').disabled = true;
   location.hash = ''; renderList(); renderPane(); renderBack();
 };
 let trashMode = false;
@@ -970,7 +1042,12 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && document.body.classList.contains('focus') && !frOpen()) { toggleFocus(); return; }
   if (!mod) return;
   const k = e.key.toLowerCase();
-  if (k === 'p' && e.shiftKey) { e.preventDefault(); swOpen('cmds'); }
+  if (e.shiftKey && (e.key === '[' || e.key === '{')) { e.preventDefault(); stepTab(-1); }
+  else if (e.shiftKey && (e.key === ']' || e.key === '}')) { e.preventDefault(); stepTab(1); }
+  else if (e.altKey && e.code === 'Backslash') { e.preventDefault(); if (cur) openSplit(cur); }
+  else if (k === 't' && !e.shiftKey) { e.preventDefault(); newTab(); }
+  else if (k === 'w' && !e.shiftKey) { e.preventDefault(); closeTabCmd(); }
+  else if (k === 'p' && e.shiftKey) { e.preventDefault(); swOpen('cmds'); }
   else if (k === 'k') { e.preventDefault(); swOpen(); }
   else if (k === 'n') { e.preventDefault(); newNote(); }
   else if (k === 'g') { e.preventDefault(); $('#gr').click(); }
@@ -1003,7 +1080,14 @@ window.addEventListener('hashchange', () => {
 });
 setView(view);
 plainnote.ready = load().then(async () => {
-  let h = decodeURIComponent(location.hash.slice(1)); if (!h) try { h = localStorage.getItem('last') || ''; } catch {}   // reopen where you left off
+  let h = decodeURIComponent(location.hash.slice(1));
+  try {                                                              // restore the tabs from last time
+    const sv = JSON.parse(localStorage.getItem('tabs') || 'null'); let seen = 0, idx = 0; const ok = [];
+    if (sv && Array.isArray(sv.tabs)) sv.tabs.forEach((t, j) => { if (t && t.name && notes.has(t.name)) { if (j === sv.i) idx = seen; seen++; ok.push({ name: t.name, preview: !!t.preview }); } });
+    if (ok.length) { tabs = ok; ti = Math.min(idx, ok.length - 1); if (!h) { h = ok[ti].name; pendingPreview = ok[ti].preview; } }
+  } catch {}
+  if (!h) try { h = localStorage.getItem('last') || ''; } catch {}   // reopen where you left off
+  renderSplit();
   if (h) await open(h, false);
   if (/[?&]graph\b/.test(location.search)) { graphOn = true; renderPane(); }   // ?graph opens the graph view (used for screenshots)
   if (/[?&]preview\b/.test(location.search) && cur) { preview = true; renderPane(); }

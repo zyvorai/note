@@ -194,3 +194,25 @@ html.native #fr{top:calc(var(--tb) + 8px)}
 #props .prow .x{padding:0 6px;color:var(--mute);opacity:0}#props .prow:hover .x,#props .prow .x:focus-visible{opacity:1}
 #props .prow.add input{flex:1}
 @media(prefers-reduced-transparency:reduce){#ctx{background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none}}
+
+/* ---- tabs ---- */
+#tabs{display:none;align-items:stretch;gap:2px;padding:4px 10px 0;border-bottom:1px solid var(--sep);overflow-x:auto;scrollbar-width:none}
+#tabs::-webkit-scrollbar{display:none}
+#tabs .tab{display:flex;align-items:center;gap:4px;max-width:200px;min-width:90px;padding:4px 4px 4px 12px;border-radius:8px 8px 0 0;font-size:13px;color:var(--mute);cursor:pointer;white-space:nowrap;user-select:none}
+#tabs .tab span{flex:1;overflow:hidden;text-overflow:ellipsis}
+#tabs .tab:hover{background:var(--hover)}#tabs .tab.on{color:var(--fg);background:var(--field)}
+#tabs .tab .x{padding:0 5px;opacity:0;color:var(--mute);border-radius:5px}#tabs .tab:hover .x,#tabs .tab.on .x,#tabs .tab .x:focus-visible{opacity:1}
+#tabs #newtab{align-self:center;padding:1px 8px;color:var(--mute)}
+
+/* ---- split pane (live read-only preview next to the editor) ---- */
+#panes{flex:1;display:flex;min-height:0}
+#split{display:none;flex:0 0 42%;max-width:640px;flex-direction:column;border-left:1px solid var(--sep);min-width:0}
+.sphead{display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid var(--sep);font-size:13px;font-weight:600}
+.sphead a{flex:1;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sphead a:hover{color:var(--acc)}
+#sppv{flex:1;overflow:auto;padding:16px 18px 60px;font-size:calc(var(--fs,14px) + 1px)}
+#sppv a{color:var(--acc)}#sppv a.new{opacity:.6}
+#sppv code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}#sppv pre{background:var(--code);padding:12px;border-radius:10px;overflow:auto}#sppv pre code{padding:0;background:none}
+#sppv img{max-width:100%;border-radius:6px}#sppv table{border-collapse:collapse;display:block;overflow-x:auto}#sppv th,#sppv td{border:1px solid var(--line);padding:5px 10px}
+#sppv blockquote{margin:0;padding-left:12px;border-left:3px solid var(--line);color:var(--mute)}
+@media(max-width:900px){#split{display:none!important}}
+@media print{#split{display:none!important}}

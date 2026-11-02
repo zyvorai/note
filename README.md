@@ -65,6 +65,7 @@ plainnote --no-window          # server only, open the printed URL yourself
 - **Markdown files on disk**: subfolders work (`folder/name`); anything that reads Markdown can open them.
 - **Wikilinks** `[[Note]]` / `[[Note|alias]]` with autocomplete as you type `[[`. Links to missing notes are created on click. Renaming a note updates links to it.
 - **File tree**: switch the sidebar between *List* and *Files*. Drag a note onto a folder to move it (links to it are rewritten, including `[[Note#Heading]]`), right-click for Rename, Duplicate, Move to folder, Pin, Copy link, new folder and more. Empty folders are kept.
+- **Tabs and a split pane**: Cmd/Ctrl-click a note or link (or right-click → *Open in new tab*) to open it in a new tab; tabs are restored when you relaunch. Option/Alt-click a link, or use *Open to the right*, to keep a second note beside the one you're editing as a live read-only preview.
 - **Properties**: a panel above each note edits its frontmatter (text, number, date, checkbox, lists) without touching the rest of the file; notes without properties just offer *+ Add property*.
 - **Backlinks** for every note, and a **graph view** (drag, pan, zoom, click to open).
 - **Tags**: `#tag` or `#parent/child`, filter from the sidebar.
@@ -87,6 +88,9 @@ plainnote --no-window          # server only, open the printed URL yourself
 | Ctrl/Cmd+K | Quick switcher (jump or create) |
 | Ctrl/Cmd+Shift+P | Command palette (every action, searchable) |
 | Ctrl/Cmd+N | New note |
+| Ctrl/Cmd+T / W | New tab / close tab |
+| Ctrl/Cmd+Shift+[ / ] | Previous / next tab |
+| Ctrl/Cmd+Alt+\\ | Open this note in a split pane to the right |
 | Ctrl/Cmd+E | Toggle edit / preview |
 | Ctrl/Cmd+G | Toggle graph view |
 | Ctrl/Cmd+S | Save now |

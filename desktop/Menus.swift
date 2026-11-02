@@ -28,6 +28,7 @@ extension AppDelegate {
 
         let file = submenu("File")
         page(file, "New Note", "new", "n")
+        page(file, "New Tab", "newtab", "t")
         page(file, "Today’s Note", "today", "t", mods: [.command, .shift])
         page(file, "Open Quickly…", "switcher", "k")
         add(file, "Quick Capture…", #selector(showCapture), "n", target: self, mods: [.control, .option])
@@ -40,7 +41,8 @@ extension AppDelegate {
         add(file, "Choose Notes Folder…", #selector(chooseFolder), "o", target: self)
         add(file, "Reveal Notes in Finder", #selector(reveal), "", target: self)
         file.addItem(.separator())
-        add(file, "Close Window", #selector(NSWindow.performClose(_:)), "w")
+        page(file, "Close Tab", "closetab", "w")
+        add(file, "Close Window", #selector(NSWindow.performClose(_:)), "w", mods: [.command, .shift])
 
         let edit = submenu("Edit")
         add(edit, "Undo", NSSelectorFromString("undo:"), "z")
@@ -58,6 +60,10 @@ extension AppDelegate {
         page(view, "Edit / Preview", "toggle", "e")
         page(view, "Graph", "graph", "g")
         page(view, "Toggle Sidebar", "sidebar", "\\")
+        page(view, "Open Note to the Right", "splitcur", "\\", mods: [.command, .option])
+        page(view, "Close Split", "splitclose", "")
+        page(view, "Next Tab", "nexttab", "]", mods: [.command, .shift])
+        page(view, "Previous Tab", "prevtab", "[", mods: [.command, .shift])
         page(view, "Focus Mode", "focus", "f", mods: [.command, .shift])
         view.addItem(.separator())
         page(view, "Cycle Theme", "theme", "l", mods: [.command, .shift])
