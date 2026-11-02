@@ -7,3 +7,4 @@ dist/
 ios/build/
 ios/Plainnote.xcodeproj/
 ios/Sources/Info.plist
+ios/appstore/screenshots/

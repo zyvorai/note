@@ -23,8 +23,6 @@ run_icon() {
   rm -rf "$T"; echo "icons written"
 }
 run_project() {
-  V=$(node -p "require('./package.json').version")
-  sed -i '' "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$V\"/" ios/project.yml
   (cd ios && xcodegen generate --quiet)
 }
 case "${1:-build}" in
