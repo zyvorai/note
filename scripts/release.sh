@@ -8,6 +8,7 @@
 # Needs: a "Developer ID Application" identity in the login keychain, a notarytool keychain profile
 # (default "notary"; create with `xcrun notarytool store-credentials notary`), and an authenticated `gh`.
 # Env overrides: SIGN_ID, NOTARY_PROFILE.
+# RESUME=1 ./scripts/release.sh X.Y.Z  finishes a release whose tag was already pushed (e.g. a failed upload): it rebuilds, re-notarizes and re-uploads.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -29,8 +30,12 @@ xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1 || die "n
 [[ $(git branch --show-current) == main ]] || die "not on main"
 git fetch -q origin main --tags
 [[ $(git rev-parse HEAD) == "$(git rev-parse origin/main)" ]] || die "main is not in sync with origin/main"
-! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || die "tag $TAG already exists"
-! gh release view "$TAG" >/dev/null 2>&1 || die "release $TAG already exists"
+if [[ -z ${RESUME:-} ]]; then
+  ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || die "tag $TAG already exists (RESUME=1 finishes an interrupted release)"
+  ! gh release view "$TAG" >/dev/null 2>&1 || die "release $TAG already exists"
+else
+  git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || die "RESUME needs the tag $TAG to exist"
+fi
 echo "releasing $TAG as: $SIGN_ID"
 
 WORK=$(mktemp -d)
@@ -38,16 +43,21 @@ cleanup() { git worktree remove --force "$WORK/src" 2>/dev/null || true; rm -rf 
 trap cleanup EXIT
 
 # ---- bump, test, tag, push ----
-say "Tests"
-npm test >/dev/null
-say "Bump to $VER, tag and push"
-sed -i '' "s/\"version\": \"[0-9.]*\"/\"version\": \"$VER\"/" package.json
-sed -i '' "s#<key>CFBundleShortVersionString</key><string>[0-9.]*</string>#<key>CFBundleShortVersionString</key><string>$VER</string>#" desktop/build.sh
-git diff --quiet && die "version bump changed nothing"
-git commit -qam "Release $VER"
-git tag "$TAG"
-git push origin main "$TAG"
-SHA=$(git rev-parse HEAD)
+if [[ -z ${RESUME:-} ]]; then
+  say "Tests"
+  npm test >/dev/null
+  say "Bump to $VER, tag and push"
+  sed -i '' "s/\"version\": \"[0-9.]*\"/\"version\": \"$VER\"/" package.json
+  sed -i '' "s#<key>CFBundleShortVersionString</key><string>[0-9.]*</string>#<key>CFBundleShortVersionString</key><string>$VER</string>#" desktop/build.sh
+  git diff --quiet && die "version bump changed nothing"
+  git commit -qam "Release $VER"
+  git tag "$TAG"
+  git push origin main "$TAG"
+  SHA=$(git rev-parse HEAD)
+else
+  say "Resuming $TAG"
+  SHA=$(git rev-list -n1 "$TAG")
+fi
 
 # ---- build from a clean checkout of the tag ----
 git worktree add -q --detach "$WORK/src" "$TAG"
@@ -108,10 +118,11 @@ done
 
 # ---- publish ----
 say "Publish $TAG"
+retry() { local n; for n in 1 2 3 4; do "$@" && return 0; echo "attempt $n failed, retrying…" >&2; sleep $((n * 5)); done; return 1; }   # GitHub's upload API occasionally answers 5xx
 if gh release view "$TAG" >/dev/null 2>&1; then          # CI's release job already ran; replace its macOS assets
-  gh release upload "$TAG" "$DMG" "$CLI" "$WORK"/ci/plainnote-* --clobber
+  retry gh release upload "$TAG" "$DMG" "$CLI" "$WORK"/ci/plainnote-* --clobber || die "upload failed; the release is incomplete: RESUME=1 $0 $VER"
 else
-  gh release create "$TAG" --title "$TAG" --verify-tag --generate-notes "$DMG" "$CLI" "$WORK"/ci/plainnote-*
+  retry gh release create "$TAG" --title "$TAG" --verify-tag --generate-notes "$DMG" "$CLI" "$WORK"/ci/plainnote-* || die "release creation failed: RESUME=1 $0 $VER"
 fi
 echo
 gh release view "$TAG" --json url,assets -q '.url, (.assets[] | "  " + .name)'
