@@ -33,6 +33,7 @@ extension AppDelegate {
         add(file, "Quick Capture…", #selector(showCapture), "n", target: self, mods: [.control, .option])
         file.addItem(.separator())
         page(file, "Export as HTML…", "export", "e", mods: [.command, .shift])
+        page(file, "Export as PDF / Print…", "pdf", "p")
         page(file, "Pin / Unpin Note", "pin", "p", mods: [.command, .option])
         add(file, "Share…", #selector(shareNote), "", target: self)
         file.addItem(.separator())
@@ -51,6 +52,7 @@ extension AppDelegate {
         add(edit, "Select All", NSSelectorFromString("selectAll:"), "a")
         edit.addItem(.separator())
         page(edit, "Find and Replace…", "find", "f")
+        page(edit, "Replace in All Notes…", "gfind", "h", mods: [.command, .shift])
 
         let view = submenu("View")
         page(view, "Edit / Preview", "toggle", "e")

@@ -59,6 +59,13 @@ extension AppDelegate: WKScriptMessageHandler {
             effect.frame = NSRect(x: 0, y: 0, width: w, height: effect.superview?.bounds.height ?? 720)
         case "notify":                                            // sync results: only worth a banner when the app is in the background
             if !NSApp.isActive { notify(title: d["title"] as? String ?? "Plainnote", body: d["body"] as? String ?? "") }
+        case "print":                                             // PDF / Print: the page has already switched to its print layout
+            let info = NSPrintInfo.shared
+            info.horizontalPagination = .fit
+            info.isVerticallyCentered = false
+            let op = web.printOperation(with: info)
+            op.view?.frame = web.bounds
+            op.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
         default: break
         }
     }

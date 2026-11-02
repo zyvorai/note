@@ -206,6 +206,17 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`(async () => { graphScope = 0; graphOn = false; await open('Home', false); })()`);
     await until(`document.querySelector('#title').value === 'Home'`, 'home after local graph');
 
+    // global find & replace: preview, untick one note, apply to the rest
+    await ev(`(async () => { for (const [n, t] of [['GF One', 'the zebra and Zebra'], ['GF Two', 'a zebra here'], ['GF Three', 'zebra too']]) await api('/api/note?name=' + encodeURIComponent(n), { method: 'PUT', body: t, headers: { 'x-base-mtime': '0' } }); await load(); })()`);
+    await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'H', ctrlKey: true, shiftKey: true, bubbles: true }))`);
+    await ev(`(() => { const q = document.querySelector('#gfq'); q.value = 'zebra'; q.dispatchEvent(new Event('input')); document.querySelector('#gfr').value = 'okapi'; })()`);
+    assert.equal(await ev(`document.querySelector('#gfc').textContent`), '4 matches in 3 notes');
+    await ev(`[...document.querySelectorAll('#gfl [data-gf]')].find((c) => c.closest('.m').textContent.includes('GF Three')).click()`);
+    await ev(`document.querySelector('#gfa').click()`);
+    await until(`notes.get('GF One').text === 'the okapi and okapi' && notes.get('GF Two').text === 'a okapi here'`, 'replaced in ticked notes');
+    assert.equal(await ev(`notes.get('GF Three').text`), 'zebra too', 'unticked note untouched');
+    assert.equal(await ev(`document.querySelector('#gf').style.display`), 'none', 'dialog closes');
+
     // native-app bridge: plainnote.run(id) drives the same actions as the palette (the Mac menus call it)
     const before = await ev(`notes.size`);
     await ev(`plainnote.run('new')`);

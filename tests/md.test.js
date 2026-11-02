@@ -191,3 +191,9 @@ test('section and embeds', () => {
 test('tasksOf ignores fenced code', () => {
   assert.deepEqual(MD.tasksOf('- [ ] a\n```\n- [ ] no\n```\n  1. [x] b'), [{ line: 0, done: false, text: 'a' }, { line: 4, done: true, text: 'b' }]);
 });
+
+test('replaceAll is literal, case-insensitive and counts', () => {
+  assert.deepEqual(MD.replaceAll('Foo foo FOO a.b', 'foo', 'x'), { text: 'x x x a.b', count: 3 });
+  assert.deepEqual(MD.replaceAll('a.b axb', 'a.b', '$&'), { text: '$& axb', count: 1 });
+  assert.deepEqual(MD.replaceAll('none', 'zzz', 'q'), { text: 'none', count: 0 });
+});

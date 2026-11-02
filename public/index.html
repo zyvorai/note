@@ -93,7 +93,13 @@ body.focus #hl,body.focus #ed{padding-bottom:45vh}
 #sw div{background:var(--bg);border:1px solid var(--line);border-radius:10px;width:min(480px,92vw);overflow:hidden}
 #swq{width:100%;padding:12px;border:0;border-bottom:1px solid var(--line);outline:0;background:none}
 #swl .item{border-radius:0}
+#gf{position:fixed;inset:0;background:#0006;display:none;align-items:flex-start;justify-content:center;padding-top:10vh;z-index:30}
+#gf>div{background:var(--bg);border:1px solid var(--line);border-radius:10px;width:min(620px,94vw);max-height:78vh;display:flex;flex-direction:column;overflow:hidden}
+#gf .row{display:flex;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}#gf .row input[type=text],#gf .row input:not([type]){flex:1;min-width:0}
+#gfl{overflow:auto;flex:1}#gfl .m{padding:6px 12px;border-bottom:1px solid var(--line);font-size:13px}#gfl .m label{display:flex;gap:8px;align-items:baseline}#gfl .m small{color:var(--mute);display:block;margin-left:22px;white-space:pre-wrap}#gfl mark{background:rgba(255,200,0,.35);color:inherit}
+#gfs{padding:8px 12px;font-size:12px;color:var(--mute);display:flex;justify-content:space-between;align-items:center}
 .empty{color:var(--mute);padding:40px;text-align:center}
+@media print{#side,#bar,#back,#outline,#fr,#sw,#gf,#status,#gmode,#menu{display:none!important}html,body{height:auto!important;overflow:visible!important;background:#fff!important;color:#000!important}#main,#pane,#pv{position:static!important;display:block!important;overflow:visible!important;height:auto!important;max-width:none!important;padding:0!important}#pv{font-size:12pt!important;color:#000}#pv a{color:#000;text-decoration:underline}#pv pre,#pv blockquote,#pv table,#pv .callout,#pv .embed{break-inside:avoid}}
 .tk-c{color:var(--mute);font-style:italic}.tk-s{color:var(--str)}.tk-n{color:var(--num)}.tk-k{color:var(--acc);font-weight:600}
 #ac{position:absolute;left:50%;transform:translateX(-50%);bottom:64px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px #0003;min-width:220px;max-width:90%;display:none;z-index:5;overflow:hidden}
 #ac .item{border-radius:0}
@@ -129,6 +135,7 @@ body.focus #hl,body.focus #ed{padding-bottom:45vh}
     <div id="ac"></div>
   </main>
 </div>
+<div id="gf"><div><div class="row"><input id="gfq" placeholder="Find in all notes…" autocomplete="off"><input id="gfr" placeholder="Replace with…" autocomplete="off"></div><div id="gfl"></div><div id="gfs"><span id="gfc"></span><span><button id="gfx">Close</button> <button id="gfa" class="pri">Replace selected</button></span></div></div></div>
 <div id="sw"><div><input id="swq" placeholder="Jump to or create a note…" autocomplete="off"><div id="swl"></div></div></div>
 
 <script src="md.js"></script>
@@ -619,6 +626,8 @@ const COMMANDS = [
   { id: 'graph', name: 'Toggle graph view', hint: 'Ctrl/Cmd+G', run: () => $('#gr').click() },
   { id: 'localgraph', name: 'Graph of this note and its links', run: async () => { if (!cur) return; await flush(); graphScope = 1; graphOn = true; renderPane(); } },
   { id: 'pin', name: 'Pin / unpin this note', run: () => $('#pin').click() },
+  { id: 'pdf', name: 'Export this note as PDF / Print…', run: () => exportPdf() },
+  { id: 'gfind', name: 'Find and replace in all notes', hint: 'Ctrl/Cmd+Shift+H', run: () => openGlobalFind() },
   { id: 'export', name: 'Export this note as HTML', run: () => exportHtml() },
   { id: 'theme', name: 'Cycle theme (auto / light / dark)', hint: 'Ctrl/Cmd+Shift+L', run: () => $('#theme').click() },
   { id: 'bigger', name: 'Larger text', hint: 'Ctrl/Cmd +', run: () => setFontSize(fontSize + 1, true) },
@@ -655,6 +664,47 @@ document.addEventListener('mousedown', (e) => {                       // the tit
 document.addEventListener('dblclick', (e) => {
   if (document.documentElement.classList.contains('mac') && e.target.closest('#bar, #side header') && !e.target.closest('button,input,a,label')) macPost({ t: 'zoom' });
 });
+/* global find & replace: preview every affected note first, tick the ones to change */
+let gfHits = [];
+function gfRender() {
+  const q = $('#gfq').value;
+  gfHits = q ? [...notes.values()].map((n) => ({ name: n.name, hits: MD.findAll(n.text, q), text: n.text })).filter((h) => h.hits.length).sort((a, b) => a.name.localeCompare(b.name)) : [];
+  const total = gfHits.reduce((a, h) => a + h.hits.length, 0);
+  $('#gfl').innerHTML = gfHits.map((h, i) => {
+    const m = h.hits[0], a = Math.max(0, m.start - 30), snip = esc(h.text.slice(a, m.start)) + '<mark>' + esc(h.text.slice(m.start, m.end)) + '</mark>' + esc(h.text.slice(m.end, m.end + 40));
+    return `<div class="m"><label><input type="checkbox" data-gf="${i}" checked><b>${esc(h.name)}</b> <span style="color:var(--mute)">${h.hits.length}×</span></label><small>${snip.replace(/\n/g, ' ')}</small></div>`;
+  }).join('') || `<div class="empty">${q ? 'No matches' : 'Type something to find'}</div>`;
+  $('#gfc').textContent = q ? `${total} match${total === 1 ? '' : 'es'} in ${gfHits.length} note${gfHits.length === 1 ? '' : 's'}` : '';
+  $('#gfa').disabled = !gfHits.length;
+}
+function openGlobalFind() { $('#gf').style.display = 'flex'; $('#gfq').focus(); $('#gfq').select(); gfRender(); }
+function closeGlobalFind() { $('#gf').style.display = 'none'; }
+async function gfApply() {
+  const q = $('#gfq').value, r = $('#gfr').value;
+  const chosen = [...document.querySelectorAll('#gfl [data-gf]')].filter((c) => c.checked).map((c) => gfHits[+c.dataset.gf]);
+  if (!chosen.length) return;
+  await flush(); let done = 0, failed = 0;
+  for (const h of chosen) {
+    const n = notes.get(h.name); if (!n) continue;
+    const { text } = MD.replaceAll(n.text, q, r);
+    try { const res = await api('/api/note?name=' + encodeURIComponent(h.name), { method: 'PUT', body: text, headers: { 'x-base-mtime': String(n.base ?? 0) } }); n.text = text; n.base = res.mtime; done++; }
+    catch { failed++; }
+  }
+  if (cur && notes.get(cur)) { const ed = $('#ed'); if (ed) { ed.value = notes.get(cur).text; syncEditor(); } else renderPane(); }
+  renderList(); renderBack(); closeGlobalFind();
+  $('#status').textContent = `Replaced in ${done} note${done === 1 ? '' : 's'}` + (failed ? `, ${failed} failed (changed elsewhere)` : '');
+}
+$('#gfq').oninput = gfRender;
+$('#gfx').onclick = closeGlobalFind;
+$('#gfa').onclick = gfApply;
+$('#gf').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeGlobalFind(); else if (e.key === 'Enter' && !$('#gfa').disabled) gfApply(); });
+$('#gf').addEventListener('mousedown', (e) => { if (e.target.id === 'gf') closeGlobalFind(); });
+/* PDF: print the rendered note (the print stylesheet hides the app chrome); the Mac app prints natively */
+async function exportPdf() {
+  if (!cur) return;
+  await flush(); graphOn = false; preview = true; renderPane();
+  if (window.webkit && webkit.messageHandlers && webkit.messageHandlers.mac) macPost({ t: 'print' }); else window.print();
+}
 function allTasks() {
   const out = [];
   for (const n of notes.values()) for (const t of MD.tasksOf(n.text)) if (!t.done) out.push({ ...t, name: n.name });
@@ -825,6 +875,7 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'e') { e.preventDefault(); $('#tog').click(); }
   else if (k === 's') { e.preventDefault(); flush(); }
   else if (k === 'f' && e.shiftKey) { e.preventDefault(); toggleFocus(); }
+  else if (k === 'h' && e.shiftKey) { e.preventDefault(); openGlobalFind(); }
   else if (k === 'f') { e.preventDefault(); openFind(); }
   else if (k === 't' && e.shiftKey) { e.preventDefault(); openToday(); }
   else if (e.key === '=' || e.key === '+') { e.preventDefault(); setFontSize(fontSize + 1, true); }

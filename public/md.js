@@ -337,7 +337,15 @@
     return out;
   }
 
-  const api = { frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
+  // Literal, case-insensitive replace of every match: { text, count }
+  function replaceAll(text, query, repl) {
+    const hits = findAll(text, query); if (!hits.length) return { text, count: 0 };
+    let out = '', last = 0;
+    for (const h of hits) { out += text.slice(last, h.start) + repl; last = h.end; }
+    return { text: out + text.slice(last), count: hits.length };
+  }
+
+  const api = { replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);
