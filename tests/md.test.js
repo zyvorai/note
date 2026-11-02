@@ -287,7 +287,7 @@ test('setProperty and removeProperty change only the frontmatter', () => {
 
 test('settings are validated and cleaned', () => {
   const d = MD.normalizeSettings(null);
-  assert.deepEqual(d, { font: 'system', width: 'normal', accent: '', dailyFolder: 'daily', dailyTemplate: 'templates/Daily', newFolder: '', hotkeys: {}, snippets: [] });
+  assert.deepEqual(d, { font: 'system', width: 'normal', accent: '', dailyFolder: 'daily', dailyTemplate: 'templates/Daily', newFolder: '', livePreview: false, hotkeys: {}, snippets: [] });
   const s = MD.normalizeSettings({ font: 'comic', width: 'wide', accent: '#FF9F0A', dailyFolder: '../x/.hidden/Journal/', newFolder: ' Inbox ', dailyTemplate: '/templates/My.md',
     hotkeys: { new: 'mod+shift+x', bad: '  ', 'we ird': 'mod+k', q: 'mod+alt+[', plain: 'mod+' }, snippets: ['a.css', '../b.css', 'a.css', 'x/y.css', 'ok name.css', 'no.txt'] });
   assert.equal(s.font, 'system', 'unknown font falls back');
@@ -316,4 +316,38 @@ test('keyboard combos', () => {
   assert.equal(MD.comboValid('f5'), true);
   assert.equal(MD.comboLabel('mod+shift+k', true), '⌘⇧K');
   assert.equal(MD.comboLabel('mod+alt+f5', false), 'Ctrl+Alt+F5');
+});
+
+test('live preview classifies lines, tracking code fences and frontmatter', () => {
+  const k = (t) => MD.lpClassify(t.split('\n')).map((b) => b.kind).join(' ');
+  assert.equal(k('# T\ntext\n> q\n- a\n  - b\n1. c\n- [ ] t\n- [x] d\n---\n| a |\n'), 'h p quote ul ul ol task task hr table blank');
+  assert.equal(k('---\ntitle: x\n---\n# H'), 'fm fm fm h', 'frontmatter stays raw');
+  assert.equal(k('a\n```js\n# not a heading\n- not a list\n```\n# H'), 'p fence code code fence h', 'fenced code stays raw');
+  assert.equal(k('---\nnot frontmatter'), 'hr p', 'an unclosed --- is a rule');
+  const b = MD.lpClassify(['  - [x] done', '## Two ##', '10. ten']);
+  assert.deepEqual([b[0].kind, b[0].checked, b[0].indent, b[0].content], ['task', true, 1, 'done']);
+  assert.deepEqual([b[1].level, b[1].content], [2, 'Two']);
+  assert.deepEqual([b[2].num, b[2].content], ['10', 'ten']);
+});
+
+test('live preview renders markers away and keeps raw blocks escaped', () => {
+  const { inline } = MD.create({ resolve: (t) => (t === 'Home' ? 'Home' : null) });
+  const r = MD.lpRender(['# Hello **world**', '- item', '- [x] done', '```', '<b>x</b>', '```', ''], inline);
+  assert.match(r[0].html, /^<span class="lp-h lp-h1">Hello <b>world<\/b><\/span>$/);
+  assert.ok(!r[0].html.includes('#'), 'the heading marker is hidden');
+  assert.match(r[1].html, /^<span class="lp-li" style="--ind:0">item<\/span>$/);
+  assert.match(r[2].html, /lp-task lp-done/);
+  assert.match(r[2].html, /<input type="checkbox" class="lp-cb" checked>/);
+  assert.equal(r[4].html, '<span class="lp-raw">&lt;b&gt;x&lt;/b&gt;</span>', 'code is escaped, never rendered');
+  assert.equal(r[6].html, '<br>', 'blank lines keep their height');
+});
+
+test('live preview maps a rendered caret back to a source column', () => {
+  const [h, p, l] = MD.lpClassify(['## Big **bold** day', 'plain [[Home|link]] end', '- item']);
+  assert.equal(MD.lpColumn(h, ''), 3, 'before the text = after the marker');
+  assert.equal(MD.lpColumn(h, 'Big bol'), 3 + 'Big **bol'.length);
+  assert.equal(MD.lpColumn(h, 'Big bold day'), h.prefix.length + h.content.length);
+  assert.equal(MD.lpColumn(p, 'plain link'), 'plain [[Home|link'.length);
+  assert.equal(MD.lpColumn(l, 'it'), 4);
+  assert.equal(MD.lpColumn(l, 'zzz'), 2 + 'item'.length, 'unmatched text falls back to the line end');
 });

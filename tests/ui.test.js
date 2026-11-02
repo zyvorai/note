@@ -376,6 +376,49 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await until(`!document.querySelector('style[data-snippet="ui-test.css"]')`, 'snippet removed');
     await ev(`document.querySelector('#stx').click()`);
 
+    // Live Preview (beta): rendered lines, raw active line, native typing, structural edits, undo, checkbox, multi-line delete
+    const LPSRC = '# Title\n\nsome **bold** text\n- item\n- [ ] task';
+    await ev(`(async () => { await ${put('LP note', LPSRC)}; await load(); await open('LP note', false); setLivePreview(true); })()`);
+    await until(`!!document.querySelector('#lp') && !document.querySelector('#ed')`, 'live preview mounted');
+    const pressKey = async (key, code, vk, text) => {              // real key events, so the browser fires beforeinput like it does for a person typing
+      await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, ...(text ? { text } : {}) });
+      await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
+    };
+    const lpLines = async () => JSON.parse(await ev(`JSON.stringify(lp.lines)`));
+    const lpAt = (i, off) => ev(`(() => { const el = document.querySelectorAll('#lp .ln')[${i}]; const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const n = w.nextNode(); document.querySelector('#lp').focus(); getSelection().collapse(n, ${off}); })()`);
+    assert.equal(await ev(`document.querySelectorAll('#lp .ln').length`), 5);
+    assert.equal(await ev(`document.querySelector('#lp .ln .lp-h1').textContent`), 'Title', 'heading marker hidden');
+    assert.equal(await ev(`document.querySelectorAll('#lp .ln')[2].textContent`), 'some bold text', 'inline markers hidden');
+    assert.equal(await ev(`!!document.querySelector('#lp .lp-cb')`), true, 'task has a checkbox');
+    await lpAt(2, 3); await until(`lp.active === 2`, 'caret line becomes active');
+    assert.equal(await ev(`document.querySelectorAll('#lp .ln')[2].textContent`), 'some **bold** text', 'active line is raw');
+    assert.equal(await ev(`document.querySelectorAll('#lp .ln')[0].textContent`), 'Title', 'other lines stay rendered');
+    await cdp('Input.insertText', { text: 'X' });
+    assert.equal((await lpLines())[2], 'somXe **bold** text', 'native typing is read back');
+    assert.equal(await ev(`notes.get(cur).text.split('\\n')[2]`), 'somXe **bold** text', 'and reaches the note');
+    await pressKey('Enter', 'Enter', 13, '\r');
+    assert.deepEqual((await lpLines()).slice(2, 4), ['somX', 'e **bold** text'], 'Enter splits the line');
+    assert.equal(await ev(`lp.active`), 3);
+    await pressKey('Backspace', 'Backspace', 8);
+    assert.deepEqual((await lpLines()).slice(2, 4), ['somXe **bold** text', '- item'], 'Backspace at the start joins lines');
+    await ev(`lpUndo()`); assert.equal((await lpLines()).length, 6, 'undo restores the split');
+    await ev(`lpUndo(); lpUndo()`); assert.equal((await lpLines()).join('\n'), LPSRC, 'three undos return to the original');
+    await ev(`lpRedo()`); assert.equal((await lpLines())[2], 'somXe **bold** text', 'redo');
+    await ev(`lpUndo()`);
+    await ev(`document.querySelector('#lp .lp-cb').click()`);
+    assert.equal((await lpLines())[4], '- [x] task', 'checkbox toggles the source');
+    assert.equal(await ev(`!!document.querySelector('#lp .lp-done')`), true);
+    await lpAt(4, 0); await until(`lp.active === 4`, 'move to the last line');
+    await ev(`(() => { const ls = document.querySelectorAll('#lp .ln'); const a = ls[0].querySelector('.lp-h1').firstChild, b = ls[2].firstChild; getSelection().setBaseAndExtent(a, 2, b, 2); })()`);
+    await pressKey('Backspace', 'Backspace', 8);
+    assert.deepEqual(await lpLines(), ['# Time **bold** text', '- item', '- [x] task'], 'deleting across lines edits the source');
+    await ev(`flush()`);
+    assert.equal((await ev(`api('/api/notes').then((l) => l.find((n) => n.name === 'LP note').text)`)), '# Time **bold** text\n- item\n- [x] task', 'saved to disk');
+    await ev(`setLivePreview(false)`);
+    await until(`!!document.querySelector('#ed') && !document.querySelector('#lp')`, 'back to the source editor');
+    assert.equal(await ev(`document.querySelector('#ed').value`), '# Time **bold** text\n- item\n- [x] task');
+    await ev(`(async () => { await open('Home', false); })()`);
+
     // icon toolbar: every icon button has an accessible name; the overflow menu opens, runs an item and closes
     assert.equal(await ev(`[...document.querySelectorAll('button.ico')].every((b) => b.getAttribute('aria-label') && b.querySelector('svg'))`), true);
     await ev(`document.querySelector('#more').click()`);

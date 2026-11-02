@@ -361,6 +361,55 @@
   }
 
 
+  // ---- Live Preview (beta): classify each source line, then render it as rich text. The active line is shown raw by the editor. ----
+  function lpClassify(lines) {
+    const out = []; let fence = false, fmEnd = -1;
+    if (lines.length && /^---\s*$/.test(lines[0])) for (let i = 1; i < lines.length; i++) if (/^---\s*$/.test(lines[i])) { fmEnd = i; break; }
+    lines.forEach((l, i) => {
+      let m;
+      if (i <= fmEnd) return out.push({ kind: 'fm', prefix: '', content: l });
+      if (/^\s*(```|~~~)/.test(l)) { fence = !fence; return out.push({ kind: 'fence', prefix: '', content: l }); }
+      if (fence) return out.push({ kind: 'code', prefix: '', content: l });
+      if ((m = l.match(/^(#{1,6})\s+(.*?)\s*$/))) { const pre = l.match(/^#{1,6}\s+/)[0]; return out.push({ kind: 'h', level: m[1].length, prefix: pre, content: l.slice(pre.length).replace(/\s+#+\s*$/, '') }); }
+      if (/^\s*([-*_])(?:\s*\1){2,}\s*$/.test(l)) return out.push({ kind: 'hr', prefix: '', content: l });
+      if ((m = l.match(/^((?:\s*>)+\s?)(.*)$/))) return out.push({ kind: 'quote', prefix: m[1], content: m[2] });
+      if ((m = l.match(/^(\s*)([-*+]|\d+\.)\s+\[([ xX])\]\s+/))) return out.push({ kind: 'task', indent: Math.floor(m[1].length / 2), checked: m[3] !== ' ', prefix: m[0], content: l.slice(m[0].length) });
+      if ((m = l.match(/^(\s*)([-*+])\s+/))) return out.push({ kind: 'ul', indent: Math.floor(m[1].length / 2), prefix: m[0], content: l.slice(m[0].length) });
+      if ((m = l.match(/^(\s*)(\d+)\.\s+/))) return out.push({ kind: 'ol', indent: Math.floor(m[1].length / 2), num: m[2], prefix: m[0], content: l.slice(m[0].length) });
+      if (/^\s*\|/.test(l)) return out.push({ kind: 'table', prefix: '', content: l });
+      out.push({ kind: l.trim() === '' ? 'blank' : 'p', prefix: '', content: l });
+    });
+    return out;
+  }
+  // -> [{ kind, html, prefix, content, ... }]; `inline` renders one line of inline Markdown (from create()).
+  function lpRender(lines, inline) {
+    const raw = (l) => `<span class="lp-raw">${esc(l) || '<br>'}</span>`;
+    return lpClassify(lines).map((b, i) => {
+      const body = () => (b.content.trim() ? inline(b.content) : '<br>'), ind = ` style="--ind:${b.indent || 0}"`;
+      let html;
+      switch (b.kind) {
+        case 'h': html = `<span class="lp-h lp-h${b.level}">${body()}</span>`; break;
+        case 'quote': html = `<span class="lp-q">${body()}</span>`; break;
+        case 'ul': html = `<span class="lp-li"${ind}>${body()}</span>`; break;
+        case 'ol': html = `<span class="lp-li lp-ol"${ind}><span class="lp-num" contenteditable="false">${b.num}.</span>${body()}</span>`; break;
+        case 'task': html = `<span class="lp-li lp-task${b.checked ? ' lp-done' : ''}"${ind}><span class="lp-cbw" contenteditable="false"><input type="checkbox" class="lp-cb"${b.checked ? ' checked' : ''}></span>${body()}</span>`; break;
+        case 'hr': html = '<span class="lp-hr"><hr></span>'; break;
+        case 'fm': case 'fence': case 'code': case 'table': html = raw(lines[i]); break;
+        case 'blank': html = '<br>'; break;
+        default: html = body();
+      }
+      return { ...b, html };
+    });
+  }
+  // The source column that corresponds to having `shown` (the visible text) before the caret in a rendered line:
+  // markers are skipped by matching the shown characters in order against the source content.
+  function lpColumn(block, shown) {
+    if (!shown) return block.prefix.length;
+    let j = 0; const c = block.content;
+    for (let s = 0; s < c.length; s++) if (c[s] === shown[j] && ++j === shown.length) return block.prefix.length + s + 1;
+    return block.prefix.length + c.length;
+  }
+
   // ---- settings and keyboard shortcuts (pure, so they can be tested without a browser) ----
   const FONTS = ['system', 'serif', 'mono'], WIDTHS = ['normal', 'wide', 'full'];
   const COMBO = /^(?:(?:mod|alt|shift)\+){0,3}[^\s+]+$|^(?:(?:mod|alt|shift)\+){1,3}\+$/;
@@ -376,6 +425,7 @@
       dailyFolder: folder(o.dailyFolder, 'daily'),
       dailyTemplate: typeof o.dailyTemplate === 'string' ? o.dailyTemplate.trim().replace(/^\/+|\.md$/gi, '') || 'templates/Daily' : 'templates/Daily',
       newFolder: folder(o.newFolder, ''),
+      livePreview: o.livePreview === true,
       hotkeys,
       snippets: Array.isArray(o.snippets) ? [...new Set(o.snippets.filter((n) => typeof n === 'string' && /^\w[\w .-]*\.css$/.test(n)))] : [],
     };
@@ -505,7 +555,7 @@
     return { text: out + text.slice(last), count: hits.length };
   }
 
-  const api = { normalizeSettings, comboOf, comboValid, comboLabel, buildTree, properties, setProperty, removeProperty, splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
+  const api = { lpClassify, lpRender, lpColumn, normalizeSettings, comboOf, comboValid, comboLabel, buildTree, properties, setProperty, removeProperty, splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -34,7 +34,7 @@ async function load() {
   renderList();
 }
 
-const { md } = MD.create({ resolve: (t) => resolve(t), embed: (name, h) => {
+const { md, inline: mdInline } = MD.create({ resolve: (t) => resolve(t), embed: (name, h) => {
   const n = notes.get(name); if (!n) return null;
   const body = MD.frontmatter(n.text).body;
   return h ? MD.section(body, h) : body;
@@ -118,6 +118,7 @@ function renderOutline() {
 function gotoHeading(i) {
   const h = headingsOf(notes.get(cur).text)[i]; if (!h) return;
   if (preview) { const el = $('#pv')?.querySelectorAll('h1,h2,h3,h4,h5,h6')[i]; if (el) $('#pane').scrollTop += el.getBoundingClientRect().top - $('#pane').getBoundingClientRect().top - 12; return; }
+  if ($('#lp')) return lpGoto(h.off);
   const ed = $('#ed'); if (!ed) return;
   ed.focus(); ed.setSelectionRange(h.off, h.off); caretIntoView(true);
 }
@@ -128,6 +129,7 @@ function gotoAnchor(h) {
 function gotoBlock(id) {
   const t = notes.get(cur).text, m = new RegExp('(^|\\s)\\^' + id.replace(/[^\w-]/g, '') + '[ \\t]*$', 'm').exec(t); if (!m) return;
   if (preview) { const el = $('#pv')?.querySelector(`[data-blk="${CSS.escape(id)}"]`); if (el) $('#pane').scrollTop += el.getBoundingClientRect().top - $('#pane').getBoundingClientRect().top - 12; return; }
+  if ($('#lp')) return lpGoto(m.index);
   const ed = $('#ed'); if (!ed) return;
   ed.focus(); ed.setSelectionRange(m.index, m.index); caretIntoView(true);
 }
@@ -147,6 +149,7 @@ function renderPane() {
   const t = notes.get(cur).text;
   setIcon('#tog', preview ? 'pencil' : 'eye', preview ? 'Edit' : 'Preview');
   if (preview) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
+  else if (settings.livePreview) lpMount(t);
   else { $('#pane').innerHTML = '<div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" spellcheck="false" placeholder="Start writing… use [[links]] to connect notes"></textarea></div>';
     const ed = $('#ed'); ed.value = t; syncEditor(); ed.oninput = () => { onInput(); acUpdate(); caretIntoView(); }; ed.onkeydown = (e) => { edKey(e); setTimeout(caretIntoView, 0); }; ed.onblur = () => setTimeout(acHide, 150);
     ed.onpaste = (e) => { if (attach(e.clipboardData.files)) { if ([...e.clipboardData.files].some((f) => f.type.startsWith('image/'))) e.preventDefault(); } };
@@ -215,6 +218,7 @@ function renderSettings() {
     <div class="strow"><label for="st-theme">Theme</label>${sel('st-theme', theme, [['auto', 'Follow the system'], ['light', 'Light'], ['dark', 'Dark']])}</div>
     <div class="strow"><label for="st-font">Reading font</label>${sel('st-font', S.font, [['system', 'System'], ['serif', 'Serif'], ['mono', 'Monospace']])}</div>
     <div class="strow"><label for="st-width">Reading width</label>${sel('st-width', S.width, [['normal', 'Comfortable'], ['wide', 'Wide'], ['full', 'Full width']])}</div>
+    <div class="strow"><label for="st-lp">Live Preview editor <small>(beta: no find, [[ completion or slash menu yet)</small></label><input id="st-lp" type="checkbox"${S.livePreview ? ' checked' : ''}></div>
     <div class="strow"><label for="st-fs">Text size</label><input id="st-fs" type="number" min="10" max="28" value="${fontSize}" style="width:70px"></div>
     <div class="strow"><label for="st-accent">Accent colour</label><input id="st-accent" type="color" value="${S.accent || nativeAccent || '#5b5bd6'}"><button id="st-accent-reset"${S.accent ? '' : ' disabled'}>${nativeAccent ? 'Use system colour' : 'Reset'}</button></div>
     <h4>Notes</h4>
@@ -239,6 +243,7 @@ $('#st').addEventListener('change', (e) => {
   if (id === 'st-theme') applyTheme(t.value, true);
   else if (id === 'st-font') setSetting({ font: t.value });
   else if (id === 'st-width') setSetting({ width: t.value });
+  else if (id === 'st-lp') setLivePreview(t.checked);
   else if (id === 'st-fs') setFontSize(Math.max(10, Math.min(28, +t.value || 14)), true);
   else if (id === 'st-accent') { setSetting({ accent: t.value }); renderSettings(); }
   else if (id === 'st-daily') setSetting({ dailyFolder: t.value });
@@ -268,6 +273,151 @@ document.addEventListener('keydown', (e) => {
   const c = MD.comboOf(e), id = MD.comboValid(c) && hkMap.get(c);
   if (id) { e.preventDefault(); e.stopImmediatePropagation(); plainnote.run(id); }
 }, true);
+
+/* ---------- Live Preview (beta): a line-based contenteditable editor ----------
+   The note is an array of source lines. The line with the caret is shown as raw Markdown (highlighted); every other
+   line is rendered (markers hidden). Typing inside the active line is native; anything structural (Enter, joining lines,
+   multi-line selections, paste, undo) is applied to the line array and repainted. */
+const lp = { lines: [], blocks: [], active: -1, hist: [], redo: [], histAt: 0, composing: false };
+const lpOn = () => !!settings.livePreview && !!$('#lp');
+const lpLine = (i) => $('#lp')?.children[i];
+const lpText = () => lp.lines.join('\n');
+const lpPos = (p) => { let n = 0; for (let i = 0; i < p.i; i++) n += lp.lines[i].length + 1; return n + p.col; };
+function lpFromPos(pos) {
+  for (let i = 0; i < lp.lines.length; i++) { if (pos <= lp.lines[i].length) return { i, col: pos }; pos -= lp.lines[i].length + 1; }
+  return { i: lp.lines.length - 1, col: lp.lines[lp.lines.length - 1].length };
+}
+function lpPaint(typingIn) {
+  const host = $('#lp'); if (!host) return;
+  lp.blocks = MD.lpRender(lp.lines, mdInline);
+  while (host.children.length > lp.lines.length) host.lastChild.remove();
+  while (host.children.length < lp.lines.length) { const d = document.createElement('div'); host.appendChild(d); }
+  lp.lines.forEach((l, i) => {
+    const el = host.children[i], b = lp.blocks[i], act = i === lp.active, cls = `ln k-${b.kind}${act ? ' active' : ''}`;
+    if (el.className !== cls) el.className = cls;
+    el.dataset.i = i;
+    if (act && typingIn === i) return;                                // the user is typing here: keep the DOM (and the caret) as it is
+    const html = !act ? b.html : /^(fm|fence|code|table)$/.test(b.kind) ? `<span class="lp-raw">${esc(l) || '<br>'}</span>` : l ? MD.highlightMarkdown(l) : '<br>';
+    if (el.innerHTML !== html) el.innerHTML = html;
+  });
+}
+function lpMount(t) {
+  $('#pane').innerHTML = '<div id="lpwrap"><div id="lp" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="true" aria-label="Note editor (Live Preview)"></div></div>';
+  Object.assign(lp, { lines: t.split('\n'), active: -1, hist: [], redo: [], histAt: 0, composing: false });
+  if (!t) lp.active = 0;
+  lpPaint();
+  if (!t) { $('#lp').focus(); lpSetCaret(0, 0); }
+}
+function lpSetCaret(i, col) {
+  const el = lpLine(i); if (!el) return;
+  const put = (node, off) => { const r = document.createRange(); r.setStart(node, off); r.collapse(true); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n, left = col;
+  while ((n = w.nextNode())) { if (n.parentElement.closest('[contenteditable=false]')) continue; if (left <= n.length) return put(n, left); left -= n.length; }
+  put(el, 0);
+}
+function lpGoto(pos) {
+  const q = lpFromPos(pos); lp.active = q.i; lpPaint(); $('#lp').focus(); lpSetCaret(q.i, q.col);
+  lpLine(q.i)?.scrollIntoView({ block: 'center' });
+}
+// DOM position -> { i, col } in source coordinates (`end` matters when the position is the editor itself, as after Select All)
+function lpPoint(node, off, end) {
+  const host = $('#lp');
+  if (node === host) return end ? (off <= 0 ? { i: 0, col: 0 } : { i: Math.min(off, lp.lines.length) - 1, col: lp.lines[Math.min(off, lp.lines.length) - 1].length }) : { i: Math.min(off, lp.lines.length - 1), col: 0 };
+  const el = (node.nodeType === 1 ? node : node.parentElement)?.closest('.ln'); if (!el) return null;
+  const i = +el.dataset.i, r = document.createRange(); r.selectNodeContents(el); r.setEnd(node, off);
+  const frag = r.cloneContents(); frag.querySelectorAll('[contenteditable=false]').forEach((x) => x.remove());
+  const before = frag.textContent;
+  return { i, col: i === lp.active ? before.length : MD.lpColumn(lp.blocks[i], before) };
+}
+function lpSel() {
+  const s = getSelection(); if (!s.rangeCount || !$('#lp')?.contains(s.anchorNode)) return null;
+  const r = s.getRangeAt(0), a = lpPoint(r.startContainer, r.startOffset, false), b = r.collapsed ? a : lpPoint(r.endContainer, r.endOffset, true);
+  return a && b ? { a, b, collapsed: r.collapsed } : null;
+}
+function lpCommit() { const n = notes.get(cur); if (n) { n.text = lpText(); afterTextChange(); } }
+function lpRemember(text, pos) { lp.hist.push({ text, pos }); if (lp.hist.length > 200) lp.hist.shift(); lp.redo = []; }
+function lpSetText(text, pos) {                                        // apply a structural edit to the line array
+  lpRemember(lpText(), pos);
+  lp.lines = text.split('\n'); const q = lpFromPos(pos); lp.active = q.i;
+  lpPaint(); lpSetCaret(q.i, q.col); lpCommit();
+}
+function lpRestore(h) { lp.lines = h.text.split('\n'); const q = lpFromPos(h.pos); lp.active = q.i; lpPaint(); lpSetCaret(q.i, q.col); lpCommit(); }
+function lpUndo() { const h = lp.hist.pop(); if (!h) return; const s = lpSel(); lp.redo.push({ text: lpText(), pos: s ? lpPos(s.b) : 0 }); lpRestore(h); }
+function lpRedo() { const h = lp.redo.pop(); if (!h) return; const s = lpSel(); lp.hist.push({ text: lpText(), pos: s ? lpPos(s.b) : 0 }); lpRestore(h); }
+function lpSyncActive() {                                              // after native typing in the active line: read it back
+  const el = lpLine(lp.active); if (!el) return;
+  const txt = el.textContent.replace(/\n/g, '');
+  if (txt === lp.lines[lp.active]) return;
+  const s = lpSel(), col = s ? s.b.col : txt.length, pos0 = lpPos({ i: lp.active, col: 0 });
+  if (Date.now() - lp.histAt > 700) lpRemember(lpText(), pos0 + Math.min(col, lp.lines[lp.active].length));
+  lp.histAt = Date.now(); lp.lines[lp.active] = txt;
+  lpPaint(lp.active); lpSetCaret(lp.active, col); lpCommit();
+}
+document.addEventListener('selectionchange', () => {                  // the caret moved to another line: that line becomes the raw one
+  if (!lpOn() || lp.composing) return;
+  const s = getSelection(); if (!s.rangeCount || !s.isCollapsed || !$('#lp').contains(s.anchorNode)) return;
+  const p = lpPoint(s.anchorNode, s.anchorOffset, false); if (!p || p.i === lp.active) return;
+  lp.active = p.i; lpPaint(); lpSetCaret(p.i, p.col);
+});
+$('#pane').addEventListener('beforeinput', (e) => {
+  if (!lpOn()) return;
+  const t = e.inputType;
+  if (t === 'historyUndo') { e.preventDefault(); return lpUndo(); }
+  if (t === 'historyRedo') { e.preventDefault(); return lpRedo(); }
+  if (lp.composing || e.isComposing) return;
+  const sel = lpSel(); if (!sel) return;
+  const inActive = sel.a.i === lp.active && sel.b.i === lp.active, text = lpText(), A = lpPos(sel.a), B = lpPos(sel.b);
+  const edit = (ins, caret) => { e.preventDefault(); lpSetText(text.slice(0, A) + ins + text.slice(B), A + (caret ?? ins.length)); };
+  if (t === 'insertParagraph' || t === 'insertLineBreak') {
+    e.preventDefault();
+    const base = text.slice(0, A) + text.slice(B), r = A === B ? MD.listEnter(base, A) : null;
+    return r ? lpSetText(base.slice(0, r.start) + r.insert + base.slice(r.end), r.selStart) : lpSetText(base.slice(0, A) + '\n' + base.slice(A), A + 1);
+  }
+  if (t === 'insertText') { if (!inActive) edit(e.data ?? ''); return; }
+  if (t === 'insertFromPaste' || t === 'insertFromDrop' || t === 'insertReplacementText') {
+    const d = e.dataTransfer?.getData('text/plain') ?? e.data; e.preventDefault();
+    if (d != null) edit(d.replace(/\r\n?/g, '\n')); return;
+  }
+  if (t.startsWith('delete')) {
+    if (A !== B) return edit('');
+    const back = !/Forward/.test(t);
+    if (back ? A === 0 : B >= text.length) { e.preventDefault(); return; }
+    const atEdge = back ? text[A - 1] === '\n' : text[A] === '\n';
+    if (atEdge) { e.preventDefault(); return lpSetText(back ? text.slice(0, A - 1) + text.slice(A) : text.slice(0, A) + text.slice(A + 1), back ? A - 1 : A); }
+    if (!inActive) { e.preventDefault(); lpSetText(back ? text.slice(0, A - 1) + text.slice(A) : text.slice(0, A) + text.slice(A + 1), back ? A - 1 : A); }
+  }
+});
+$('#pane').addEventListener('input', () => { if (lpOn() && !lp.composing) lpSyncActive(); });
+$('#pane').addEventListener('compositionstart', () => { if (lpOn()) lp.composing = true; });
+$('#pane').addEventListener('compositionend', () => { if (lpOn()) { lp.composing = false; lpSyncActive(); } });
+$('#pane').addEventListener('keydown', (e) => {
+  if (!lpOn() || !e.target.closest?.('#lp')) return;
+  const mod = e.metaKey || e.ctrlKey, sel = lpSel(); if (!sel) return;
+  const t = lpText(), A = lpPos(sel.a), B = lpPos(sel.b);
+  if (e.key === 'Tab' && !mod) { e.preventDefault(); const r = MD.indentLines(t, A, B, e.shiftKey); lpSetText(t.slice(0, r.start) + r.insert + t.slice(r.end), r.selStart); }
+  else if (mod && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'i')) { e.preventDefault(); const r = MD.wrap(t, A, B, e.key === 'b' ? '**' : '*'); lpSetText(t.slice(0, r.start) + r.insert + t.slice(r.end), r.selEnd); }
+});
+$('#pane').addEventListener('click', (e) => {
+  if (!lpOn() || !e.target.closest?.('#lp')) return;
+  const cb = e.target.closest('.lp-cb');
+  if (cb) {                                                           // tick a task box
+    e.preventDefault(); const i = +cb.closest('.ln').dataset.i, s = getSelection();
+    lpRemember(lpText(), lpPos({ i, col: 0 }));
+    lp.lines[i] = lp.lines[i].replace(/\[( |x|X)\]/, (m, c) => (c === ' ' ? '[x]' : '[ ]'));
+    lpPaint(); lpCommit(); return;
+  }
+  if (e.target.closest('a') && !(e.metaKey || e.ctrlKey)) { e.preventDefault(); e.stopPropagation(); }   // a plain click edits the line; Cmd/Ctrl-click follows the link
+});
+function lpClip(e, cut) {
+  if (!lpOn() || !e.target.closest?.('#lp')) return;
+  const sel = lpSel(); if (!sel || sel.collapsed) return;
+  const t = lpText(), A = lpPos(sel.a), B = lpPos(sel.b);
+  e.preventDefault(); e.clipboardData.setData('text/plain', t.slice(A, B));
+  if (cut) lpSetText(t.slice(0, A) + t.slice(B), A);
+}
+$('#pane').addEventListener('copy', (e) => lpClip(e, false));
+$('#pane').addEventListener('cut', (e) => lpClip(e, true));
+function setLivePreview(on) { settings = MD.normalizeSettings({ ...settings, livePreview: on }); saveSettings(); if (cur && !graphOn && !preview) { flush(); renderPane(); } }
 
 /* ---------- tabs: each tab shows one note; the active tab's note is `cur` ---------- */
 let tabs = [{ name: null, preview: false }], ti = 0, pendingPreview = false;
@@ -321,7 +471,7 @@ async function open(name, create) {
   try { localStorage.setItem('last', name); } catch {}
   const t = $('#title'); t.disabled = false; t.value = name.split('/').pop();
   renderPane(); renderList(); renderBack(); $('#status').textContent = '';
-  if (!notes.get(name).text) $('#ed').focus();
+  if (!notes.get(name).text) ($('#ed') || $('#lp'))?.focus();
 }
 /* ---------- editor helpers ---------- */
 function applyEdit(ed, x) {
@@ -421,8 +571,12 @@ function caretIntoView(top) {
   else if (rect.top < pr.top + 8) pane.scrollTop -= pr.top - rect.top + 56;
 }
 function onInput() {
-  syncEditor();
-  const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); aliasMap = null; dirty = true; updateWC(); renderOutline(); renderProps(); if (split && split === cur) renderSplitSoon();
+  const ed = $('#ed'); if (ed) { syncEditor(); notes.get(cur).text = ed.value; }
+  afterTextChange();
+}
+function afterTextChange() {                                       // the open note's text changed (from the textarea, the Live Preview editor or a panel)
+  const n = notes.get(cur); if (!n) return;
+  n.mtime = Date.now(); aliasMap = null; dirty = true; updateWC(); renderOutline(); renderProps(); if (split && split === cur) renderSplitSoon();
   $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
 }
 async function flush() {
@@ -498,6 +652,7 @@ function frUpdate(scroll) {
 }
 function frStep(dir) { const ms = frUpdate(); if (!ms.length) return; frIdx = (frIdx + dir + ms.length) % ms.length; frUpdate(true); }
 function openFind() {
+  if ($('#lp')) { $('#status').textContent = 'Find in note is not available in Live Preview yet'; return; }
   if (!$('#ed')) { if (cur && preview) { preview = false; renderPane(); } if (!$('#ed')) return; }
   const ed = $('#ed'), sel = ed.value.slice(ed.selectionStart, ed.selectionEnd);
   $('#fr').classList.add('on'); if (sel && !sel.includes('\n')) $('#frq').value = sel;
@@ -699,6 +854,7 @@ const COMMANDS = [
   { id: 'tasks', name: 'Show open tasks from all notes', run: () => swOpen('tasks') },
   { id: 'find', name: 'Find and replace in this note', hint: 'Ctrl/Cmd+F', run: () => openFind() },
   { id: 'starter', name: 'Add starter templates (Daily, Meeting, Project)', run: () => addStarterTemplates() },
+  { id: 'livepreview', name: 'Toggle Live Preview editor (beta)', run: () => { setLivePreview(!settings.livePreview); if ($('#st').style.display === 'flex') renderSettings(); } },
   { id: 'settings', name: 'Settings…', hint: 'Ctrl/Cmd+,', run: () => openSettings() },
   { id: 'splitcur', name: 'Open this note in a split pane to the right', hint: 'Ctrl/Cmd+Alt+\\', run: () => cur && openSplit(cur) },
   { id: 'splitclose', name: 'Close the split pane', run: () => closeSplit() },
@@ -984,7 +1140,7 @@ function renderProps(force) {
 function setNoteText(t) {
   const n = notes.get(cur); if (!n || n.text === t) return;
   n.text = t; n.mtime = Date.now(); aliasMap = null; dirty = true;
-  const ed = $('#ed'); if (ed) { ed.value = t; syncEditor(); } else if ($('#pv')) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
+  const ed = $('#ed'); if (ed) { ed.value = t; syncEditor(); } else if ($('#lp')) { lp.lines = t.split('\n'); lpPaint(); } else if ($('#pv')) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   updateWC(); renderOutline(); renderList(); renderProps(true); if (split && split === cur) renderSplitSoon();
   $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
 }
