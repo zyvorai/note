@@ -5,7 +5,7 @@ import WebKit
 final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate {
     var window: NSWindow!
     var web: WKWebView!
-    var effect: NSVisualEffectView!      // translucent sidebar behind the web view (see Window.swift)
+    var effect: NSView!                  // translucent (or glass) sidebar behind the web view (see Window.swift)
     var lastMouseDown: NSEvent?          // used to start window drags requested by the page
     var pageReady = false                // the page finished loading; until then URL/file opens are queued
     var pending: [URL] = []
@@ -24,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         buildMenu()
         buildWindow()
         buildToolbar()
+        for n in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification, NSWindow.didResizeNotification] {
+            NotificationCenter.default.addObserver(forName: n, object: window, queue: .main) { [weak self] _ in self?.sendInset() }
+        }
         NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.sendAccent() }
         startServer()
         setupIntegrations()
@@ -150,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     }
     func webView(_ w: WKWebView, didFinish navigation: WKNavigation!) {
         pageReady = true
-        sendAccent()
+        sendAccent(); sendInset()
         let urls = pending; pending = []
         urls.forEach(handle)
     }

@@ -158,19 +158,37 @@ html.blur #list .item.on{background:var(--sep);color:var(--fg)}html.blur #list .
 }
 @media(prefers-reduced-transparency:reduce){#sw>div,#gf>div,#ac,#fr{background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none}}
 @media(prefers-contrast:more){:root{--sep:#00000066}:root[data-theme=dark]{--sep:#ffffff66}.item.on{outline:1px solid currentColor}}
+
+button.ico{display:inline-flex;align-items:center;justify-content:center;padding:5px 7px;line-height:0}
+button.ico svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+#pin.on{color:var(--acc)}#pin.on svg{fill:currentColor}
+#moremenu{display:none;position:absolute;top:50px;right:14px;z-index:7;min-width:200px;padding:5px;border-radius:12px;box-shadow:var(--elev);background:color-mix(in srgb,var(--bg) 84%,transparent);-webkit-backdrop-filter:blur(24px) saturate(1.5);backdrop-filter:blur(24px) saturate(1.5)}
+#moremenu.on{display:block}#moremenu button{display:block;width:100%;text-align:left;padding:6px 10px}
+#moremenu button:hover:not(:disabled){background:var(--acc);color:var(--on-acc)}
+#wc{position:absolute;right:14px;bottom:10px;z-index:3;padding:2px 9px;border-radius:999px;background:color-mix(in srgb,var(--bg) 78%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.chip.more{border:0;background:none;color:var(--acc)}
+/* native app: the web view runs under the unified toolbar; --tb is the toolbar height reported by AppKit */
+html.native{--tb:52px}
+html.native #app{padding-top:var(--tb)}
+html.native #side header{padding-top:8px}
+html.native #bar{min-height:0}
+html.native #menu{display:none}
+html.native.mac #moremenu{top:calc(var(--tb) + 50px)}
+html.native #fr{top:calc(var(--tb) + 58px)}
 </style>
 </head>
 <body>
 <div id="app">
   <aside id="side">
-    <header><input id="q" placeholder="Search…" autocomplete="off"><button id="new" title="New note (Ctrl/Cmd+N)">+</button><button id="today" title="Today's daily note (Ctrl/Cmd+Shift+T)">Today</button><button id="theme"></button></header>
+    <header><input id="q" placeholder="Search…" autocomplete="off"><button id="new" title="New note (Ctrl/Cmd+N)" aria-label="New note">+</button><button id="today" title="Today's daily note (Ctrl/Cmd+Shift+T)" aria-label="Today's note">Today</button><button id="theme"></button></header>
     <div id="tags"></div>
     <div id="list"></div>
-    <footer id="sf"><button id="sync" title="Sync notes with a git remote">Sync</button><label title="Sync every 2 minutes" style="white-space:nowrap"><input type="checkbox" id="auto"> Auto</label><button id="trash" title="Deleted notes">Trash</button><span id="ss"></span></footer>
+    <footer id="sf"><button id="sync" title="Sync notes with a git remote" aria-label="Sync">Sync</button><label title="Sync every 2 minutes" style="white-space:nowrap"><input type="checkbox" id="auto"> Auto</label><button id="trash" title="Deleted notes" aria-label="Trash">Trash</button><span id="ss"></span></footer>
   </aside>
   <main id="main">
     <div id="bar"><button id="menu" title="Notes list">☰</button><input id="title" placeholder="Select or create a note" disabled><span id="status"></span><span id="wc" title="Words · characters"></span>
-      <button id="pin" title="Pin to top of the list">Pin</button><button id="exp" title="Download as a standalone HTML page">Export</button><button id="gr" title="Graph view (Ctrl/Cmd+G)">Graph</button><button id="tog" title="Edit / preview (Ctrl/Cmd+E)">Preview</button><button id="del" title="Delete">Delete</button></div>
+      <button id="pin" title="Pin to top of the list" aria-label="Pin" aria-pressed="false">Pin</button><button id="gr" title="Graph view (Ctrl/Cmd+G)" aria-label="Graph view">Graph</button><button id="tog" title="Edit / preview (Ctrl/Cmd+E)" aria-label="Preview">Preview</button><button id="del" title="Delete" aria-label="Delete note">Delete</button><button id="more" title="More" aria-label="More" aria-haspopup="true">…</button></div>
+    <div id="moremenu" role="menu"><button id="exp" role="menuitem" title="Download as a standalone HTML page">Export as HTML</button><button id="pdfb" role="menuitem">Export as PDF / Print…</button><button id="gfb" role="menuitem">Find in all notes…</button></div>
     <div id="fr"><input id="frq" placeholder="Find" autocomplete="off" spellcheck="false"><input id="frr" placeholder="Replace" autocomplete="off" spellcheck="false"><span id="frc"></span>
       <button id="frp" title="Previous (Shift+Enter)">↑</button><button id="frn" title="Next (Enter)">↓</button><button id="frs">Replace</button><button id="fra">All</button><button id="frx" title="Close (Esc)">✕</button></div>
     <div id="pane"><div class="empty"><kbd>Ctrl/Cmd+K</kbd> jump or create · <kbd>Ctrl/Cmd+N</kbd> new note · <kbd>Ctrl/Cmd+E</kbd> preview</div></div>
@@ -214,16 +232,20 @@ const { md } = MD.create({ resolve: (t) => resolve(t), embed: (name, h) => {
 } });
 
 /* ---------- UI ---------- */
+let tagsOpen = false;
 function renderTags() {
   const counts = new Map();
   for (const n of notes.values()) for (const t of tagsOf(n.text)) counts.set(t, (counts.get(t) || 0) + 1);
   if (activeTag && !counts.has(activeTag)) activeTag = null;
-  $('#tags').innerHTML = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 40)
-    .map(([t, c]) => `<span class="chip${t === activeTag ? ' on' : ''}" data-tag="${esc(t)}">#${esc(t)} ${c}</span>`).join('');
+  const all = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 40), cap = tagsOpen ? 40 : 8;
+  let shown = all.slice(0, cap);
+  if (activeTag && !shown.some(([t]) => t === activeTag)) shown = [...shown.slice(0, cap - 1), all.find(([t]) => t === activeTag)];
+  $('#tags').innerHTML = shown.map(([t, c]) => `<span class="chip${t === activeTag ? ' on' : ''}" data-tag="${esc(t)}">#${esc(t)} ${c}</span>`).join('')
+    + (all.length > 8 ? `<span class="chip more" id="tagmore">${tagsOpen ? 'Fewer' : `+${all.length - shown.length} more`}</span>` : '');
 }
 let pins = new Set(); try { pins = new Set(JSON.parse(localStorage.getItem('pins') || '[]')); } catch {}
 function savePins() { try { localStorage.setItem('pins', JSON.stringify([...pins])); } catch {} }
-function renderPin() { const on = !!cur && pins.has(cur); $('#pin').disabled = $('#exp').disabled = !cur; $('#pin').textContent = on ? 'Unpin' : 'Pin'; }
+function renderPin() { const on = !!cur && pins.has(cur); $('#pin').disabled = $('#exp').disabled = !cur; const b = $('#pin'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); b.title = on ? 'Unpin from the top of the list' : 'Pin to top of the list'; b.setAttribute('aria-label', on ? 'Unpin' : 'Pin'); }
 function renderList() {
   if (trashMode) return;
   renderTags();
@@ -292,10 +314,10 @@ function renderPane() {
   updateWC(); renderPin(); renderOutline();
   $('#tog').disabled = $('#del').disabled = !cur;
   if (graphOn) return drawGraph();
-  stopGraph(); $('#gr').textContent = 'Graph';
+  stopGraph(); setIcon('#gr', 'graph', 'Graph view'); $('#gr').title = 'Graph view (Ctrl/Cmd+G)';
   if (!cur) { $('#pane').innerHTML = '<div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div>'; return; }
   const t = notes.get(cur).text;
-  $('#tog').textContent = preview ? 'Edit' : 'Preview';
+  setIcon('#tog', preview ? 'pencil' : 'eye', preview ? 'Edit' : 'Preview');
   if (preview) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   else { $('#pane').innerHTML = '<div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" spellcheck="false" placeholder="Start writing… use [[links]] to connect notes"></textarea></div>';
     const ed = $('#ed'); ed.value = t; syncEditor(); ed.oninput = () => { onInput(); acUpdate(); caretIntoView(); }; ed.onkeydown = (e) => { edKey(e); setTimeout(caretIntoView, 0); }; ed.onblur = () => setTimeout(acHide, 150);
@@ -565,7 +587,7 @@ async function rename() {
 function stopGraph() { cancelAnimationFrame(gRaf); gRaf = 0; }
 function drawGraph() {
   stopGraph();
-  $('#gr').textContent = 'Close graph';
+  setIcon('#gr', 'x', 'Close graph'); $('#gr').title = 'Close graph (Ctrl/Cmd+G)';
   const pane = $('#pane');
   pane.innerHTML = '<canvas id="gc"></canvas><div id="gmode" title="Click to change: all notes / this note and its links / two steps out"></div>';
   const cv = $('#gc'), ctx = cv.getContext('2d'), dpr = devicePixelRatio || 1;
@@ -689,12 +711,14 @@ const COMMANDS = [
 /* bridge for the native Mac app (menus call plainnote.run('<id>')); also handy for tests */
 const EXTRA = {
   palette: () => swOpen('cmds'), switcher: () => swOpen(),
-  sidebar: () => { document.body.classList.toggle('side-off'); reportSide(); },
+  sidebar: () => { const off = document.body.classList.toggle('side-off'); try { off ? localStorage.setItem('sideOff', '1') : localStorage.removeItem('sideOff'); } catch {} reportSide(); },
 };
+try { if (localStorage.getItem('sideOff')) document.body.classList.add('side-off'); } catch {}
 window.plainnote = {
   ready: null,                                                      // resolves once the first load finished (the app waits on it)
   async run(id) { await this.ready; const c = COMMANDS.find((x) => x.id === id); (c ? c.run : EXTRA[id])?.(); },
   async openNote(name, create) { await this.ready; await load(); await open(name, !!create); },   // reload first: the note may have just been written on disk
+  setInset(px) { if (px >= 0 && px < 200) document.documentElement.style.setProperty('--tb', px + 'px'); },   // toolbar height from AppKit
   setAccent(hex) {                                                  // the Mac app passes the system accent colour
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)), st = document.documentElement.style;
@@ -808,7 +832,8 @@ document.addEventListener('click', (e) => {
   if (document.body.classList.contains('side-open') && !e.target.closest('#side, #menu')) document.body.classList.remove('side-open');
   if (e.target.id === 'emptytrash') { if (confirm('Permanently delete everything in the trash?')) api('/api/trash', { method: 'DELETE' }).then(() => { trashMode = true; showTrash(); }); return; }
   const rs = e.target.closest('[data-restore]');
-  if (rs) { api('/api/restore', { method: 'POST', body: JSON.stringify({ id: rs.dataset.restore }) }).then(async (r) => { await load(); trashMode = false; $('#trash').textContent = 'Trash'; renderList(); open(r.name, false); }); return; }
+  if (rs) { api('/api/restore', { method: 'POST', body: JSON.stringify({ id: rs.dataset.restore }) }).then(async (r) => { await load(); trashMode = false; trashIcon(false); renderList(); open(r.name, false); }); return; }
+  if (e.target.closest('#tagmore')) { tagsOpen = !tagsOpen; renderTags(); return; }
   const tg = e.target.closest('[data-tag]');
   if (tg) { e.preventDefault(); activeTag = activeTag === tg.dataset.tag ? null : tg.dataset.tag; renderList(); return; }
   const oh = e.target.closest('[data-h]');
@@ -868,6 +893,27 @@ function setFontSize(n, save) {
   syncEditor(); caretIntoView();
 }
 document.documentElement.style.setProperty('--fs', fontSize + 'px');
+/* toolbar icons (inline SVG; the buttons keep their ids and aria-labels) */
+const ICO = {
+  plus: '<path d="M8 3v10M3 8h10"/>', cal: '<rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/>',
+  sync: '<path d="M13 8a5 5 0 0 0-9-3M3 2.5V5h2.5M3 8a5 5 0 0 0 9 3M13 13.5V11h-2.5"/>', trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M7 7v4M9 7v4"/>',
+  box: '<rect x="2.5" y="3" width="11" height="3" rx="1"/><path d="M3.5 6v6.5h9V6M6.5 9h3"/>', pin: '<path d="M6 2.5h4l-.7 4 2 2.2H4.7l2-2.2zM8 8.7v4.8"/>',
+  graph: '<circle cx="4" cy="4.5" r="1.6"/><circle cx="12" cy="5" r="1.6"/><circle cx="8" cy="12" r="1.6"/><path d="M5.3 5.5l5.4-.3M5 6l2.2 4.6M10.8 6.4L8.9 10.5"/>',
+  eye: '<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>', pencil: '<path d="M3 13l.6-3L11 2.6a1.4 1.4 0 0 1 2 2L5.6 12zM9.8 3.8l2.4 2.4"/>',
+  x: '<path d="M4 4l8 8M12 4l-8 8"/>', more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>', del: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/>',
+};
+function setIcon(sel, name, label) {
+  const b = $(sel); if (!b) return;
+  b.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${ICO[name]}</svg>`; b.classList.add('ico');
+  if (label) b.setAttribute('aria-label', label);
+}
+[['#new', 'plus'], ['#today', 'cal'], ['#sync', 'sync'], ['#trash', 'box'], ['#gr', 'graph'], ['#del', 'del'], ['#more', 'more']].forEach(([s, n]) => setIcon(s, n));
+setIcon('#pin', 'pin'); setIcon('#tog', 'eye');
+function trashIcon(on) { setIcon('#trash', on ? 'cal' : 'box', on ? 'Back to notes' : 'Trash'); $('#trash').title = on ? 'Back to notes' : 'Deleted notes'; }
+$('#more').onclick = (e) => { e.stopPropagation(); $('#moremenu').classList.toggle('on'); };
+document.addEventListener('click', () => $('#moremenu').classList.remove('on'));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#moremenu').classList.remove('on'); });
+$('#pdfb').onclick = () => exportPdf(); $('#gfb').onclick = () => openGlobalFind();
 /* theme: auto (follow the system) -> light -> dark */
 const THEMES = ['auto', 'light', 'dark'], ICON = { auto: '◐', light: '☀', dark: '☾' };
 function applyTheme(t, save) {
@@ -894,7 +940,7 @@ $('#del').onclick = async () => {
 };
 let trashMode = false;
 async function showTrash() {
-  trashMode = !trashMode; $('#trash').textContent = trashMode ? 'Notes' : 'Trash';
+  trashMode = !trashMode; trashIcon(trashMode);
   if (!trashMode) return renderList();
   const items = await api('/api/trash');
   $('#tags').innerHTML = '';

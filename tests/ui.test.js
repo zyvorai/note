@@ -87,7 +87,8 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     // pinning floats the note to the top of the list, and unpinning restores the order
     await ev(`document.querySelector('#pin').click()`);
     assert.match(await ev(`document.querySelector('#list .item').textContent`), /^📌 /);
-    assert.equal(await ev(`document.querySelector('#pin').textContent`), 'Unpin');
+    assert.equal(await ev(`document.querySelector('#pin').getAttribute('aria-label')`), 'Unpin');
+    assert.equal(await ev(`document.querySelector('#pin').getAttribute('aria-pressed')`), 'true');
     await ev(`document.querySelector('#pin').click()`);
     assert.doesNotMatch(await ev(`document.querySelector('#list .item').textContent`), /📌/);
 
@@ -216,6 +217,18 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await until(`notes.get('GF One').text === 'the okapi and okapi' && notes.get('GF Two').text === 'a okapi here'`, 'replaced in ticked notes');
     assert.equal(await ev(`notes.get('GF Three').text`), 'zebra too', 'unticked note untouched');
     assert.equal(await ev(`document.querySelector('#gf').style.display`), 'none', 'dialog closes');
+
+    // icon toolbar: every icon button has an accessible name; the overflow menu opens, runs an item and closes
+    assert.equal(await ev(`[...document.querySelectorAll('button.ico')].every((b) => b.getAttribute('aria-label') && b.querySelector('svg'))`), true);
+    await ev(`document.querySelector('#more').click()`);
+    assert.equal(await ev(`document.querySelector('#moremenu').classList.contains('on')`), true);
+    await ev(`document.querySelector('#gfb').click()`);
+    assert.equal(await ev(`document.querySelector('#gf').style.display`), 'flex', 'menu item opens global find');
+    await ev(`document.querySelector('#gfx').click()`);
+    assert.equal(await ev(`document.querySelector('#moremenu').classList.contains('on')`), false, 'menu closes');
+    // the toolbar height reported by the Mac app moves the page content down
+    await ev(`plainnote.setInset(60)`);
+    assert.equal(await ev(`document.documentElement.style.getPropertyValue('--tb')`), '60px');
 
     // the Mac app passes the system accent colour; light accents flip the text on selected rows to black
     await ev(`plainnote.setAccent('#ff9f0a')`);

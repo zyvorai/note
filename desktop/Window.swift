@@ -8,7 +8,7 @@ extension AppDelegate: WKScriptMessageHandler {
         let ucc = WKUserContentController()
         ucc.add(self, name: "mac")
         // Marks the page as running inside the app so it can lay itself out under the title bar.
-        ucc.addUserScript(WKUserScript(source: "document.documentElement.classList.add('mac');",
+        ucc.addUserScript(WKUserScript(source: "document.documentElement.classList.add('mac', 'native');",
                                        injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let cfg = WKWebViewConfiguration(); cfg.userContentController = ucc
         web = WKWebView(frame: .zero, configuration: cfg)
@@ -25,9 +25,16 @@ extension AppDelegate: WKScriptMessageHandler {
         window.isReleasedWhenClosed = false
 
         let root = NSView()
-        effect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 260, height: 720))
-        effect.material = .sidebar; effect.blendingMode = .behindWindow; effect.state = .followsWindowActiveState
-        effect.autoresizingMask = [.height]
+        if #available(macOS 26.0, *) {                           // Liquid Glass sidebar on current macOS
+            let glass = NSGlassEffectView(frame: NSRect(x: 0, y: 0, width: 260, height: 720))
+            glass.autoresizingMask = [.height]
+            effect = glass
+        } else {
+            let v = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 260, height: 720))
+            v.material = .sidebar; v.blendingMode = .behindWindow; v.state = .followsWindowActiveState
+            v.autoresizingMask = [.height]
+            effect = v
+        }
         web.frame = root.bounds; web.autoresizingMask = [.width, .height]
         root.addSubview(effect); root.addSubview(web)
         window.contentView = root
@@ -100,6 +107,12 @@ extension AppDelegate: NSToolbarDelegate {
         if #available(macOS 11.0, *) { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label) }
         else { item.title = label }
         return item
+    }
+    /// Height of the title bar + toolbar, so the page starts below it (changes in full screen).
+    func sendInset() {
+        guard let cv = window.contentView else { return }
+        let inset = max(0, cv.bounds.height - window.contentLayoutRect.maxY)
+        js("plainnote.setInset(\(Int(inset.rounded())))")
     }
     @objc func tbSidebarTapped() { js("plainnote.run('sidebar')") }
     @objc func tbNewTapped() { js("plainnote.run('new')") }
