@@ -1,0 +1,63 @@
+name: Plainnote
+options:
+  bundleIdPrefix: dev.plainnote
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.12.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+targets:
+  Plainnote:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources
+      - path: ../public
+        type: folder
+        buildPhase: resources
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: Plainnote
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        ITSAppUsesNonExemptEncryption: false
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.plainnote.ios
+            CFBundleURLSchemes: [plainnote]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.plainnote.ios
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+  PlainnoteTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+      - path: Sources/NotesStore.swift
+      - path: Sources/Router.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.plainnote.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Plainnote:
+    build:
+      targets:
+        Plainnote: all
+        PlainnoteTests: [test]
+    test:
+      targets: [PlainnoteTests]

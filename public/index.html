@@ -2,13 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Plainnote</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1e1e1e" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Plainnote">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
+<div id="scrim"></div>
 <div id="app">
   <aside id="side">
     <header><input id="q" placeholder="Search…" autocomplete="off"><button id="new" title="New note (Ctrl/Cmd+N)" aria-label="New note">+</button><button id="today" title="Today's daily note (Ctrl/Cmd+Shift+T)" aria-label="Today's note">Today</button><button id="theme"></button></header>
@@ -20,7 +29,7 @@
   <main id="main">
     <div id="bar"><button id="menu" title="Notes list">☰</button><input id="title" placeholder="Select or create a note" disabled><span id="status"></span><span id="wc" title="Words · characters"></span>
       <button id="pin" title="Pin to top of the list" aria-label="Pin" aria-pressed="false">Pin</button><button id="gr" title="Graph view (Ctrl/Cmd+G)" aria-label="Graph view">Graph</button><button id="tog" title="Edit / preview (Ctrl/Cmd+E)" aria-label="Preview">Preview</button><button id="del" title="Delete" aria-label="Delete note">Delete</button><button id="more" title="More" aria-label="More" aria-haspopup="true">…</button></div>
-    <div id="moremenu" role="menu"><button id="exp" role="menuitem" title="Download as a standalone HTML page">Export as HTML</button><button id="pdfb" role="menuitem">Export as PDF / Print…</button><button id="gfb" role="menuitem">Find in all notes…</button></div>
+    <div id="moremenu" role="menu"><button id="pinm" class="mobonly" role="menuitem">Pin / unpin</button><button id="grm" class="mobonly" role="menuitem">Graph view</button><button id="delm" class="mobonly" role="menuitem">Move to trash…</button><button id="exp" role="menuitem" title="Download as a standalone HTML page">Export as HTML</button><button id="pdfb" role="menuitem">Export as PDF / Print…</button><button id="gfb" role="menuitem">Find in all notes…</button></div>
     <div id="tabs" role="tablist"></div>
     <div id="fr"><input id="frq" placeholder="Find" autocomplete="off" spellcheck="false"><input id="frr" placeholder="Replace" autocomplete="off" spellcheck="false"><span id="frc"></span>
       <button id="frp" title="Previous (Shift+Enter)">↑</button><button id="frn" title="Next (Enter)">↓</button><button id="frs">Replace</button><button id="fra">All</button><button id="frx" title="Close (Esc)">✕</button></div>
@@ -38,7 +47,9 @@
 <div id="sw"><div><input id="swq" placeholder="Jump to or create a note…" autocomplete="off"><div id="swl"></div></div></div>
 
 <div id="st" role="dialog" aria-label="Settings"><div><div class="stbar"><b>Settings</b><button id="stx" class="pri">Done</button></div><div class="stbody" id="stbody"></div></div></div>
+<nav id="tabbar" aria-label="Main"></nav>
 <div id="ctx" role="menu"></div>
+<div id="kbar" role="toolbar" aria-label="Formatting"></div>
 <script src="md.js"></script>
 <script src="app.js"></script>
 </body>

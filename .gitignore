@@ -2,3 +2,8 @@ notes/
 node_modules/
 .DS_Store
 dist/
+
+# iOS build output and generated project files
+ios/build/
+ios/Plainnote.xcodeproj/
+ios/Sources/Info.plist

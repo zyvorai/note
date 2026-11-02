@@ -9,10 +9,10 @@ const path = require('node:path');
 const SERVER = path.join(__dirname, '..', 'server.js');
 const free = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 
-async function start() {
+async function start(extra = []) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plainnote-'));
   const port = await free();
-  const proc = spawn(process.execPath, [SERVER, dir, String(port)], { stdio: ['pipe', 'pipe', 'inherit'] });
+  const proc = spawn(process.execPath, [SERVER, dir, String(port), ...extra], { stdio: ['pipe', 'pipe', 'inherit'] });
   await new Promise((res, rej) => { proc.stdout.on('data', (d) => /Open:/.test(d) && res()); proc.on('exit', rej); });
   const base = `http://127.0.0.1:${port}`;
   const j = async (u, o) => { const r = await fetch(base + u, o); return { status: r.status, body: await r.json().catch(() => null), res: r }; };
@@ -187,5 +187,78 @@ test('CSS snippets are listed and served from .plainnote/snippets only', async (
       assert.ok(x.status >= 400, `rejected ${JSON.stringify(bad)}`);
       assert.notEqual(await x.text(), 'outside');
     }
+  } finally { s.stop(); }
+});
+
+test('remote mode: every request needs the token; local mode is unchanged', async () => {
+  const s = await start(['--remote']);
+  try {
+    const token = fs.readFileSync(path.join(s.dir, '.plainnote/token'), 'utf8').trim();
+    assert.ok(token.length >= 32, 'a long random token');
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(s.dir, '.plainnote/token')).mode & 0o077, 0, 'readable by the owner only');
+    const get = (u, h = {}) => fetch(s.base + u, { headers: h, redirect: 'manual' });
+    assert.equal((await get('/api/notes')).status, 401, 'no token');
+    assert.equal((await get('/')).status, 401, 'not even the page');
+    assert.match(await (await get('/')).text(), /access link/, 'with a pointer to the link');
+    assert.equal((await get('/files/x.png')).status, 401);
+    assert.equal((await get('/api/notes', { Authorization: 'Bearer nope' })).status, 401, 'wrong bearer token');
+    assert.equal((await get('/api/notes', { Authorization: 'Bearer ' + token })).status, 200, 'bearer token');
+    assert.equal((await get('/api/notes', { Cookie: 'pn_token=' + token })).status, 200, 'cookie');
+    assert.equal((await get('/api/notes', { Cookie: 'pn_token=' + token.slice(0, -1) + 'x' })).status, 401, 'almost right is wrong');
+    // the link sets a cookie and strips the token from the URL
+    const login = await get('/?token=' + token);
+    assert.equal(login.status, 302);
+    assert.equal(login.headers.get('location'), '/');
+    const cookie = login.headers.get('set-cookie');
+    assert.match(cookie, /HttpOnly/); assert.match(cookie, /SameSite=Strict/); assert.match(cookie, /Path=\//);
+    assert.doesNotMatch(cookie, /Secure/, 'plain http cannot use Secure cookies');
+    const secure = await get('/?token=' + token, { 'X-Forwarded-Proto': 'https' });
+    assert.match(secure.headers.get('set-cookie'), /Secure/, 'behind an HTTPS proxy the cookie is Secure');
+    const page = await get('/', { Cookie: cookie.split(';')[0] });
+    assert.equal(page.status, 200); assert.match(await page.text(), /Plainnote/);
+    // writes work with the cookie, and cross-site requests are still refused even with a valid token
+    const auth = { Cookie: 'pn_token=' + token };
+    assert.equal((await fetch(s.base + '/api/note?name=n', { method: 'PUT', body: 'x', headers: auth })).status, 200);
+    assert.equal((await get('/api/notes', { ...auth, Origin: 'https://evil.example' })).status, 403);
+    // a proxy or Tailscale name is fine in remote mode: the token, not the Host header, is the gate
+    const status = await new Promise((r) => require('node:http').get(s.base + '/api/notes', { headers: { Host: 'mac.tailnet.ts.net', ...auth } }, (res) => { res.resume(); r(res.statusCode); }));
+    assert.equal(status, 200);
+    // guessing is throttled
+    let last = 0;
+    for (let i = 0; i < 12; i++) last = (await get('/api/notes', { Authorization: 'Bearer guess' + i })).status;
+    assert.equal(last, 429, 'too many wrong tokens');
+    assert.equal((await get('/api/notes', { Authorization: 'Bearer ' + token })).status, 200, 'a valid token still works while guessing is throttled');
+    // the token survives a restart
+    assert.equal(fs.readFileSync(path.join(s.dir, '.plainnote/token'), 'utf8').trim(), token);
+  } finally { s.stop(); }
+  const local = await start();
+  try {
+    assert.equal((await local.j('/api/notes')).status, 200, 'local mode needs no token');
+    assert.equal(fs.existsSync(path.join(local.dir, '.plainnote/token')), false, 'and creates none');
+  } finally { local.stop(); }
+});
+
+test('installable web app: manifest, icons and service worker are served', async () => {
+  const s = await start();
+  try {
+    const m = await fetch(s.base + '/manifest.webmanifest');
+    assert.equal(m.status, 200);
+    assert.match(m.headers.get('content-type'), /application\/manifest\+json/);
+    const man = await m.json();
+    for (const k of ['name', 'short_name', 'start_url', 'display', 'icons', 'theme_color', 'background_color']) assert.ok(man[k], k);
+    assert.equal(man.display, 'standalone');
+    for (const ic of man.icons) {                                         // every declared icon exists and really has the declared size
+      const r = await fetch(s.base + '/' + ic.src); assert.equal(r.status, 200, ic.src);
+      assert.equal(r.headers.get('content-type'), 'image/png');
+      const b = Buffer.from(await r.arrayBuffer()), [w, h] = [b.readUInt32BE(16), b.readUInt32BE(20)];
+      assert.equal(`${w}x${h}`, ic.sizes, ic.src);
+    }
+    assert.ok(man.icons.some((i) => i.sizes === '192x192') && man.icons.some((i) => i.sizes === '512x512'), 'both sizes Chrome requires to install');
+    const sw = await fetch(s.base + '/sw.js');
+    assert.equal(sw.status, 200); assert.match(sw.headers.get('content-type'), /javascript/);
+    const code = await sw.text();
+    assert.match(code, /startsWith\('\/api\/'\)/, 'the service worker never caches notes');
+    const html = await (await fetch(s.base + '/')).text();
+    assert.match(html, /rel="manifest"/); assert.match(html, /apple-touch-icon/); assert.match(html, /viewport-fit=cover/);
   } finally { s.stop(); }
 });

@@ -287,7 +287,7 @@ test('setProperty and removeProperty change only the frontmatter', () => {
 
 test('settings are validated and cleaned', () => {
   const d = MD.normalizeSettings(null);
-  assert.deepEqual(d, { font: 'system', width: 'normal', accent: '', dailyFolder: 'daily', dailyTemplate: 'templates/Daily', newFolder: '', livePreview: false, hotkeys: {}, snippets: [] });
+  assert.deepEqual(d, { font: 'system', width: 'normal', accent: '', dailyFolder: 'daily', dailyTemplate: 'templates/Daily', newFolder: '', livePreview: false, spellcheck: false, autoPair: true, hotkeys: {}, snippets: [] });
   const s = MD.normalizeSettings({ font: 'comic', width: 'wide', accent: '#FF9F0A', dailyFolder: '../x/.hidden/Journal/', newFolder: ' Inbox ', dailyTemplate: '/templates/My.md',
     hotkeys: { new: 'mod+shift+x', bad: '  ', 'we ird': 'mod+k', q: 'mod+alt+[', plain: 'mod+' }, snippets: ['a.css', '../b.css', 'a.css', 'x/y.css', 'ok name.css', 'no.txt'] });
   assert.equal(s.font, 'system', 'unknown font falls back');
@@ -350,4 +350,53 @@ test('live preview maps a rendered caret back to a source column', () => {
   assert.equal(MD.lpColumn(p, 'plain link'), 'plain [[Home|link'.length);
   assert.equal(MD.lpColumn(l, 'it'), 4);
   assert.equal(MD.lpColumn(l, 'zzz'), 2 + 'item'.length, 'unmatched text falls back to the line end');
+});
+
+test('auto-pairing', () => {
+  const ap = (t, s, e, k) => { const x = MD.autoPair(t, s, e, k); return x && t.slice(0, x.start) + x.insert + t.slice(x.end) + ' @' + x.selStart; };
+  assert.equal(ap('', 0, 0, '('), '() @1', 'pairs at the end');
+  assert.equal(ap('a ', 2, 2, '['), 'a [] @3');
+  assert.equal(ap('say ', 4, 4, '"'), 'say "" @5');
+  assert.equal(ap('x', 0, 0, '['), null, 'not before a word');
+  assert.equal(ap('ab', 2, 2, '"'), null, 'a quote after a word is not paired');
+  assert.equal(ap('()', 1, 1, ')'), '() @2', 'typing the closer steps over it');
+  assert.equal(ap('[]', 1, 1, '['), '[[]] @2', 'wikilink brackets');
+  assert.equal(ap('``', 2, 2, '`'), null, 'code fences are left alone');
+  assert.equal(ap('a b c', 2, 3, '*'), 'a *b* c @3', 'a selection is wrapped');
+  assert.equal(ap('a b c', 2, 3, '('), 'a (b) c @3');
+  assert.equal(ap('a\nb', 0, 3, '*'), null, 'but not across lines');
+  assert.equal(ap('hi', 2, 2, 'x'), null);
+  assert.deepEqual(MD.backspacePair('()', 1, 1), { start: 0, end: 2, insert: '', selStart: 0, selEnd: 0 });
+  assert.equal(MD.backspacePair('(x)', 1, 1), null, 'only empty pairs');
+  assert.equal(MD.backspacePair('()', 1, 2), null);
+});
+
+test('pasting a URL over a selection makes a link', () => {
+  assert.deepEqual(MD.pasteLink('see docs here', 4, 8, 'https://example.com/a?b=1 '), { start: 4, end: 8, insert: '[docs](https://example.com/a?b=1)', selStart: 37, selEnd: 37 });
+  assert.equal(MD.pasteLink('see docs', 4, 4, 'https://x.com'), null, 'needs a selection');
+  assert.equal(MD.pasteLink('see docs', 4, 8, 'not a url'), null);
+  assert.equal(MD.pasteLink('a\nb', 0, 3, 'https://x.com'), null);
+  assert.equal(MD.pasteLink('see docs', 4, 8, 'javascript:alert(1)'), null);
+});
+
+test('toggling a task on the current line', () => {
+  const tg = (t, pos) => { const x = MD.toggleTask(t, pos); return t.slice(0, x.start) + x.insert + t.slice(x.end) + ' @' + x.selStart; };
+  assert.equal(tg('- [ ] a', 3), '- [x] a @3');
+  assert.equal(tg('- [x] a', 7), '- [ ] a @7');
+  assert.equal(tg('  1. [X] a', 5), '  1. [ ] a @5');
+  assert.equal(tg('- a', 3), '- [ ] a @7', 'a list item gets a box');
+  assert.equal(tg('plain\nnext', 2), '- [ ] plain\nnext @8', 'a plain line becomes a task');
+  assert.equal(tg('x\n- [ ] b\ny', 6), 'x\n- [x] b\ny @6', 'only the current line changes');
+});
+
+test('bullet and heading toggles for the phone keyboard bar', () => {
+  const run = (f, t, pos) => { const x = f(t, pos); return t.slice(0, x.start) + x.insert + t.slice(x.end) + ' @' + x.selStart; };
+  assert.equal(run(MD.toggleBullet, 'milk', 4), '- milk @6');
+  assert.equal(run(MD.toggleBullet, '- milk', 6), 'milk @4');
+  assert.equal(run(MD.toggleBullet, '  2. milk', 9), '  milk @6', 'removes numbered markers and keeps the indent');
+  assert.equal(run(MD.toggleBullet, '- [x] milk', 10), 'milk @4', 'and task boxes');
+  assert.equal(run(MD.toggleBullet, 'a\nmilk\nb', 4), 'a\n- milk\nb @6', 'only the current line');
+  assert.equal(run(MD.toggleHeading, 'Title', 5), '# Title @7');
+  assert.equal(run(MD.toggleHeading, '# Title', 7), '## Title @8');
+  assert.equal(run(MD.toggleHeading, '### Title', 9), 'Title @5', 'cycles back to plain text');
 });

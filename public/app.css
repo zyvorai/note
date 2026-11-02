@@ -100,7 +100,8 @@ body.focus #hl,body.focus #ed{padding-bottom:45vh}
 @media(max-width:700px){
   #app{grid-template-columns:1fr}
   #menu{display:inline-block}
-  #side{display:none;position:fixed;inset:0 25% 0 0;z-index:10;box-shadow:0 0 40px #0006}
+  #side{display:none;position:fixed;top:0;bottom:0;left:0;width:min(86vw,340px);z-index:10;box-shadow:0 0 40px #0006;background:var(--side)}
+  body.side-open #scrim{display:block}
   body.side-open #side{display:flex}
   #bar{padding:8px 10px;flex-wrap:wrap}
   #hl,#ed,#pv{padding:16px 12px 80px}
@@ -253,3 +254,77 @@ html.native #fr{top:calc(var(--tb) + 8px)}
 #lp code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}
 #lp mark{background:rgba(255,200,0,.35);color:inherit;border-radius:3px;padding:0 2px}
 #lp a.tag{background:var(--code);padding:0 6px;border-radius:99px;font-size:.9em}
+
+/* ---- phones and tablets: touch targets, safe areas, keyboard bar ---- */
+#scrim{display:none;position:fixed;inset:0;background:#0006;z-index:9}
+html.touch{touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+html.touch input,html.touch textarea,html.touch select,html.touch #ed,html.touch #lp{font-size:16px}   /* 16px stops iOS zooming into focused fields */
+html.touch #app{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+html.touch button{min-height:36px}
+html.touch .item{padding:10px 12px}
+html.touch .chip{padding:4px 12px}
+html.touch #tabs .tab .x,html.touch #props .prow .x{opacity:1}
+html.touch #lp .lp-cb,html.touch input[type=checkbox]{width:20px;height:20px}
+html.touch #sf{padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+html.ios #sync,html.ios #sf label[title^="Sync every"],html.ios #ss{display:none}          /* git sync needs a desktop; the iOS app syncs through the Files folder */
+@media(prefers-reduced-motion:no-preference){@media(max-width:700px){body.side-open #side{animation:slidein .2s ease-out}@keyframes slidein{from{transform:translateX(-100%)}}}}
+#kbar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:25;gap:4px;padding:6px 8px;overflow-x:auto;scrollbar-width:none;border-top:1px solid var(--sep);background:color-mix(in srgb,var(--bg) 88%,transparent);-webkit-backdrop-filter:blur(20px) saturate(1.5);backdrop-filter:blur(20px) saturate(1.5)}
+#kbar::-webkit-scrollbar{display:none}#kbar.on{display:flex}
+#kbar button{flex:none;min-width:42px;height:38px;padding:0 10px;font-size:16px;border-radius:9px;background:var(--field)}
+html.touch.kbar-on #pane{padding-bottom:56px}
+
+/* ---- phone note bar: title + preview + more; the rest lives in the more menu ---- */
+.mobonly{display:none!important}
+@media(max-width:700px){
+  #bar{flex-wrap:nowrap;gap:2px}
+  #bar #pin,#bar #gr,#bar #del{display:none}
+  #moremenu .mobonly{display:block!important}
+  #title{font-size:18px}
+  #moremenu{top:50px}
+  #wc{display:none}
+}
+.empty .es-actions{display:flex;gap:10px;justify-content:center;margin-top:16px}.empty .es-actions button{padding:8px 16px;border-radius:10px;background:var(--field)}
+
+/* ---- phone design pass: tab bar, sheets, list previews, keyboard-aware layout ---- */
+html{--kb:0px}
+#tabbar{display:none}
+@media(max-width:700px){
+  html.touch #app{height:calc(100% - var(--kb));padding-bottom:calc(58px + env(safe-area-inset-bottom));transition:height .22s ease-out}
+  html.touch.kb-open #app,html.touch.kbar-on #app{padding-bottom:0}
+  html.touch #tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:8;padding:6px 6px calc(6px + env(safe-area-inset-bottom));border-top:1px solid var(--sep);background:color-mix(in srgb,var(--bg) 86%,transparent);-webkit-backdrop-filter:blur(24px) saturate(1.6);backdrop-filter:blur(24px) saturate(1.6)}
+  html.touch.kb-open #tabbar,html.touch.kbar-on #tabbar{display:none}
+  #tabbar button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:46px;padding:2px 0;border-radius:12px;background:none;color:var(--mute);font-size:10.5px;font-weight:500;letter-spacing:.01em}
+  #tabbar button svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  #tabbar button.on{color:var(--acc)}
+  #tabbar button:active{background:var(--hover)}
+  #tabbar .tb-new{color:var(--on-acc)}
+  #tabbar .tb-new span.pill{display:flex;align-items:center;justify-content:center;width:48px;height:34px;border-radius:17px;background:linear-gradient(135deg,var(--acc),color-mix(in srgb,var(--acc) 60%,#e052c8));box-shadow:0 3px 10px color-mix(in srgb,var(--acc) 45%,transparent)}
+  #tabbar .tb-new svg{width:22px;height:22px;stroke-width:2.2}
+  #tabbar .tb-new .lbl{display:none}
+  /* panels become bottom sheets */
+  #sw,#gf,#st{align-items:flex-end;padding-top:0;bottom:var(--kb)}
+  #sw>div,#gf>div,#st>div{width:100%!important;max-height:calc(88dvh - var(--kb));border-radius:20px 20px 0 0!important;padding-bottom:env(safe-area-inset-bottom)}
+  #sw>div::before,#gf>div::before,#st>div::before{content:"";display:block;width:38px;height:5px;margin:8px auto 2px;border-radius:3px;background:var(--sep);flex:none}
+  #sw>div{display:flex;flex-direction:column}#swl{overflow:auto}
+  .strow input[type=text],.strow input:not([type]){width:min(230px,46vw)}
+  #fr{left:10px;right:10px;top:54px}
+  #fr input{width:auto;flex:1;min-width:0}
+}
+@media(max-width:700px) and (prefers-reduced-motion:no-preference){
+  #sw>div,#gf>div,#st>div{animation:sheetup .26s cubic-bezier(.2,.9,.3,1)}
+  @keyframes sheetup{from{transform:translateY(40%);opacity:.4}}
+}
+html.touch .kbdonly{display:none}
+/* the list on phones: name + time, then a one-line preview */
+.item .r1{display:flex;gap:8px;align-items:baseline}.item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.item .tm{flex:none;font-size:12px;color:var(--mute)}.item.on .tm{color:inherit;opacity:.8}
+html.touch .item .snip{margin-top:1px;font-size:13px;line-height:1.35}
+html.touch .item{display:block;padding:11px 12px;border-radius:12px}
+@media(prefers-reduced-motion:no-preference){#pv,#edwrap,#lpwrap{animation:fadein .16s ease-out}@keyframes fadein{from{opacity:0;transform:translateY(4px)}}}
+
+html.touch #back{white-space:nowrap;overflow-x:auto;padding:10px 16px;scrollbar-width:none}
+html.touch #back::-webkit-scrollbar{display:none}
+html.touch #back .um{display:inline;margin:0 0 0 14px}
+html.touch #outline{display:none!important}
+
+@media(max-width:700px){html.touch #side{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}}

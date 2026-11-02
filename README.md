@@ -40,6 +40,32 @@ A native wrapper (Swift + WKWebView, no Electron), universal for Apple Silicon a
 
 A tiny native wrapper (Swift + WKWebView, no Electron). It starts the bundled server on a free local port, shows it in a window, and stops it on quit. Node.js must be installed. **File → Choose Notes Folder…** switches folders (default `~/Notes`). Local builds are ad-hoc signed. For distribution, build with `SIGN_ID="Developer ID Application: …" ./desktop/build.sh` (hardened runtime), then sign the DMG and run `xcrun notarytool submit <dmg> --key AuthKey.p8 --key-id … --issuer … --wait` and `xcrun stapler staple <dmg>`. CI does all of this on tagged releases when these repository secrets are set: `MACOS_CERT_P12` (base64 .p12), `MACOS_CERT_PASSWORD`, `MACOS_SIGN_ID`, `NOTARY_KEY_P8` (base64 App Store Connect API key), `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`. Without them it produces an unsigned-for-distribution DMG. To release without storing the certificate in GitHub, run `./scripts/release.sh <version>` on a Mac that has the Developer ID identity and a `notary` notarytool profile: it tags, builds, signs, notarizes, staples and publishes the release (CI supplies the Linux and Windows binaries).
 
+## iPhone and iPad app
+
+A native app (SwiftUI + WKWebView) that bundles the same interface and needs no server and no network: the file operations are done in Swift (`ios/Sources/NotesStore.swift`, `Router.swift`), against a folder of `.md` files. It opens notes in a reading view (tap the text to edit), has a tab bar, bottom-sheet panels, note previews, haptics and a formatting bar above the keyboard, and follows light/dark mode. Notes live in the app's own *Files → On My iPhone → Plainnote* folder, or any folder you pick in **Settings → Notes folder** (iCloud Drive keeps it in sync with your Mac). Git sync is a desktop feature; on iOS use iCloud Drive or another Files provider.
+
+```sh
+./ios/build.sh test       # XCTests: the Swift routes against the same rules as tests/server.test.js
+./ios/build.sh selftest   # build, launch twice in the simulator, drive the real UI through the native bridge
+./ios/build.sh build      # simulator build (open ios/Plainnote.xcodeproj in Xcode to run it)
+DEVELOPMENT_TEAM=<team id> ./ios/build.sh archive    # signed device archive (needs your Apple developer account)
+./ios/build.sh icon       # regenerate the app and web-app icons from desktop/icon.swift
+```
+
+Needs Xcode 15+ and [xcodegen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). Not included: App Store submission, widgets, a share extension.
+
+## Phones and other devices: the web app
+
+Plainnote is also an installable web app (PWA) for Android and any phone browser. The notes stay on your computer: start the server in **remote mode** and open it from the phone.
+
+```sh
+node server.js ~/Notes 4777 --remote            # still bound to 127.0.0.1; prints a link ending in ?token=…
+tailscale serve --bg 4777                       # then open https://<your-mac>.<tailnet>.ts.net/?token=… on the phone
+node server.js ~/Notes 4777 --remote --host 0.0.0.0    # or listen on your LAN (plain http, so no install prompt)
+```
+
+Remote mode needs the secret token on **every** request (a cookie set by the link, or an `Authorization: Bearer` header). The token is generated once and kept in `<notes>/.plainnote/token` (owner-readable only; delete the file to rotate it), compared in constant time, and repeated wrong guesses are throttled. Without `--remote` nothing changes: localhost only, no login. Because the token is the only gate, **serve it over HTTPS** (Tailscale Serve, a reverse proxy) whenever it leaves your machine, and don't share the link. Then use *Add to Home screen* (Android Chrome: *Install app*; iPhone Safari: *Share → Add to Home Screen*). The app shell works offline; notes always come from the server.
+
 ## Desktop app (Windows and Linux)
 
 A single downloadable executable, no Node install needed. Build it on the target OS:
@@ -134,7 +160,8 @@ The UI test drives the real app through the Chrome DevTools protocol (no depende
 
 ```
 server.js          zero-dependency HTTP server + file/git API
-public/index.html  the page shell; public/app.css and public/app.js hold the UI
+public/index.html  the page shell; public/app.css and public/app.js hold the UI (plus manifest.webmanifest, sw.js and icons for the web app)
+ios/               the iPhone/iPad app (Swift sources, XCTests, build.sh)
 public/md.js       Markdown renderer and editor helpers (shared with the tests)
 desktop/           macOS wrapper (Plainnote.swift, build.sh), cross-platform launcher.js, Linux .desktop
 scripts/build-sea.js  builds the single-file executable

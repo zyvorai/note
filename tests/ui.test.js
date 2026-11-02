@@ -380,9 +380,9 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     const LPSRC = '# Title\n\nsome **bold** text\n- item\n- [ ] task';
     await ev(`(async () => { await ${put('LP note', LPSRC)}; await load(); await open('LP note', false); setLivePreview(true); })()`);
     await until(`!!document.querySelector('#lp') && !document.querySelector('#ed')`, 'live preview mounted');
-    const pressKey = async (key, code, vk, text) => {              // real key events, so the browser fires beforeinput like it does for a person typing
-      await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, ...(text ? { text } : {}) });
-      await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
+    const pressKey = async (key, code, vk, text, modifiers = 0) => {   // real key events, so the browser fires beforeinput like it does for a person typing
+      await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, modifiers, ...(text ? { text } : {}) });
+      await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, modifiers });
     };
     const lpLines = async () => JSON.parse(await ev(`JSON.stringify(lp.lines)`));
     const lpAt = (i, off) => ev(`(() => { const el = document.querySelectorAll('#lp .ln')[${i}]; const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const n = w.nextNode(); document.querySelector('#lp').focus(); getSelection().collapse(n, ${off}); })()`);
@@ -418,6 +418,27 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await until(`!!document.querySelector('#ed') && !document.querySelector('#lp')`, 'back to the source editor');
     assert.equal(await ev(`document.querySelector('#ed').value`), '# Time **bold** text\n- item\n- [x] task');
     await ev(`(async () => { await open('Home', false); })()`);
+
+    // typing helpers in the source editor: auto-pair, step over the closer, backspace a pair, paste-a-link, Ctrl+Enter task toggle
+    await ev(`(async () => { await ${put('Pair note', 'plain')}; await load(); await open('Pair note', false); })()`);
+    await until(`!!document.querySelector('#ed')`, 'source editor');
+    const edv = () => ev(`document.querySelector('#ed').value`), caret = (a, b = a) => ev(`(() => { const e = document.querySelector('#ed'); e.focus(); e.setSelectionRange(${a}, ${b}); })()`);
+    await caret(5); await pressKey('(', 'Digit9', 57, '(', 8);
+    assert.equal(await edv(), 'plain()', '( is paired');
+    await cdp('Input.insertText', { text: 'x' }); await pressKey(')', 'Digit0', 48, ')', 8);
+    assert.equal(await edv(), 'plain(x)', 'typing ) steps over the closer');
+    assert.equal(await ev(`document.querySelector('#ed').selectionStart`), 8);
+    await ev(`(() => { const e = document.querySelector('#ed'); e.value = 'a()'; e.setSelectionRange(2, 2); })()`);
+    await pressKey('Backspace', 'Backspace', 8);
+    assert.equal(await edv(), 'a', 'Backspace removes an empty pair');
+    await ev(`(() => { const e = document.querySelector('#ed'); e.value = 'plain'; e.setSelectionRange(0, 5); const dt = new DataTransfer(); dt.setData('text/plain', 'https://example.com'); e.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); })()`);
+    assert.equal(await edv(), '[plain](https://example.com)', 'pasting a URL over a selection links it');
+    await ev(`(() => { const e = document.querySelector('#ed'); e.value = 'buy milk'; e.setSelectionRange(3, 3); })()`);
+    await pressKey('Enter', 'Enter', 13, undefined, 2);
+    assert.equal(await edv(), '- [ ] buy milk', 'Ctrl+Enter makes the line a task');
+    await pressKey('Enter', 'Enter', 13, undefined, 2);
+    assert.equal(await edv(), '- [x] buy milk', 'and ticks it');
+    await ev(`(async () => { await flush(); await open('Home', false); })()`);
 
     // icon toolbar: every icon button has an accessible name; the overflow menu opens, runs an item and closes
     assert.equal(await ev(`[...document.querySelectorAll('button.ico')].every((b) => b.getAttribute('aria-label') && b.querySelector('svg'))`), true);
@@ -574,6 +595,48 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`document.querySelector('#menu').click()`);
     assert.equal(await ev(`getComputedStyle(document.querySelector('#side')).display`), 'flex');
     await shot('5-mobile');
+
+    // touch: formatting bar above the keyboard, edge swipe, long-press menu, pull to refresh
+    await cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+    await cdp('Emulation.setFocusEmulationEnabled', { enabled: true });                    // headless pages are not focused by default, so focus events would not fire
+    await ev(`document.documentElement.classList.add('touch'); document.body.classList.remove('side-open'); (async () => { await open('Pair note', false); })()`);
+    await until(`cur === 'Pair note' && !!document.querySelector('#pv')`, 'phones open notes in the reading view');
+    await ev(`document.querySelector('#pv p, #pv li, #pv').click()`);
+    await until(`!!document.querySelector('#ed')`, 'tapping the text starts editing');
+    await ev(`(() => { const e = document.querySelector('#ed'); e.blur(); e.focus(); })()`);
+    await until(`document.querySelector('#kbar').classList.contains('on')`, 'formatting bar appears with the editor focused');
+    const kb = (id) => ev(`document.querySelector('[data-k="${id}"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }))`);
+    const setEd = (v, a, b = a) => ev(`(() => { const e = document.querySelector('#ed'); e.focus(); e.value = ${JSON.stringify(v)}; e.setSelectionRange(${a}, ${b}); })()`);
+    await setEd('milk', 4); await kb('bullet'); assert.equal(await edv(), '- milk', 'bullet button');
+    await kb('indent'); assert.equal(await edv(), '  - milk', 'indent button');
+    await kb('outdent'); await kb('task'); assert.equal(await edv(), '- [ ] milk', 'task button');
+    await setEd('Title', 5); await kb('heading'); assert.equal(await edv(), '# Title', 'heading button');
+    await setEd('a b c', 2, 3); await kb('bold'); assert.equal(await edv(), 'a **b** c', 'bold wraps the selection');
+    await setEd('x y', 2, 3); await kb('wikilink'); assert.equal(await edv(), 'x [[y]]', 'wikilink button');
+    await setEd('see doc', 4, 7); await kb('link'); assert.equal(await edv(), 'see [doc]()', 'link button');
+    assert.equal(await ev(`document.querySelector('#ed').selectionStart`), 'see [doc](' .length, 'caret lands inside the parentheses');
+    await ev(`(async () => { await flush(); await open('Home', false); })()`);
+    await ev(`document.activeElement && document.activeElement.blur()`);
+    await until(`!document.querySelector('#kbar').classList.contains('on')`, 'bar hides when the editor loses focus');
+    const touch = (type, target, x, y) => ev(`(() => { const t = new Touch({ identifier: 1, target: ${target}, clientX: ${x}, clientY: ${y} }); ${target}.dispatchEvent(new TouchEvent('${type}', { bubbles: true, cancelable: true, touches: ${type === 'touchend' ? '[]' : '[t]'}, changedTouches: [t] })); })()`);
+    await touch('touchstart', 'document.querySelector("#main")', 5, 300); await touch('touchend', 'document.querySelector("#main")', 120, 305);
+    assert.equal(await ev(`document.body.classList.contains('side-open')`), true, 'swipe from the left edge opens the sidebar');
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#scrim')).display`), 'block', 'with a scrim behind it');
+    await touch('touchstart', 'document.querySelector("#side")', 250, 300); await touch('touchend', 'document.querySelector("#side")', 120, 305);
+    assert.equal(await ev(`document.body.classList.contains('side-open')`), false, 'swipe the sidebar left closes it');
+    await ev(`document.querySelector('#menu').click()`);
+    const row = `document.querySelector('#list [data-note="T1"]')`;
+    await touch('touchstart', row, 40, 60); await sleep(700);
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#ctx')).display`), 'block', 'long-press opens the row menu');
+    await ev(`${row}.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))`);
+    assert.equal(await ev(`cur`), 'Home', 'the tap that ends the long-press does not open the note');
+    await ev(`document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
+    await ev(`(async () => { await api('/api/note?name=PTR%20note', { method: 'PUT', body: 'x', headers: { 'x-base-mtime': '0' } }); })()`);
+    assert.equal(await ev(`notes.has('PTR note')`), false);
+    await touch('touchstart', 'document.querySelector("#list")', 100, 20); await touch('touchend', 'document.querySelector("#list")', 100, 160);
+    await until(`notes.has('PTR note')`, 'pull down at the top refreshes the list');
+    await cdp('Emulation.setTouchEmulationEnabled', { enabled: false });
+    await ev(`document.documentElement.classList.remove('touch'); document.body.classList.remove('side-open')`);
 
     assert.deepEqual(errors, [], 'no console errors');
   } finally {

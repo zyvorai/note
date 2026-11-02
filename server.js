@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs/promises');
 const path = require('path');
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 
 const PUBLIC = path.resolve(__dirname, 'public');
 
@@ -20,7 +21,9 @@ async function readPublic(rel) {
   return fs.readFile(f);
 }
 
-function createServer(ROOT, hooks = {}) {
+// opts.remote = { token }: remote mode for phones and other devices. Every request must then carry the secret token
+// (cookie or Authorization header); without it the server behaves exactly as before: localhost only, no login.
+function createServer(ROOT, hooks = {}, opts = {}) {
 ROOT = path.resolve(ROOT);
 const TRASH = path.join(ROOT, '.trash');
 const SNIPPETS = path.join(ROOT, '.plainnote', 'snippets');
@@ -138,15 +141,41 @@ async function gitSync() {
   return 'Synced ' + new Date().toLocaleTimeString();
 }
 
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const TYPES = { '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
+
+// ---- remote mode: token auth ----
+const sha = (x) => crypto.createHash('sha256').update(String(x)).digest();
+const sameToken = (a, b) => crypto.timingSafeEqual(sha(a), sha(b));          // constant time, and the length does not leak
+const failures = new Map();                                                    // ip -> recent failed attempts (a token was presented but wrong)
+function authorize(req, res, url) {
+  const token = opts.remote.token;
+  const bearer = /^Bearer (.+)$/.exec(req.headers.authorization || '');
+  if (bearer && sameToken(bearer[1], token)) return true;
+  const ck = /(?:^|;\s*)pn_token=([^;]+)/.exec(req.headers.cookie || '');
+  let cookie = ''; try { cookie = ck ? decodeURIComponent(ck[1]) : ''; } catch {}
+  if (cookie && sameToken(cookie, token)) return true;
+  const ip = req.socket.remoteAddress || '', now = Date.now(), recent = (failures.get(ip) || []).filter((t) => now - t < 60000);
+  const q = url.searchParams.get('token');
+  if (recent.length >= 10) { send(res, 429, { error: 'too many attempts, wait a minute' }); return false; }
+  if (req.method === 'GET' && q && sameToken(q, token)) {                    // first visit from the link: remember it in a cookie and drop it from the URL
+    const secure = req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https';
+    res.writeHead(302, { 'Set-Cookie': `pn_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure ? '; Secure' : ''}`, Location: '/', 'Cache-Control': 'no-store' });
+    res.end(); return false;
+  }
+  if (q || bearer || cookie) { recent.push(now); failures.set(ip, recent); }
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/files/')) send(res, 401, { error: 'unauthorized' });
+  else send(res, 401, '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Plainnote</title><body style="font:16px system-ui;max-width:30em;margin:15vh auto;padding:0 1em"><h2>Plainnote</h2><p>This notes server needs its access link. Open the full link printed in the terminal where it was started (it ends in <code>?token=…</code>).</p>', 'text/html; charset=utf-8');
+  return false;
+}
 
 return http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     // Only answer to localhost (blocks DNS-rebinding), and block cross-site requests: only same-origin (or non-browser) callers.
-    if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(req.headers.host || '')) return send(res, 403, { error: 'forbidden' });
+    if (!opts.remote && !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(req.headers.host || '')) return send(res, 403, { error: 'forbidden' });
     const origin = req.headers.origin;
     if (origin && new URL(origin).host !== req.headers.host) return send(res, 403, { error: 'forbidden' });
+    if (opts.remote && !authorize(req, res, url)) return;
 
     if (url.pathname === '/api/ping') { hooks.onPing?.(); return send(res, 200, { app: 'plainnote' }); }
     if (url.pathname === '/api/notes' && req.method === 'GET') return send(res, 200, await walk(ROOT));
@@ -267,23 +296,44 @@ return http.createServer(async (req, res) => {
 });
 }
 
-// Start a server on 127.0.0.1. port 0 picks a free port. Resolves { server, port, root }.
-async function listen(root, port, hooks) {
+// The secret for remote mode lives in <notes>/.plainnote/token (created on first use, readable by you only).
+async function ensureToken(root) {
+  const dir = path.join(root, '.plainnote'), file = path.join(dir, 'token');
+  try { const t = (await fs.readFile(file, 'utf8')).trim(); if (t.length >= 32) return t; } catch {}
+  const t = crypto.randomBytes(32).toString('base64url');
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(file, t + '\n', { mode: 0o600 });
+  return t;
+}
+
+// Start a server (127.0.0.1 unless opts.host says otherwise). port 0 picks a free port. Resolves { server, port, root, token? }.
+async function listen(root, port, hooks, opts = {}) {
   root = path.resolve(root);
   await fs.mkdir(root, { recursive: true });
-  const server = createServer(root, hooks);
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
-  return { server, port: server.address().port, root };
+  const token = opts.remote ? await ensureToken(root) : null;
+  const server = createServer(root, hooks, token ? { remote: { token } } : {});
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, opts.host || '127.0.0.1', resolve); });
+  return { server, port: server.address().port, root, token };
 }
 
 module.exports = { createServer, listen };
 
 if (require.main === module) {
-  const root = process.argv[2] || path.join(__dirname, 'notes');
-  const port = Number(process.argv[3] || process.env.PORT || 4777);
-  listen(root, port).then((r) => {
+  // node server.js [notesDir] [port] [--remote] [--host 0.0.0.0]
+  const args = process.argv.slice(2), pos = [], opts = {};
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--remote') opts.remote = true;
+    else if (args[i] === '--host') opts.host = args[++i];
+    else if (!args[i].startsWith('--')) pos.push(args[i]);
+  }
+  const root = pos[0] || path.join(__dirname, 'notes');
+  const port = Number(pos[1] || process.env.PORT || 4777);
+  listen(root, port, undefined, opts).then((r) => {
     // Desktop wrapper: exit when the parent app dies and closes our stdin.
     if (process.env.NOTES_WATCH_STDIN) { process.stdin.resume(); process.stdin.on('end', () => process.exit(0)); }
-    console.log(`Notes: ${r.root}\nOpen:  http://localhost:${r.port}`);
+    if (r.token) {
+      const host = opts.host && opts.host !== '0.0.0.0' ? opts.host : 'localhost';
+      console.log(`Notes: ${r.root}\nRemote mode: every request needs the token. Do not share this link; serve it over HTTPS (e.g. tailscale serve) when it leaves your machine.\nOpen:  http://${host}:${r.port}/?token=${r.token}`);
+    } else console.log(`Notes: ${r.root}\nOpen:  http://localhost:${r.port}`);
   }, (e) => { console.error(e.message); process.exit(1); });
 }

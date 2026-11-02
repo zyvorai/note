@@ -3,21 +3,28 @@ import Cocoa
 
 func c(_ r: Double, _ g: Double, _ b: Double, _ a: Double = 1) -> NSColor { NSColor(calibratedRed: r, green: g, blue: b, alpha: a) }
 
+// ICON_IOS=light|dark renders a full-bleed square for the iOS asset catalog (iOS rounds the corners itself).
+let iosMode = ProcessInfo.processInfo.environment["ICON_IOS"]
+
 func draw(_ s: CGFloat) {
     func R(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> NSRect { NSRect(x: s * x, y: s * y, width: s * w, height: s * h) }
     func P(_ x: Double, _ y: Double) -> NSPoint { NSPoint(x: s * x, y: s * y) }
 
     // squircle tile with a diagonal indigo -> violet -> magenta gradient
-    let tile = NSBezierPath(roundedRect: R(0.06, 0.06, 0.88, 0.88), xRadius: s * 0.2, yRadius: s * 0.2)
+    let tile = iosMode != nil ? NSBezierPath(rect: R(0, 0, 1, 1)) : NSBezierPath(roundedRect: R(0.06, 0.06, 0.88, 0.88), xRadius: s * 0.2, yRadius: s * 0.2)
     NSGraphicsContext.saveGraphicsState()
     let tileShadow = NSShadow(); tileShadow.shadowColor = c(0.15, 0.08, 0.45, 0.25); tileShadow.shadowBlurRadius = s * 0.025; tileShadow.shadowOffset = NSSize(width: 0, height: -s * 0.015)
-    tileShadow.set(); c(0.4, 0.3, 0.9).setFill(); tile.fill()
+    if iosMode == nil { tileShadow.set() }; c(0.4, 0.3, 0.9).setFill(); tile.fill()
     NSGraphicsContext.restoreGraphicsState()
     NSGraphicsContext.saveGraphicsState()
     tile.addClip()
-    NSGradient(colors: [c(0.30, 0.36, 0.98), c(0.52, 0.30, 0.95), c(0.82, 0.31, 0.78)], atLocations: [0, 0.5, 1], colorSpace: .deviceRGB)!.draw(in: tile.bounds, angle: -50)
+    let bg = iosMode == "dark" ? [c(0.09, 0.09, 0.26), c(0.19, 0.11, 0.40), c(0.36, 0.13, 0.42)] : [c(0.30, 0.36, 0.98), c(0.52, 0.30, 0.95), c(0.82, 0.31, 0.78)]
+    NSGradient(colors: bg, atLocations: [0, 0.5, 1], colorSpace: .deviceRGB)!.draw(in: tile.bounds, angle: -50)
     // soft glow top-left, gloss on the upper half
-    NSGradient(colors: [c(1, 1, 1, 0.26), c(1, 1, 1, 0)], atLocations: [0, 1], colorSpace: .deviceRGB)!.draw(in: R(0.06, 0.5, 0.88, 0.44), angle: -90)
+    NSGradient(colors: [c(1, 1, 1, iosMode == "dark" ? 0.12 : 0.26), c(1, 1, 1, 0)], atLocations: [0, 1], colorSpace: .deviceRGB)!.draw(in: iosMode != nil ? R(0, 0.5, 1, 0.5) : R(0.06, 0.5, 0.88, 0.44), angle: -90)
+    if iosMode != nil {            // the artwork fills more of a full-bleed square than of the macOS tile
+        let t = NSAffineTransform(); t.translateX(by: s * 0.5, yBy: s * 0.5); t.scaleX(by: 1.16, yBy: 1.16); t.translateX(by: -s * 0.5, yBy: -s * 0.5); t.concat()
+    }
 
     // page with a folded corner and a soft shadow
     let fold = 0.12, px = 0.22, py = 0.17, pw = 0.46, ph = 0.64
@@ -67,7 +74,7 @@ func draw(_ s: CGFloat) {
     node(d, 0.044, c(1.0, 0.62, 0.78), c(0.92, 0.32, 0.55))
     NSGraphicsContext.restoreGraphicsState()
     // fine inner rim for definition
-    c(1, 1, 1, 0.22).setStroke(); tile.lineWidth = max(1, s * 0.004); tile.stroke()
+    if iosMode == nil { c(1, 1, 1, 0.22).setStroke(); tile.lineWidth = max(1, s * 0.004); tile.stroke() }
 }
 
 func render(_ px: Int) -> Data {

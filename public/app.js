@@ -60,6 +60,21 @@ function renderTags() {
 let pins = new Set(); try { pins = new Set(JSON.parse(localStorage.getItem('pins') || '[]')); } catch {}
 function savePins() { try { localStorage.setItem('pins', JSON.stringify([...pins])); } catch {} }
 function renderPin() { const on = !!cur && pins.has(cur); $('#pin').disabled = $('#exp').disabled = !cur; const b = $('#pin'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); b.title = on ? 'Unpin from the top of the list' : 'Pin to top of the list'; b.setAttribute('aria-label', on ? 'Unpin' : 'Pin'); }
+function notePreview(text, name) {                                 // first line of real content, markdown stripped; headings only if there is nothing else
+  const clean = (l) => l.replace(/^\s*(#{1,6}\s+|>\s?|[-*+]\s+(\[[ xX]\]\s+)?|\d+\.\s+)/, '').replace(/!?\[\[([^\]|]*\|)?([^\]]*)\]\]/g, '$2').replace(/[*_`=~]/g, '').trim();
+  const lines = MD.frontmatter(text).body.split('\n'), title = (name || '').split('/').pop().toLowerCase();
+  const ok = (t) => t && !/^(-{3,}|\*{3,})$/.test(t) && t.toLowerCase() !== title;
+  for (const l of lines) if (!/^\s*#{1,6}\s/.test(l)) { const t = clean(l); if (ok(t)) return t.slice(0, 120); }
+  for (const l of lines) { const t = clean(l); if (ok(t)) return t.slice(0, 120); }
+  return '';
+}
+function relTime(ms) {
+  const d = Date.now() - ms, m = 60e3, h = 60 * m, day = 24 * h;
+  if (d < m) return 'now'; if (d < h) return Math.floor(d / m) + 'm'; if (d < day) return Math.floor(d / h) + 'h';
+  const dt = new Date(ms), now = new Date(); if (d < 2 * day && dt.getDate() !== now.getDate()) return 'Yesterday';
+  if (d < 7 * day) return dt.toLocaleDateString(undefined, { weekday: 'short' });
+  return dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(dt.getFullYear() !== now.getFullYear() ? { year: '2-digit' } : {}) });
+}
 function renderList() {
   if (trashMode) return;
   renderTags();
@@ -73,7 +88,9 @@ function renderList() {
     let snip = '';
     if (q) { const i = MD.searchSnippetAt(pq, n.text);
       if (i >= 0) snip = `<span class="snip">${esc(n.text.slice(Math.max(0, i - 20), i + 50).replace(/\n/g, ' '))}</span>`; }
-    return `<div class="item${n.name === cur ? ' on' : ''}" data-note="${esc(n.name)}">${pins.has(n.name) ? '📌 ' : ''}${esc(n.name)}${snip}</div>`;
+    if (isTouch() && !snip) snip = `<span class="snip">${esc(notePreview(n.text, n.name))}</span>`;
+    const inner = isTouch() ? `<div class="r1"><span class="nm">${pins.has(n.name) ? '📌 ' : ''}${esc(n.name.split('/').pop())}</span><span class="tm">${esc(relTime(n.mtime))}</span></div>` : `${pins.has(n.name) ? '📌 ' : ''}${esc(n.name)}`;
+    return `<div class="item${n.name === cur ? ' on' : ''}" data-note="${esc(n.name)}">${inner}${snip}</div>`;
   }).join('') || '<div class="empty">No notes</div>';
 }
 function renderBack() {
@@ -86,7 +103,9 @@ function renderBack() {
   const out = [], seenOut = new Set();
   for (const m of notes.get(cur).text.matchAll(linkRe)) { const r = resolveLink(m[1]); if (r && r !== cur && !seenOut.has(r)) { seenOut.add(r); out.push(r); } }
   const um = MD.unlinkedMentions([...notes.values()], cur);
-  $('#back').innerHTML = (hits.length ? 'Linked from: ' + hits.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join('') : 'No backlinks')
+  const emptyBack = !hits.length && !out.length && !MD.unlinkedMentions([...notes.values()], cur).length;
+  $('#back').style.display = isTouch() && emptyBack ? 'none' : '';
+  $('#back').innerHTML = (hits.length ? 'Linked from: ' + hits.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join('') : isTouch() ? '' : 'No backlinks')
     + (out.length ? `<span class="um" id="outgoing"><b>Links to:</b> ` + out.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join(' ') + '</span>' : '')
     + (um.length ? `<span class="um" id="um"><b>Unlinked mentions:</b> ` + um.map((u) => `<a data-note="${esc(u.name)}">${esc(u.name)}</a><a data-link="${esc(u.name)}" title="Turn the mention into a [[link]]">link</a>`).join(' ') + '</span>' : '');
 }
@@ -145,14 +164,18 @@ function renderPane() {
   $('#tog').disabled = $('#del').disabled = !cur;
   if (graphOn) return drawGraph();
   stopGraph(); setIcon('#gr', 'graph', 'Graph view'); $('#gr').title = 'Graph view (Ctrl/Cmd+G)';
-  if (!cur) { $('#pane').innerHTML = '<div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div>'; return; }
+  if (!cur) {
+    $('#pane').innerHTML = isTouch() ? '<div class="empty">Your notes are in the sidebar.<div class="es-actions"><button id="es-notes">Browse notes</button><button id="es-new">New note</button></div></div>'
+      : '<div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div>';
+    return;
+  }
   const t = notes.get(cur).text;
   setIcon('#tog', preview ? 'pencil' : 'eye', preview ? 'Edit' : 'Preview');
   if (preview) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   else if (settings.livePreview) lpMount(t);
-  else { $('#pane').innerHTML = '<div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" spellcheck="false" placeholder="Start writing… use [[links]] to connect notes"></textarea></div>';
+  else { $('#pane').innerHTML = '<div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" spellcheck="' + settings.spellcheck + '" placeholder="Start writing… use [[links]] to connect notes"></textarea></div>';
     const ed = $('#ed'); ed.value = t; syncEditor(); ed.oninput = () => { onInput(); acUpdate(); caretIntoView(); }; ed.onkeydown = (e) => { edKey(e); setTimeout(caretIntoView, 0); }; ed.onblur = () => setTimeout(acHide, 150);
-    ed.onpaste = (e) => { if (attach(e.clipboardData.files)) { if ([...e.clipboardData.files].some((f) => f.type.startsWith('image/'))) e.preventDefault(); } };
+    ed.onpaste = (e) => { const lk = MD.pasteLink(ed.value, ed.selectionStart, ed.selectionEnd, e.clipboardData.getData('text/plain')); if (lk) { e.preventDefault(); applyEdit(ed, lk); return; } if (attach(e.clipboardData.files)) { if ([...e.clipboardData.files].some((f) => f.type.startsWith('image/'))) e.preventDefault(); } };
     ed.ondragover = (e) => { if ([...e.dataTransfer.items].some((i) => i.type.startsWith('image/'))) e.preventDefault(); };
     ed.ondrop = (e) => { if ([...e.dataTransfer.files].some((f) => f.type.startsWith('image/'))) { e.preventDefault(); attach(e.dataTransfer.files); } }; if (!t) ed.focus(); }
 }
@@ -184,6 +207,7 @@ function applySettings() {
   st.setProperty('--measure', { normal: '760px', wide: '1040px', full: 'none' }[settings.width]);
   if (READ_FONTS[settings.font]) st.setProperty('--read-font', READ_FONTS[settings.font]); else st.removeProperty('--read-font');
   applyAccent(settings.accent || nativeAccent);
+  document.querySelectorAll('#ed,#lp').forEach((el) => { el.spellcheck = settings.spellcheck; });
   hkMap = new Map(Object.entries(settings.hotkeys).map(([id, c]) => [c, id]));
   applySnippets();
 }
@@ -219,15 +243,18 @@ function renderSettings() {
     <div class="strow"><label for="st-font">Reading font</label>${sel('st-font', S.font, [['system', 'System'], ['serif', 'Serif'], ['mono', 'Monospace']])}</div>
     <div class="strow"><label for="st-width">Reading width</label>${sel('st-width', S.width, [['normal', 'Comfortable'], ['wide', 'Wide'], ['full', 'Full width']])}</div>
     <div class="strow"><label for="st-lp">Live Preview editor <small>(beta: no find, [[ completion or slash menu yet)</small></label><input id="st-lp" type="checkbox"${S.livePreview ? ' checked' : ''}></div>
+    <div class="strow"><label for="st-pair">Auto-pair brackets and quotes</label><input id="st-pair" type="checkbox"${S.autoPair ? ' checked' : ''}></div>
+    <div class="strow"><label for="st-spell">Check spelling while typing</label><input id="st-spell" type="checkbox"${S.spellcheck ? ' checked' : ''}></div>
     <div class="strow"><label for="st-fs">Text size</label><input id="st-fs" type="number" min="10" max="28" value="${fontSize}" style="width:70px"></div>
     <div class="strow"><label for="st-accent">Accent colour</label><input id="st-accent" type="color" value="${S.accent || nativeAccent || '#5b5bd6'}"><button id="st-accent-reset"${S.accent ? '' : ' disabled'}>${nativeAccent ? 'Use system colour' : 'Reset'}</button></div>
     <h4>Notes</h4>
+    ${document.documentElement.classList.contains('ios') ? '<div class="strow"><span class="l">Notes folder</span><button id="st-folder">Choose folder…</button></div><div class="hint">Pick a folder in iCloud Drive or any Files location to keep your notes in sync across devices.</div>' : ''}
     <div class="strow"><label for="st-daily">Daily notes folder</label><input id="st-daily" type="text" value="${esc(S.dailyFolder)}" placeholder="(top level)"></div>
     <div class="strow"><label for="st-dtpl">Daily note template</label><input id="st-dtpl" type="text" value="${esc(S.dailyTemplate)}"></div>
     <div class="strow"><label for="st-newf">New notes go in</label><input id="st-newf" type="text" value="${esc(S.newFolder)}" placeholder="(top level)"></div>
-    <h4>Custom shortcuts</h4>
+    <div class="kbdonly"><h4>Custom shortcuts</h4>
     <div class="hint">Added on top of the built-in shortcuts. Click a button, then press the keys (needs ⌘/Ctrl or Alt, or an F-key). Esc cancels, Backspace clears.</div>
-    ${hk}
+    ${hk}</div>
     <h4>CSS snippets &amp; themes</h4>
     <div class="hint">Put <code>.css</code> files in <code>.plainnote/snippets/</code> inside your notes folder. Snippets are trusted code: only enable ones you wrote or read.</div>
     ${snippetList.map((x) => `<div class="strow"><label><input type="checkbox" data-snip="${esc(x.name)}"${S.snippets.includes(x.name) ? ' checked' : ''}> ${esc(x.name)}</label></div>`).join('') || '<div class="hint">No snippets found.</div>'}
@@ -244,6 +271,8 @@ $('#st').addEventListener('change', (e) => {
   else if (id === 'st-font') setSetting({ font: t.value });
   else if (id === 'st-width') setSetting({ width: t.value });
   else if (id === 'st-lp') setLivePreview(t.checked);
+  else if (id === 'st-pair') setSetting({ autoPair: t.checked });
+  else if (id === 'st-spell') setSetting({ spellcheck: t.checked });
   else if (id === 'st-fs') setFontSize(Math.max(10, Math.min(28, +t.value || 14)), true);
   else if (id === 'st-accent') { setSetting({ accent: t.value }); renderSettings(); }
   else if (id === 'st-daily') setSetting({ dailyFolder: t.value });
@@ -255,6 +284,7 @@ $('#st').addEventListener('change', (e) => {
 $('#st').addEventListener('click', async (e) => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.id === 'st-accent-reset') { setSetting({ accent: '' }); renderSettings(); }
+  else if (b.id === 'st-folder') macPost({ t: 'chooseFolder' });
   else if (b.id === 'st-reload') { await loadSnippets(); renderSettings(); }
   else if (b.dataset.hk) { hkCapture = hkCapture === b.dataset.hk ? null : b.dataset.hk; renderSettings(); }
   else if (b.dataset.hkclear) { const h = { ...settings.hotkeys }; delete h[b.dataset.hkclear]; setSetting({ hotkeys: h }); renderSettings(); }
@@ -302,7 +332,7 @@ function lpPaint(typingIn) {
   });
 }
 function lpMount(t) {
-  $('#pane').innerHTML = '<div id="lpwrap"><div id="lp" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="true" aria-label="Note editor (Live Preview)"></div></div>';
+  $('#pane').innerHTML = '<div id="lpwrap"><div id="lp" contenteditable="true" spellcheck="' + settings.spellcheck + '" role="textbox" aria-multiline="true" aria-label="Note editor (Live Preview)"></div></div>';
   Object.assign(lp, { lines: t.split('\n'), active: -1, hist: [], redo: [], histAt: 0, composing: false });
   if (!t) lp.active = 0;
   lpPaint();
@@ -376,6 +406,8 @@ $('#pane').addEventListener('beforeinput', (e) => {
   if (t === 'insertText') { if (!inActive) edit(e.data ?? ''); return; }
   if (t === 'insertFromPaste' || t === 'insertFromDrop' || t === 'insertReplacementText') {
     const d = e.dataTransfer?.getData('text/plain') ?? e.data; e.preventDefault();
+    const lk = d != null && MD.pasteLink(text, A, B, d);
+    if (lk) return lpSetText(text.slice(0, lk.start) + lk.insert + text.slice(lk.end), lk.selStart);
     if (d != null) edit(d.replace(/\r\n?/g, '\n')); return;
   }
   if (t.startsWith('delete')) {
@@ -394,6 +426,9 @@ $('#pane').addEventListener('keydown', (e) => {
   if (!lpOn() || !e.target.closest?.('#lp')) return;
   const mod = e.metaKey || e.ctrlKey, sel = lpSel(); if (!sel) return;
   const t = lpText(), A = lpPos(sel.a), B = lpPos(sel.b);
+  const typed = settings.autoPair && !mod && !e.altKey && !e.isComposing && (e.key.length === 1 ? MD.autoPair(t, A, B, e.key) : e.key === 'Backspace' ? MD.backspacePair(t, A, B) : null);
+  if (typed) { e.preventDefault(); return lpSetText(t.slice(0, typed.start) + typed.insert + t.slice(typed.end), typed.selStart); }
+  if (mod && e.key === 'Enter') { e.preventDefault(); const r = MD.toggleTask(t, A); return lpSetText(t.slice(0, r.start) + r.insert + t.slice(r.end), r.selStart); }
   if (e.key === 'Tab' && !mod) { e.preventDefault(); const r = MD.indentLines(t, A, B, e.shiftKey); lpSetText(t.slice(0, r.start) + r.insert + t.slice(r.end), r.selStart); }
   else if (mod && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'i')) { e.preventDefault(); const r = MD.wrap(t, A, B, e.key === 'b' ? '**' : '*'); lpSetText(t.slice(0, r.start) + r.insert + t.slice(r.end), r.selEnd); }
 });
@@ -402,7 +437,7 @@ $('#pane').addEventListener('click', (e) => {
   const cb = e.target.closest('.lp-cb');
   if (cb) {                                                           // tick a task box
     e.preventDefault(); const i = +cb.closest('.ln').dataset.i, s = getSelection();
-    lpRemember(lpText(), lpPos({ i, col: 0 }));
+    haptic('selection'); lpRemember(lpText(), lpPos({ i, col: 0 }));
     lp.lines[i] = lp.lines[i].replace(/\[( |x|X)\]/, (m, c) => (c === ' ' ? '[x]' : '[ ]'));
     lpPaint(); lpCommit(); return;
   }
@@ -418,6 +453,87 @@ function lpClip(e, cut) {
 $('#pane').addEventListener('copy', (e) => lpClip(e, false));
 $('#pane').addEventListener('cut', (e) => lpClip(e, true));
 function setLivePreview(on) { settings = MD.normalizeSettings({ ...settings, livePreview: on }); saveSettings(); if (cur && !graphOn && !preview) { flush(); renderPane(); } }
+
+/* ---------- touch: formatting bar above the keyboard, edge swipe, long-press menu, pull to refresh ---------- */
+if (matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0) document.documentElement.classList.add('touch');
+const isTouch = () => document.documentElement.classList.contains('touch');
+const KBAR = [['⇥', 'indent', 'Indent'], ['⇤', 'outdent', 'Outdent'], ['•', 'bullet', 'Bulleted list'], ['☐', 'task', 'Task'], ['#', 'heading', 'Heading'],
+  ['[[ ]]', 'wikilink', 'Link to a note'], ['B', 'bold', 'Bold'], ['I', 'italic', 'Italic'], ['`', 'code', 'Code'], ['↗', 'link', 'Web link'], ['↶', 'undo', 'Undo']];
+$('#kbar').innerHTML = KBAR.map(([l, id, t]) => `<button data-k="${id}" aria-label="${t}" title="${t}">${esc(l)}</button>`).join('');
+function edCtx() {                                                  // whichever editor is open, as { t, s, e, apply(edit) }
+  const ed = $('#ed');
+  if (ed) return { t: ed.value, s: ed.selectionStart, e: ed.selectionEnd, apply: (x) => applyEdit(ed, x) };
+  if (lpOn()) {
+    const sel = lpSel(); if (!sel) return null;
+    return { t: lpText(), s: lpPos(sel.a), e: lpPos(sel.b), apply: (x) => { const t = lpText(); lpSetText(t.slice(0, x.start) + x.insert + t.slice(x.end), x.selEnd); } };
+  }
+  return null;
+}
+function kbarAct(id) {
+  if (id === 'undo') { if ($('#ed')) document.execCommand('undo'); else if (lpOn()) lpUndo(); return; }
+  const c = edCtx(); if (!c) return;
+  const sel = c.t.slice(c.s, c.e);
+  const x = id === 'indent' || id === 'outdent' ? MD.indentLines(c.t, c.s, c.e, id === 'outdent')
+    : id === 'bullet' ? MD.toggleBullet(c.t, c.s) : id === 'task' ? MD.toggleTask(c.t, c.s) : id === 'heading' ? MD.toggleHeading(c.t, c.s)
+    : id === 'wikilink' ? { start: c.s, end: c.e, insert: `[[${sel}]]`, selStart: c.s + 2, selEnd: c.s + 2 + sel.length }
+    : id === 'link' ? { start: c.s, end: c.e, insert: `[${sel}]()`, selStart: c.s + sel.length + 3, selEnd: c.s + sel.length + 3 }
+    : MD.wrap(c.t, c.s, c.e, { bold: '**', italic: '*', code: '`' }[id]);
+  if (x) c.apply(x);
+}
+function kbarPlace() { $('#kbar').style.bottom = getComputedStyle(document.documentElement).getPropertyValue('--kb') || '0px'; }
+document.addEventListener('focusin', (e) => { if (isTouch() && e.target.closest?.('#ed, #lp')) { $('#kbar').classList.add('on'); document.documentElement.classList.add('kbar-on'); kbarPlace(); } });
+document.addEventListener('focusout', (e) => {
+  if (!e.target.closest?.('#ed, #lp')) return;
+  setTimeout(() => { if (!document.activeElement?.closest?.('#ed, #lp')) { $('#kbar').classList.remove('on'); document.documentElement.classList.remove('kbar-on'); } }, 150);
+});
+$('#kbar').addEventListener('pointerdown', (e) => { const b = e.target.closest('button'); if (b) { e.preventDefault(); kbarAct(b.dataset.k); } });   // preventDefault keeps focus (and the keyboard) in the editor
+$('#scrim').onclick = () => document.body.classList.remove('side-open');
+$('#pane').addEventListener('click', (e) => {                       // reading view: tap the text to start editing
+  if (!isTouch() || !preview || !e.target.closest('#pv') || e.target.closest('a, input, img, button, summary, pre, table')) return;
+  if (getSelection().toString()) return;
+  haptic('light'); $('#tog').click();
+});
+let swipe = null;
+document.addEventListener('touchstart', (e) => { const t = e.touches[0]; swipe = { x: t.clientX, y: t.clientY, edge: t.clientX < 24, side: !!e.target.closest?.('#side') }; }, { passive: true });
+document.addEventListener('touchend', (e) => {                       // swipe in from the left edge opens the sidebar; swipe it left to close
+  const s = swipe; swipe = null; if (!s || !isTouch() || innerWidth > 700) return;
+  const t = e.changedTouches[0], dx = t.clientX - s.x, dy = t.clientY - s.y;
+  if (Math.abs(dy) > Math.abs(dx) * 0.6) return;
+  if (s.edge && dx > 60) { haptic('light'); document.body.classList.add('side-open'); } else if (s.side && dx < -60) document.body.classList.remove('side-open');
+}, { passive: true });
+let pressTimer = 0, pressAt = null, pressed = false, pull = null;
+$('#list').addEventListener('touchstart', (e) => {                   // long-press a row = right-click; pull down at the top = refresh
+  const t = e.touches[0]; pull = $('#list').scrollTop === 0 ? { y: t.clientY } : null;
+  const row = e.target.closest('[data-note],[data-folder]'); if (!row) return;
+  pressAt = { x: t.clientX, y: t.clientY }; pressed = false; clearTimeout(pressTimer);
+  pressTimer = setTimeout(() => { pressed = true; pull = null; haptic('medium'); row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: pressAt.x, clientY: pressAt.y })); try { navigator.vibrate?.(10); } catch {} }, 500);
+}, { passive: true });
+$('#list').addEventListener('touchmove', (e) => { const t = e.touches[0]; if (pressAt && Math.hypot(t.clientX - pressAt.x, t.clientY - pressAt.y) > 10) clearTimeout(pressTimer); }, { passive: true });
+$('#list').addEventListener('touchend', async (e) => {
+  clearTimeout(pressTimer); const p = pull; pull = null;
+  if (p && !pressed && e.changedTouches[0].clientY - p.y > 90) { haptic('light'); await load(); $('#status').textContent = 'Refreshed'; }
+}, { passive: true });
+$('#list').addEventListener('touchcancel', () => clearTimeout(pressTimer), { passive: true });
+$('#list').addEventListener('click', (e) => { if (pressed) { e.stopPropagation(); e.preventDefault(); pressed = false; } }, true);   // the tap that ends a long-press must not open the note
+
+/* ---------- phone chrome: tab bar, haptics, keyboard height ---------- */
+const haptic = (v = 'light') => { if (document.documentElement.classList.contains('ios')) macPost({ t: 'haptic', v }); };
+const svgIcon = (n) => `<svg viewBox="0 0 16 16" aria-hidden="true">${ICO[n]}</svg>`;
+const TABS = [['tb-notes', 'list', 'Notes', () => document.body.classList.toggle('side-open')], ['tb-search', 'search', 'Search', () => swOpen()],
+  ['tb-new', 'plus', 'New note', () => newNote()], ['tb-today', 'cal', 'Today', () => openToday()], ['tb-more', 'gear', 'Settings', () => openSettings()]];
+function buildTabbar() {                                            // called once ICO exists (it is defined further down)
+  $('#tabbar').innerHTML = TABS.map(([id, ic, label]) => id === 'tb-new'
+    ? `<button class="tb-new" id="${id}" aria-label="${label}"><span class="pill">${svgIcon(ic)}</span></button>`
+    : `<button id="${id}" aria-label="${label}">${svgIcon(ic)}<span class="lbl">${label}</span></button>`).join('');
+}
+$('#tabbar').addEventListener('click', (e) => { const b = e.target.closest('button'); const t = b && TABS.find((x) => x[0] === b.id); if (t) { haptic(b.id === 'tb-new' ? 'medium' : 'light'); t[3](); } });
+function setKeyboard(px) {                                          // the on-screen keyboard height: the layout shrinks above it
+  px = Math.max(0, Math.round(px) || 0);
+  document.documentElement.style.setProperty('--kb', px + 'px'); document.documentElement.classList.toggle('kb-open', px > 0);
+  kbarPlace();
+}
+window.visualViewport?.addEventListener('resize', () => { if (!document.documentElement.classList.contains('ios') && isTouch()) setKeyboard(innerHeight - visualViewport.height - visualViewport.offsetTop); });
+new MutationObserver(() => $('#tb-notes')?.classList.toggle('on', document.body.classList.contains('side-open'))).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
 /* ---------- tabs: each tab shows one note; the active tab's note is `cur` ---------- */
 let tabs = [{ name: null, preview: false }], ti = 0, pendingPreview = false;
@@ -467,7 +583,7 @@ async function open(name, create) {
   }
   document.body.classList.remove('side-open');
   if (name.includes('/')) { const d = name.slice(0, name.lastIndexOf('/')); for (let i = d.indexOf('/'); i >= 0; i = d.indexOf('/', i + 1)) openFolders.add(d.slice(0, i)); openFolders.add(d); saveOpenFolders(); }
-  addingProp = false; cur = name; preview = pendingPreview; pendingPreview = false; graphOn = false; tabs[ti].name = name; renderTabs(); location.hash = encodeURIComponent(name);
+  addingProp = false; cur = name; preview = pendingPreview || (isTouch() && !!notes.get(name).text); pendingPreview = false; graphOn = false; tabs[ti].name = name; renderTabs(); location.hash = encodeURIComponent(name);
   try { localStorage.setItem('last', name); } catch {}
   const t = $('#title'); t.disabled = false; t.value = name.split('/').pop();
   renderPane(); renderList(); renderBack(); $('#status').textContent = '';
@@ -517,6 +633,11 @@ function edKey(e) {
     if (e.key === 'ArrowUp') { e.preventDefault(); acSel = (acSel + acRows.length - 1) % acRows.length; return acUpdate(); }
     if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); return acPick(acSel); }
     if (e.key === 'Escape') { e.preventDefault(); return acHide(); }
+  }
+  if (!e.isComposing) {
+    const x = settings.autoPair && !mod && !e.altKey && (e.key.length === 1 ? MD.autoPair(v, s, en, e.key) : e.key === 'Backspace' ? MD.backspacePair(v, s, en) : null);
+    if (x) { e.preventDefault(); return applyEdit(ed, x); }
+    if (mod && e.key === 'Enter') { e.preventDefault(); return applyEdit(ed, MD.toggleTask(v, s)); }
   }
   if (e.key === 'Enter' && !mod && !e.shiftKey && s === en) {
     const x = MD.listEnter(v, s); if (x) { e.preventDefault(); applyEdit(ed, x); }
@@ -701,6 +822,7 @@ function exportHtml() {
   for (const im of doc.querySelectorAll('img')) { const src = im.getAttribute('src') || ''; if (src.startsWith('/')) im.setAttribute('src', location.origin + src); }
   const title = cur.split('/').pop();
   const html = `<!doctype html>\n<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>\n<style>\n${css.join('\n')}\n</style></head>\n<body>${doc.body.innerHTML}</body></html>\n`;
+  if (document.documentElement.classList.contains('ios')) return macPost({ t: 'shareHTML', name: title, html });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' })); a.download = title + '.html';
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -883,6 +1005,7 @@ window.plainnote = {
   ready: null,                                                      // resolves once the first load finished (the app waits on it)
   async run(id) { await this.ready; const c = COMMANDS.find((x) => x.id === id); (c ? c.run : EXTRA[id])?.(); },
   async openNote(name, create) { await this.ready; await load(); await open(name, !!create); },   // reload first: the note may have just been written on disk
+  setKeyboard(px) { setKeyboard(px); },
   setInset(px) { if (px >= 0 && px < 200) document.documentElement.style.setProperty('--tb', px + 'px'); },   // toolbar height from AppKit
   setAccent(hex) {                                                  // the Mac app passes the system accent colour
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
@@ -1001,6 +1124,8 @@ document.addEventListener('click', (e) => {
   const tb = e.target.closest('[data-tab]');
   if (tb) { switchTab(+tb.dataset.tab); return; }
   if (e.target.closest('#newtab')) { newTab(); return; }
+  if (e.target.closest('#es-notes')) { document.body.classList.add('side-open'); return; }
+  if (e.target.closest('#es-new')) { newNote(); return; }
   const fo = e.target.closest('[data-folder]');
   if (fo) { const f = fo.dataset.folder; openFolders.has(f) ? openFolders.delete(f) : openFolders.add(f); saveOpenFolders(); renderList(); return; }
   const ssd = e.target.closest('[data-ssdel]');
@@ -1118,7 +1243,10 @@ $('#list').addEventListener('contextmenu', (e) => {
 
 /* ---------- properties (frontmatter) ---------- */
 let propsOpen = true, addingProp = false, propsSig = '', curProps = [];
-try { propsOpen = localStorage.getItem('propsOpen') !== '0'; } catch {}
+try {
+  const saved = localStorage.getItem('propsOpen');
+  propsOpen = saved === null ? !(matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0 || document.documentElement.classList.contains('touch')) : saved !== '0';   // collapsed by default on phones
+} catch {}
 function renderProps(force) {
   const el = $('#props');
   if (!cur || graphOn || !notes.get(cur)) { el.style.display = 'none'; propsSig = ''; return; }
@@ -1240,7 +1368,8 @@ const ICO = {
   box: '<rect x="2.5" y="3" width="11" height="3" rx="1"/><path d="M3.5 6v6.5h9V6M6.5 9h3"/>', pin: '<path d="M6 2.5h4l-.7 4 2 2.2H4.7l2-2.2zM8 8.7v4.8"/>',
   graph: '<circle cx="4" cy="4.5" r="1.6"/><circle cx="12" cy="5" r="1.6"/><circle cx="8" cy="12" r="1.6"/><path d="M5.3 5.5l5.4-.3M5 6l2.2 4.6M10.8 6.4L8.9 10.5"/>',
   eye: '<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>', pencil: '<path d="M3 13l.6-3L11 2.6a1.4 1.4 0 0 1 2 2L5.6 12zM9.8 3.8l2.4 2.4"/>',
-  x: '<path d="M4 4l8 8M12 4l-8 8"/>', more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>', del: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/>',
+  x: '<path d="M4 4l8 8M12 4l-8 8"/>', list: '<path d="M2.5 4h11M2.5 8h11M2.5 12h7"/>', search: '<circle cx="7" cy="7" r="4.3"/><path d="M10.2 10.2L13.8 13.8"/>', gear: '<circle cx="8" cy="8" r="2.1"/><path d="M8 1.6v1.8M8 12.6v1.8M1.6 8h1.8M12.6 8h1.8M3.5 3.5l1.3 1.3M11.2 11.2l1.3 1.3M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3"/>',
+  more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>', del: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/>',
 };
 function setIcon(sel, name, label) {
   const b = $(sel); if (!b) return;
@@ -1253,6 +1382,7 @@ function trashIcon(on) { setIcon('#trash', on ? 'cal' : 'box', on ? 'Back to not
 $('#more').onclick = (e) => { e.stopPropagation(); $('#moremenu').classList.toggle('on'); };
 document.addEventListener('click', () => $('#moremenu').classList.remove('on'));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#moremenu').classList.remove('on'); });
+$('#pinm').onclick = () => { haptic('success'); $('#pin').click(); }; $('#grm').onclick = () => $('#gr').click(); $('#delm').onclick = () => $('#del').click();
 $('#pdfb').onclick = () => exportPdf(); $('#gfb').onclick = () => openGlobalFind();
 /* theme: auto (follow the system) -> light -> dark */
 const THEMES = ['auto', 'light', 'dark'], ICON = { auto: '◐', light: '☀', dark: '☾' };
@@ -1338,13 +1468,17 @@ window.addEventListener('focus', async () => {
   else if (c && cur === c && !dirty && !graphOn && notes.get(c).text !== before) renderPane();   // changed on disk meanwhile
 });
 
+/* installable web app: keep the shell available offline when served over HTTPS or from another machine (never on the local desktop server) */
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) navigator.serviceWorker.register('/sw.js').catch(() => {});
+window.addEventListener('offline', () => { $('#status').textContent = 'Offline: showing what is on screen'; });
+window.addEventListener('online', () => { $('#status').textContent = 'Back online'; load(); });
 setInterval(() => fetch('/api/ping').catch(() => {}), 10000);   // lets the desktop launcher notice when the window is closed
 /* back / forward: every opened note is a history entry, so the browser buttons, Alt+Arrows and Ctrl/Cmd+[ ] walk through them */
 window.addEventListener('hashchange', () => {
   let h = ''; try { h = decodeURIComponent(location.hash.slice(1)); } catch {}
   if (h && h !== cur && notes.has(h)) open(h, false);
 });
-applySettings(); loadSnippets();
+applySettings(); loadSnippets(); buildTabbar();
 setView(view);
 plainnote.ready = load().then(async () => {
   let h = decodeURIComponent(location.hash.slice(1));
@@ -1356,6 +1490,7 @@ plainnote.ready = load().then(async () => {
   if (!h) try { h = localStorage.getItem('last') || ''; } catch {}   // reopen where you left off
   renderSplit();
   if (h) await open(h, false);
+  if (!cur) renderPane();                                           // nothing to open: show the (touch-aware) empty state
   if (/[?&]graph\b/.test(location.search)) { graphOn = true; renderPane(); }   // ?graph opens the graph view (used for screenshots)
   if (/[?&]preview\b/.test(location.search) && cur) { preview = true; renderPane(); }
 });

@@ -410,6 +410,58 @@
     return block.prefix.length + c.length;
   }
 
+  // ---- typing helpers: auto-pairing, pasting a link over a selection, task toggling. All return an edit { start, end, insert, selStart, selEnd } or null. ----
+  const PAIRS = { '(': ')', '[': ']', '{': '}', '`': '`', '"': '"' }, CLOSERS = new Set([')', ']', '}', '`', '"']);
+  const WRAPPERS = { ...PAIRS, '*': '*', _: '_', '~': '~', '=': '=' };
+  function autoPair(t, s, e, key) {
+    if (key.length !== 1) return null;
+    const prev = t[s - 1] || '', next = t[e] || '';
+    if (s !== e) {                                              // a selection: wrap it
+      const close = WRAPPERS[key]; if (!close || t.slice(s, e).includes('\n')) return null;
+      return { start: s, end: e, insert: key + t.slice(s, e) + close, selStart: s + 1, selEnd: e + 1 };
+    }
+    if (CLOSERS.has(key) && next === key) return { start: s, end: s, insert: '', selStart: s + 1, selEnd: s + 1 };   // typed the closer that is already there
+    const close = PAIRS[key]; if (!close) return null;
+    if (key === '`' && (prev === '`' || next === '`')) return null;                                   // leave ``` fences alone
+    if ((key === '"' || key === '`') && /[\w]/.test(prev)) return null;                               // a quote after a word is an apostrophe / end quote
+    if (next && !/[\s)\]}.,;:!?]/.test(next)) return null;                                           // only pair before whitespace, a closer or the end
+    return { start: s, end: s, insert: key + close, selStart: s + 1, selEnd: s + 1 };
+  }
+  function backspacePair(t, s, e) {
+    if (s !== e || s < 1) return null;
+    return PAIRS[t[s - 1]] && PAIRS[t[s - 1]] === t[s] ? { start: s - 1, end: s + 1, insert: '', selStart: s - 1, selEnd: s - 1 } : null;
+  }
+  function pasteLink(t, s, e, clip) {
+    const url = String(clip || '').trim(), sel = t.slice(s, e);
+    if (s === e || sel.includes('\n') || !/^https?:\/\/[^\s]+$/i.test(url)) return null;
+    const ins = `[${sel}](${url})`;
+    return { start: s, end: e, insert: ins, selStart: s + ins.length, selEnd: s + ins.length };
+  }
+  function toggleTask(t, pos) {
+    const a = lineStart(t, pos), b = lineEnd(t, pos), line = t.slice(a, b);
+    let m, nl;
+    if ((m = line.match(/^(\s*(?:[-*+]|\d+\.)\s+)\[([ xX])\]/))) nl = line.slice(0, m[1].length) + '[' + (m[2] === ' ' ? 'x' : ' ') + ']' + line.slice(m[0].length);
+    else if ((m = line.match(/^(\s*(?:[-*+]|\d+\.)\s+)/))) nl = m[1] + '[ ] ' + line.slice(m[1].length);
+    else { const ind = line.match(/^\s*/)[0]; nl = ind + '- [ ] ' + line.slice(ind.length); }
+    const caret = Math.min(Math.max(pos + (nl.length - line.length), a), a + nl.length);
+    return { start: a, end: b, insert: nl, selStart: caret, selEnd: caret };
+  }
+
+  // line-level toggles used by the phone keyboard bar
+  function reline(t, pos, fn) {
+    const a = lineStart(t, pos), b = lineEnd(t, pos), line = t.slice(a, b), nl = fn(line);
+    const caret = Math.min(Math.max(pos + (nl.length - line.length), a), a + nl.length);
+    return { start: a, end: b, insert: nl, selStart: caret, selEnd: caret };
+  }
+  const toggleBullet = (t, pos) => reline(t, pos, (l) => {
+    const m = l.match(/^(\s*)([-*+]|\d+\.)\s+(\[[ xX]\]\s+)?/);
+    return m ? m[1] + l.slice(m[0].length) : l.match(/^\s*/)[0] + '- ' + l.trimStart();
+  });
+  const toggleHeading = (t, pos) => reline(t, pos, (l) => {                  // none -> # -> ## -> ### -> none
+    const m = l.match(/^(#{1,6})\s+/), level = m ? m[1].length : 0, rest = m ? l.slice(m[0].length) : l, next = level >= 3 ? 0 : level + 1;
+    return (next ? '#'.repeat(next) + ' ' : '') + rest;
+  });
+
   // ---- settings and keyboard shortcuts (pure, so they can be tested without a browser) ----
   const FONTS = ['system', 'serif', 'mono'], WIDTHS = ['normal', 'wide', 'full'];
   const COMBO = /^(?:(?:mod|alt|shift)\+){0,3}[^\s+]+$|^(?:(?:mod|alt|shift)\+){1,3}\+$/;
@@ -426,6 +478,8 @@
       dailyTemplate: typeof o.dailyTemplate === 'string' ? o.dailyTemplate.trim().replace(/^\/+|\.md$/gi, '') || 'templates/Daily' : 'templates/Daily',
       newFolder: folder(o.newFolder, ''),
       livePreview: o.livePreview === true,
+      spellcheck: o.spellcheck === true,
+      autoPair: o.autoPair !== false,
       hotkeys,
       snippets: Array.isArray(o.snippets) ? [...new Set(o.snippets.filter((n) => typeof n === 'string' && /^\w[\w .-]*\.css$/.test(n)))] : [],
     };
@@ -555,7 +609,7 @@
     return { text: out + text.slice(last), count: hits.length };
   }
 
-  const api = { lpClassify, lpRender, lpColumn, normalizeSettings, comboOf, comboValid, comboLabel, buildTree, properties, setProperty, removeProperty, splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
+  const api = { toggleBullet, toggleHeading, autoPair, backspacePair, pasteLink, toggleTask, lpClassify, lpRender, lpColumn, normalizeSettings, comboOf, comboValid, comboLabel, buildTree, properties, setProperty, removeProperty, splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);
