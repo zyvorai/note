@@ -146,3 +146,25 @@ test('append creates or extends a note and stays inside the notes folder', async
     assert.equal(fs.existsSync(path.join(s.dir, '..', 'escape.md')), false);
   } finally { s.stop(); }
 });
+
+test('folders: create, list, delete only when empty, and stay inside the notes folder', async () => {
+  const s = await start();
+  try {
+    const post = (name) => s.j('/api/folder', { method: 'POST', body: JSON.stringify({ name }) });
+    assert.equal((await post('projects/2026')).status, 200);
+    assert.equal((await post('empty')).status, 200);
+    await s.put('projects/plan', 'x');
+    assert.deepEqual((await s.j('/api/folders')).body, ['empty', 'projects', 'projects/2026']);
+    assert.ok(fs.statSync(path.join(s.dir, 'projects/2026')).isDirectory());
+    for (const bad of ['../outside', '/abs/../../x', '.hidden', 'a/../../b', '', 'a/.git']) {
+      const r = await post(bad);
+      assert.ok(r.status >= 400, `rejected ${JSON.stringify(bad)}`);
+    }
+    assert.equal(fs.existsSync(path.join(s.dir, '..', 'outside')), false);
+    assert.equal((await s.j('/api/folder?name=projects', { method: 'DELETE' })).status, 409, 'non-empty folder is kept');
+    assert.ok(fs.existsSync(path.join(s.dir, 'projects/plan.md')), 'its notes are untouched');
+    assert.equal((await s.j('/api/folder?name=empty', { method: 'DELETE' })).status, 200);
+    assert.equal(fs.existsSync(path.join(s.dir, 'empty')), false);
+    assert.ok((await s.j('/api/folder?name=..', { method: 'DELETE' })).status >= 400);
+  } finally { s.stop(); }
+});

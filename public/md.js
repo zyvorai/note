@@ -4,19 +4,75 @@
   const linkRe = /\[\[([^\]\|\n]+?)(?:\|([^\]\n]+))?\]\]/g;
   const tagRe = /(^|[\s(])#((?=[\w\/-]*[A-Za-z_])[\w\/-]+)/g;
   // Leading `---` YAML-ish block: simple `key: value`, `key: [a, b]` and `- item` lists. -> { data, body }
-  function frontmatter(text) {
-    const m = text.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
-    if (!m) return { data: {}, body: text };
-    const data = {}; let key = null;
-    for (const line of m[1].split(/\r?\n/)) {
+  const unq = (v) => {
+    v = v.trim();
+    if (v.length > 1 && v[0] === '"' && v.endsWith('"')) return v.slice(1, -1).replace(/\\"/g, '"');
+    if (v.length > 1 && v[0] === "'" && v.endsWith("'")) return v.slice(1, -1).replace(/''/g, "'");
+    return v.replace(/^["']|["']$/g, '');
+  };
+  const FM = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+  // the entries of a frontmatter block, in order, with the line range each one occupies
+  function fmEntries(lines) {
+    const out = []; let cur = null;
+    lines.forEach((line, i) => {
       const kv = line.match(/^([\w-]+):\s*(.*)$/), it = line.match(/^\s+-\s+(.*)$|^-\s+(.*)$/);
-      const clean = (v) => v.trim().replace(/^["']|["']$/g, '');
       if (kv) {
-        key = kv[1].toLowerCase(); const v = kv[2].trim();
-        data[key] = v.startsWith('[') && v.endsWith(']') ? v.slice(1, -1).split(',').map(clean).filter(Boolean) : v ? clean(v) : [];
-      } else if (it && key) { if (!Array.isArray(data[key])) data[key] = data[key] ? [data[key]] : []; data[key].push(clean(it[1] ?? it[2])); }
-    }
+        const v = kv[2].trim();
+        cur = { name: kv[1], key: kv[1].toLowerCase(), start: i, end: i + 1, block: false,
+          value: v.startsWith('[') && v.endsWith(']') ? v.slice(1, -1).split(',').map(unq).filter(Boolean) : v ? unq(v) : [] };
+        out.push(cur);
+      } else if (it && cur) {
+        if (!Array.isArray(cur.value)) cur.value = cur.value ? [cur.value] : [];
+        cur.value.push(unq(it[1] ?? it[2])); cur.end = i + 1; cur.block = true;
+      }
+    });
+    return out;
+  }
+  function frontmatter(text) {
+    const m = text.match(FM);
+    if (!m) return { data: {}, body: text };
+    const data = {};
+    for (const e of fmEntries(m[1].split(/\r?\n/))) data[e.key] = e.value;
     return { data, body: text.slice(m[0].length) };
+  }
+  // Properties (frontmatter) as an editable list, and writing them back without touching the rest of the file.
+  function properties(text) {
+    const m = text.match(FM); if (!m) return [];
+    const last = new Map();
+    for (const e of fmEntries(m[1].split(/\r?\n/))) last.set(e.key, e);
+    return [...last.values()].map((e) => {
+      const v = e.value;
+      if (Array.isArray(v)) return { key: e.name, value: v, type: 'list' };
+      if (/^(true|false)$/i.test(v)) return { key: e.name, value: /^true$/i.test(v), type: 'checkbox' };
+      if (/^-?\d+(\.\d+)?$/.test(v)) return { key: e.name, value: v, type: 'number' };
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return { key: e.name, value: v, type: 'date' };
+      return { key: e.name, value: v, type: 'text' };
+    });
+  }
+  function fmScalar(v, inList) {
+    if (typeof v === 'boolean' || typeof v === 'number') return String(v);
+    v = String(v).replace(/\r?\n/g, ' ');
+    if (!v) return inList ? '""' : '';
+    return /^\s|\s$|^[\[\]{}#&*!|>'"%@`]|^- |: | #/.test(v) || (inList && /[,\]]/.test(v)) ? '"' + v.replace(/"/g, '\\"') + '"' : v;
+  }
+  const fmValue = (v) => (Array.isArray(v) ? '[' + v.map((x) => fmScalar(x, true)).join(', ') + ']' : fmScalar(v));
+  function setProperty(text, key, value) {
+    const m = text.match(FM);
+    if (!m) return `---\n${`${key}: ${fmValue(value)}`.trimEnd()}\n---\n` + text;
+    const nl = m[0].includes('\r\n') ? '\r\n' : '\n', open = m[0].match(/^---[ \t]*\r?\n/)[0].length, closing = m[0].slice(open + m[1].length);
+    const lines = m[1].split(/\r?\n/), ex = fmEntries(lines).filter((e) => e.key === key.toLowerCase()).pop();
+    const rep = ex && ex.block && Array.isArray(value) ? [`${ex.name}:`, ...value.map((x) => `  - ${fmScalar(x, true)}`)] : [`${ex ? ex.name : key}: ${fmValue(value)}`.trimEnd()];
+    if (ex) lines.splice(ex.start, ex.end - ex.start, ...rep); else lines.push(...rep);
+    return m[0].slice(0, open) + lines.join(nl) + closing + text.slice(m[0].length);
+  }
+  function removeProperty(text, key) {
+    const m = text.match(FM); if (!m) return text;
+    const nl = m[0].includes('\r\n') ? '\r\n' : '\n', open = m[0].match(/^---[ \t]*\r?\n/)[0].length, closing = m[0].slice(open + m[1].length);
+    const lines = m[1].split(/\r?\n/), drop = new Set();
+    for (const e of fmEntries(lines)) if (e.key === key.toLowerCase()) for (let i = e.start; i < e.end; i++) drop.add(i);
+    const kept = lines.filter((_, i) => !drop.has(i));
+    if (!kept.some((l) => l.trim())) return text.slice(m[0].length);
+    return m[0].slice(0, open) + kept.join(nl) + closing + text.slice(m[0].length);
   }
   const tagsOf = (text) => {
     const fm = frontmatter(text), t = fm.body.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
@@ -285,6 +341,25 @@
     return -1;
   }
 
+
+  // Folder tree from note names (and any empty folders): { type:'folder', name, path, count, children } / { type:'note', name, label }
+  function buildTree(names, folders = []) {
+    const root = { type: 'folder', name: '', path: '', children: [] }, dirs = new Map([['', root]]);
+    const dir = (p) => {
+      if (dirs.has(p)) return dirs.get(p);
+      const i = p.lastIndexOf('/'), parent = dir(i < 0 ? '' : p.slice(0, i)), d = { type: 'folder', name: p.slice(i + 1), path: p, children: [] };
+      parent.children.push(d); dirs.set(p, d); return d;
+    };
+    for (const f of folders) if (f) dir(f);
+    for (const n of names) { const i = n.lastIndexOf('/'); dir(i < 0 ? '' : n.slice(0, i)).children.push({ type: 'note', name: n, label: n.slice(i + 1) }); }
+    const key = (x) => (x.type === 'folder' ? x.name : x.label);
+    const walk = (d) => {
+      d.children.sort((a, b) => (a.type !== b.type ? (a.type === 'folder' ? -1 : 1) : key(a).localeCompare(key(b))));
+      d.count = d.children.reduce((a, c) => a + (c.type === 'note' ? 1 : walk(c)), 0); return d.count;
+    };
+    walk(root); return root;
+  }
+
   // templates: {{date}} {{time}} {{datetime}} {{title}} (case-insensitive); unknown {{x}} are left alone
   function fillTemplate(text, title, now) {
     const d = now || new Date(), p = (x) => String(x).padStart(2, '0');
@@ -396,7 +471,7 @@
     return { text: out + text.slice(last), count: hits.length };
   }
 
-  const api = { splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
+  const api = { buildTree, properties, setProperty, removeProperty, splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -176,3 +176,21 @@ html.native #fr{top:calc(var(--tb) + 8px)}
 #hp .hp-title{font-weight:600;margin-bottom:4px}#hp .hp-body{color:var(--fg)}#hp .hp-body :is(h1,h2,h3){font-size:1.05em;margin:.4em 0}#hp .hp-body p{margin:.3em 0}
 #hp::after{content:"";position:absolute;left:0;right:0;bottom:0;height:28px;background:linear-gradient(transparent,var(--bg));border-radius:0 0 12px 12px}
 @media(prefers-reduced-transparency:reduce){#hp{background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none}}
+
+/* ---- file tree, context menu, properties ---- */
+#vsw{display:flex;gap:2px;margin:0 10px 6px;padding:2px;border-radius:9px;background:var(--field)}
+#vsw button{flex:1;padding:2px 0;font-size:12px;border-radius:7px}#vsw button.on{background:var(--bg);box-shadow:0 1px 2px #0002}
+.item.fold{color:var(--mute);font-weight:600;font-size:13px}.item.fold small{font-weight:400;margin-left:4px}
+.item.fold .chev{display:inline-block;width:14px;transition:transform .12s}.item.fold.open .chev{transform:rotate(90deg)}
+.item.drop,#list.drop{outline:2px solid var(--acc);outline-offset:-2px;background:var(--hover)}
+#ctx{display:none;position:fixed;z-index:50;min-width:180px;padding:5px;border-radius:12px;box-shadow:var(--elev);background:color-mix(in srgb,var(--bg) 86%,transparent);-webkit-backdrop-filter:blur(24px) saturate(1.5);backdrop-filter:blur(24px) saturate(1.5)}
+#ctx button{display:block;width:100%;text-align:left;padding:5px 10px}#ctx button:hover{background:var(--acc);color:var(--on-acc)}#ctx hr{border:0;border-top:1px solid var(--sep);margin:4px 6px}
+#props{display:none;border-bottom:1px solid var(--sep);padding:6px 16px 8px;font-size:13px}
+#props .phead a{color:var(--mute);cursor:pointer;user-select:none}#props .phead a:hover{color:var(--acc)}
+#props .phead,#props .prow{max-width:760px;margin-left:auto;margin-right:auto}
+#props .prow{display:flex;align-items:center;gap:8px;margin-top:4px}
+#props .prow label{width:110px;flex:none;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#props .prow input:not([type=checkbox]){flex:1;min-width:0;padding:3px 8px;border:0;border-radius:6px;background:var(--field)}
+#props .prow .x{padding:0 6px;color:var(--mute);opacity:0}#props .prow:hover .x,#props .prow .x:focus-visible{opacity:1}
+#props .prow.add input{flex:1}
+@media(prefers-reduced-transparency:reduce){#ctx{background:var(--bg);-webkit-backdrop-filter:none;backdrop-filter:none}}

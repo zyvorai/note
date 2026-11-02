@@ -254,6 +254,48 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.equal(await ev(`document.querySelectorAll('#tags .chip.ss').length`), 0, 'saved search removed');
     await ev(`(async () => { graphOn = false; await open('Home', false); })()`);
 
+    // file tree: folders, dragging a note into one (links follow), context menu
+    const put = (n, t) => `api('/api/note?name=' + encodeURIComponent(${JSON.stringify(n)}), { method: 'PUT', body: ${JSON.stringify(t)}, headers: { 'x-base-mtime': '0' } })`;
+    await ev(`(async () => { await ${put('Proj/Alpha', 'a')}; await ${put('Moveme', 'm')}; await ${put('Pointer', 'see [[Moveme#Sec|x]] and [[Moveme]]')}; await api('/api/folder', { method: 'POST', body: JSON.stringify({ name: 'Archive' }) }); await load(); })()`);
+    await ev(`document.querySelector('#vfiles').click()`);
+    const folderRows = () => ev(`[...document.querySelectorAll('#list [data-folder]')].map((f) => f.dataset.folder)`);
+    assert.ok((await folderRows()).includes('Archive') && (await folderRows()).includes('Proj'), 'folders listed, including empty ones');
+    assert.equal(await ev(`!!document.querySelector('#list [data-note="Proj/Alpha"]')`), false, 'collapsed');
+    await ev(`document.querySelector('#list [data-folder="Proj"]').click()`);
+    assert.equal(await ev(`!!document.querySelector('#list [data-note="Proj/Alpha"]')`), true, 'expanded');
+    await ev(`(() => { const dt = new DataTransfer(); dt.setData('text/plain', 'plainnote:Moveme'); document.querySelector('#list [data-folder="Archive"]').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); })()`);
+    await until(`notes.has('Archive/Moveme') && !notes.has('Moveme')`, 'note moved into the folder');
+    await until(`notes.get('Pointer').text === 'see [[Archive/Moveme#Sec|x]] and [[Archive/Moveme]]'`, 'links follow the move');
+    assert.ok((await ev(`api('/api/notes').then((l) => l.map((n) => n.name))`)).includes('Archive/Moveme'), 'moved on disk');
+    await ev(`document.querySelector('#list [data-note="Archive/Moveme"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }))`);
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#ctx')).display`), 'block');
+    assert.match(await ev(`document.querySelector('#ctx').textContent`), /Rename….*Duplicate.*Move to folder….*Copy link/);
+    await ev(`[...document.querySelectorAll('#ctx button')].find((b) => b.textContent === 'Duplicate').click()`);
+    await until(`notes.has('Archive/Moveme copy') && cur === 'Archive/Moveme copy'`, 'duplicate opened');
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#ctx')).display`), 'none', 'menu closes');
+    await ev(`window.confirm = () => true; document.querySelector('#list [data-folder="Archive"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }))`);
+    await ev(`[...document.querySelectorAll('#ctx button')].find((b) => /Delete empty folder/.test(b.textContent)).click()`);
+    await until(`/not empty/.test(document.querySelector('#status').textContent)`, 'non-empty folder is refused');
+    await ev(`document.querySelector('#vlist').click()`);
+    assert.equal(await ev(`document.querySelectorAll('#list [data-folder]').length`), 0, 'list view has no folder rows');
+
+    // properties panel edits only the frontmatter
+    await ev(`(async () => { await ${put('Props note', '---\ntitle: Hi\ndone: false\n---\nbody text')}; await load(); await open('Props note', false); })()`);
+    await until(`document.querySelectorAll('#props .prow input[data-prop]').length === 2`, 'properties listed');
+    await ev(`(() => { const i = document.querySelector('#props input[data-prop="0"]'); i.value = 'New title'; i.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    const src = (t, d) => `---\ntitle: ${t}\ndone: ${d}\n---\nbody text`;
+    await until(`notes.get('Props note').text === ${JSON.stringify(src('New title', false))}`, 'text property written');
+    assert.equal(await ev(`document.querySelector('#ed').value`), src('New title', false), 'editor follows');
+    await ev(`document.querySelector('#props input[type=checkbox]').click()`);
+    await until(`notes.get('Props note').text === ${JSON.stringify(src('New title', true))}`, 'checkbox written');
+    await ev(`(() => { document.querySelector('#pnew').value = 'tags'; document.querySelector('#padd').click(); })()`);
+    await until(`/done: true\\ntags:\\n---\\nbody text$/.test(notes.get('Props note').text)`, 'property added');
+    await ev(`document.querySelector('#props [data-propdel="0"]').click()`);
+    await until(`notes.get('Props note').text === '---\\ndone: true\\ntags:\\n---\\nbody text'`, 'property removed');
+    await ev(`(async () => { await open('Home', false); })()`);
+    assert.equal(await ev(`document.querySelector('#props').textContent.trim()`), '+ Add property', 'a note without properties only offers to add one');
+    assert.equal(await ev(`document.querySelectorAll('#props .prow').length`), 0);
+
     // icon toolbar: every icon button has an accessible name; the overflow menu opens, runs an item and closes
     assert.equal(await ev(`[...document.querySelectorAll('button.ico')].every((b) => b.getAttribute('aria-label') && b.querySelector('svg'))`), true);
     await ev(`document.querySelector('#more').click()`);

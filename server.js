@@ -32,6 +32,25 @@ function notePath(name) {
   return p;
 }
 
+// Resolve a folder name ("a/b") to a safe absolute directory inside ROOT (no dot-folders, so .trash and .git stay out of reach).
+function folderPath(name) {
+  if (typeof name !== 'string' || !name.trim() || name.includes('\0')) throw new Error('bad name');
+  const parts = name.replace(/\\/g, '/').split('/').filter(Boolean);
+  if (!parts.length || parts.some((x) => x === '.' || x === '..' || x.startsWith('.'))) throw new Error('bad name');
+  const p = path.resolve(ROOT, ...parts);
+  if (!p.startsWith(ROOT + path.sep)) throw new Error('bad path');
+  return p;
+}
+async function listFolders(dir, base = '') {
+  const out = [];
+  for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name.startsWith('.')) continue;
+    const rel = base ? `${base}/${e.name}` : e.name;
+    out.push(rel, ...(await listFolders(path.join(dir, e.name), rel)));
+  }
+  return out;
+}
+
 async function walk(dir, base = '') {
   const out = [];
   for (const e of await fs.readdir(dir, { withFileTypes: true })) {
@@ -129,6 +148,21 @@ return http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/ping') { hooks.onPing?.(); return send(res, 200, { app: 'plainnote' }); }
     if (url.pathname === '/api/notes' && req.method === 'GET') return send(res, 200, await walk(ROOT));
+    if (url.pathname === '/api/folders' && req.method === 'GET') return send(res, 200, (await listFolders(ROOT)).sort());
+    if (url.pathname === '/api/folder') {
+      if (req.method === 'POST') {                          // create (possibly nested) folder
+        const { name } = JSON.parse(await body(req));
+        await fs.mkdir(folderPath(name), { recursive: true });
+        return send(res, 200, { ok: true });
+      }
+      if (req.method === 'DELETE') {                        // only empty folders: notes are never removed this way
+        try { await fs.rmdir(folderPath(url.searchParams.get('name'))); } catch (e) {
+          if (e.code === 'ENOTEMPTY' || e.code === 'EEXIST') return send(res, 409, { error: 'not empty' });
+          throw e;
+        }
+        return send(res, 200, { ok: true });
+      }
+    }
     if (url.pathname === '/api/note') {
       const p = notePath(url.searchParams.get('name'));
       if (req.method === 'PUT') {

@@ -23,8 +23,10 @@ const resolve = (t) => { t = t.trim(); if (!t) return cur; if (notes.has(t)) ret
 // a link target as written, e.g. "Note#Heading", "Note^id", "#Heading" (current note) or an alias -> note name or null
 const resolveLink = (t) => { const r = resolve(t); if (r) return r; const sp = MD.splitTarget(t); return sp.name ? resolve(sp.name) : (sp.heading || sp.block) ? cur : null; };
 
+let folders = [];
 async function load() {
-  const fresh = await api('/api/notes');
+  const [fresh, fl] = await Promise.all([api('/api/notes'), api('/api/folders').catch(() => folders)]);
+  folders = fl;
   const keep = dirty && cur ? notes.get(cur) : null;      // never replace text the user typed but hasn't saved yet
   aliasMap = null;
   notes = new Map(fresh.map((n) => [n.name, { ...n, base: n.mtime }]));
@@ -65,6 +67,7 @@ function renderList() {
   let rows = [...notes.values()];
   if (activeTag) rows = rows.filter((n) => tagsOf(n.text).has(activeTag));
   if (q) rows = rows.filter((n) => MD.searchMatch(pq, n.name, n.text));
+  if (view === 'files' && !q && !activeTag) { $('#list').innerHTML = treeHtml(MD.buildTree([...notes.keys()], folders), 0) || '<div class="empty">No notes</div>'; return; }
   rows.sort((a, b) => pins.has(b.name) - pins.has(a.name) || b.mtime - a.mtime);   // pinned first, then newest
   $('#list').innerHTML = rows.map((n) => {
     let snip = '';
@@ -135,7 +138,7 @@ function updateWC() {
   el.textContent = `${w.toLocaleString()} word${w === 1 ? '' : 's'} · ${t.length.toLocaleString()} chars`;
 }
 function renderPane() {
-  updateWC(); renderPin(); renderOutline();
+  updateWC(); renderPin(); renderOutline(); renderProps(true);
   $('#tog').disabled = $('#del').disabled = !cur;
   if (graphOn) return drawGraph();
   stopGraph(); setIcon('#gr', 'graph', 'Graph view'); $('#gr').title = 'Graph view (Ctrl/Cmd+G)';
@@ -161,7 +164,8 @@ async function open(name, create) {
     } catch (e) { await load(); if (!notes.has(name)) return; }
   }
   document.body.classList.remove('side-open');
-  cur = name; preview = false; graphOn = false; location.hash = encodeURIComponent(name);
+  if (name.includes('/')) { const d = name.slice(0, name.lastIndexOf('/')); for (let i = d.indexOf('/'); i >= 0; i = d.indexOf('/', i + 1)) openFolders.add(d.slice(0, i)); openFolders.add(d); saveOpenFolders(); }
+  addingProp = false; cur = name; preview = false; graphOn = false; location.hash = encodeURIComponent(name);
   try { localStorage.setItem('last', name); } catch {}
   const t = $('#title'); t.disabled = false; t.value = name.split('/').pop();
   renderPane(); renderList(); renderBack(); $('#status').textContent = '';
@@ -266,7 +270,7 @@ function caretIntoView(top) {
 }
 function onInput() {
   syncEditor();
-  const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); aliasMap = null; dirty = true; updateWC(); renderOutline();
+  const n = notes.get(cur); n.text = $('#ed').value; n.mtime = Date.now(); aliasMap = null; dirty = true; updateWC(); renderOutline(); renderProps();
   $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
 }
 async function flush() {
@@ -393,22 +397,30 @@ function exportHtml() {
   a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' })); a.download = title + '.html';
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+// Move/rename a note on disk and keep everything that points at it working (links, pins, the open note).
+async function renameNote(from, to) {
+  await flush();
+  try { await api('/api/rename', { method: 'POST', body: JSON.stringify({ from, to }) }); }
+  catch (e) { $('#status').textContent = 'Rename failed: ' + (e.message === 'exists' ? 'a note with that name already exists' : e.message); return false; }
+  const n = notes.get(from); notes.delete(from); n.name = to; notes.set(to, n); aliasMap = null;
+  const re = new RegExp(`\\[\\[(\\s*)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s*)(?=[|\\]#^])`, 'g');
+  for (const o of notes.values()) if (o.text.match(re)) {            // keep links working, including [[Note#Heading]] and [[Note^id]]
+    o.text = o.text.replace(re, `[[$1${to}$2`);
+    api('/api/note?name=' + encodeURIComponent(o.name), { method: 'PUT', body: o.text }).then((r) => { o.base = r.mtime; }, () => {}); }
+  if (pins.delete(from)) { pins.add(to); savePins(); }
+  if (to.includes('/')) { const d = to.slice(0, to.lastIndexOf('/')); for (let i = d.indexOf('/'); i >= 0; i = d.indexOf('/', i + 1)) openFolders.add(d.slice(0, i)); openFolders.add(d); saveOpenFolders(); }
+  if (cur === from) { cur = to; location.hash = encodeURIComponent(to); $('#title').value = to.split('/').pop(); }
+  renderList(); renderBack(); if (cur === to) renderPane();
+  return true;
+}
 async function rename() {
   const to = $('#title').value.trim().replace(/[\\:*?"<>|]/g, '');
   const dir = cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/') + 1) : '';
   const full = dir + to;
   if (!to || full === cur) { $('#title').value = cur.split('/').pop(); return; }
-  await flush();
-  try { await api('/api/rename', { method: 'POST', body: JSON.stringify({ from: cur, to: full }) }); }
-  catch (e) { $('#status').textContent = 'Rename failed: ' + e.message; $('#title').value = cur.split('/').pop(); return; }
-  const n = notes.get(cur); notes.delete(cur); n.name = full; notes.set(full, n);
-  const re = new RegExp(`\\[\\[\\s*${cur.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(\\||\\]\\])`, 'g');
-  for (const o of notes.values()) if (re.test(o.text)) {            // keep links working
-    o.text = o.text.replace(re, `[[${full}$1`);
-    api('/api/note?name=' + encodeURIComponent(o.name), { method: 'PUT', body: o.text }).then((r) => { o.base = r.mtime; }, () => {}); }
-  if (pins.delete(cur)) { pins.add(full); savePins(); }
-  cur = full; location.hash = encodeURIComponent(full); renderList(); renderBack(); renderPane();
+  if (!(await renameNote(cur, full))) $('#title').value = cur.split('/').pop();
 }
+const moveNote = (name, folder) => renameNote(name, (folder ? folder + '/' : '') + name.split('/').pop());
 
 /* ---------- Graph ---------- */
 function stopGraph() { cancelAnimationFrame(gRaf); gRaf = 0; }
@@ -660,6 +672,8 @@ document.addEventListener('click', (e) => {
   if (e.target.id === 'emptytrash') { if (confirm('Permanently delete everything in the trash?')) api('/api/trash', { method: 'DELETE' }).then(() => { trashMode = true; showTrash(); }); return; }
   const rs = e.target.closest('[data-restore]');
   if (rs) { api('/api/restore', { method: 'POST', body: JSON.stringify({ id: rs.dataset.restore }) }).then(async (r) => { await load(); trashMode = false; trashIcon(false); renderList(); open(r.name, false); }); return; }
+  const fo = e.target.closest('[data-folder]');
+  if (fo) { const f = fo.dataset.folder; openFolders.has(f) ? openFolders.delete(f) : openFolders.add(f); saveOpenFolders(); renderList(); return; }
   const ssd = e.target.closest('[data-ssdel]');
   if (ssd) { const a = savedSearches(); a.splice(+ssd.dataset.ssdel, 1); setSearches(a); renderTags(); return; }
   const ssc = e.target.closest('[data-ss]');
@@ -675,6 +689,142 @@ document.addEventListener('click', (e) => {
   if (a) { e.preventDefault(); const anchor = a.dataset.anchor, block = a.dataset.block; open(a.dataset.note || cur, true).then(() => { if (anchor) gotoAnchor(anchor); else if (block) gotoBlock(block); }); }
 });
 $('#q').oninput = renderList;
+
+
+/* ---------- file tree ---------- */
+let view = 'list'; try { view = localStorage.getItem('view') === 'files' ? 'files' : 'list'; } catch {}
+let openFolders = new Set(); try { openFolders = new Set(JSON.parse(localStorage.getItem('openFolders') || '[]')); } catch {}
+const saveOpenFolders = () => { try { localStorage.setItem('openFolders', JSON.stringify([...openFolders])); } catch {} };
+function treeHtml(node, depth) {
+  return node.children.map((c) => {
+    if (c.type === 'folder') {
+      const o = openFolders.has(c.path);
+      return `<div class="item fold${o ? ' open' : ''}" data-folder="${esc(c.path)}" style="padding-left:${8 + depth * 14}px"><span class="chev">▸</span>${esc(c.name)} <small>${c.count}</small></div>` + (o ? treeHtml(c, depth + 1) : '');
+    }
+    return `<div class="item${c.name === cur ? ' on' : ''}" data-note="${esc(c.name)}" draggable="true" style="padding-left:${22 + depth * 14}px">${pins.has(c.name) ? '📌 ' : ''}${esc(c.label)}</div>`;
+  }).join('');
+}
+function setView(v) {
+  view = v; try { localStorage.setItem('view', v); } catch {}
+  $('#vlist').classList.toggle('on', v === 'list'); $('#vfiles').classList.toggle('on', v === 'files');
+  $('#vlist').setAttribute('aria-selected', v === 'list'); $('#vfiles').setAttribute('aria-selected', v === 'files');
+  if (!trashMode) renderList();
+}
+$('#vlist').onclick = () => setView('list'); $('#vfiles').onclick = () => setView('files');
+const dropTarget = (e) => { const f = e.target.closest('[data-folder]'), n = e.target.closest('[data-note]');
+  return f ? f.dataset.folder : n && n.dataset.note.includes('/') ? n.dataset.note.slice(0, n.dataset.note.lastIndexOf('/')) : ''; };
+const dragName = (e) => { const t = e.dataTransfer?.getData('text/plain') || ''; return t.startsWith('plainnote:') ? t.slice(10) : null; };
+$('#list').addEventListener('dragstart', (e) => { const n = e.target.closest('[data-note]'); if (!n) return; e.dataTransfer.setData('text/plain', 'plainnote:' + n.dataset.note); e.dataTransfer.effectAllowed = 'move'; });
+$('#list').addEventListener('dragover', (e) => {
+  if (view !== 'files' || ![...(e.dataTransfer?.types || [])].includes('text/plain')) return;
+  e.preventDefault();
+  document.querySelectorAll('#list .drop').forEach((x) => x.classList.remove('drop'));
+  (e.target.closest('[data-folder]') || (e.target.closest('[data-note]') ? null : $('#list')))?.classList.add('drop');
+});
+$('#list').addEventListener('dragleave', (e) => { if (!e.relatedTarget || !$('#list').contains(e.relatedTarget)) document.querySelectorAll('#list .drop').forEach((x) => x.classList.remove('drop')); });
+$('#list').addEventListener('drop', async (e) => {
+  document.querySelectorAll('#list .drop').forEach((x) => x.classList.remove('drop'));
+  const name = dragName(e); if (!name || view !== 'files') return;
+  e.preventDefault(); const to = dropTarget(e);
+  if (to) { openFolders.add(to); saveOpenFolders(); }
+  if (await moveNote(name, to)) $('#status').textContent = `Moved to ${to || 'the top level'}`;
+});
+/* right-click menu */
+function showCtx(items, x, y) {
+  const el = $('#ctx');
+  el.innerHTML = items.map((it, i) => (it ? `<button role="menuitem" data-ctx="${i}">${esc(it[0])}</button>` : '<hr>')).join('');
+  el.style.display = 'block';
+  el.style.left = Math.min(x, innerWidth - el.offsetWidth - 8) + 'px'; el.style.top = Math.min(y, innerHeight - el.offsetHeight - 8) + 'px';
+  el._items = items;
+}
+const hideCtx = () => { $('#ctx').style.display = 'none'; };
+$('#ctx').addEventListener('click', (e) => { const b = e.target.closest('[data-ctx]'); if (!b) return; const it = $('#ctx')._items[+b.dataset.ctx]; hideCtx(); it && it[1](); });
+document.addEventListener('mousedown', (e) => { if (!e.target.closest?.('#ctx')) hideCtx(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideCtx(); });
+const uniqueName = (base) => { let i = 0, n; do { n = i ? `${base} ${i + 1}` : base; i++; } while (notes.has(n)); return n; };
+async function newFolder(parent) {
+  const sub = (prompt('New folder name', '') || '').trim().replace(/[\\:*?"<>|]/g, ''); if (!sub) return;
+  const name = parent ? parent + '/' + sub : sub;
+  try { await api('/api/folder', { method: 'POST', body: JSON.stringify({ name }) }); } catch (e) { $('#status').textContent = 'Could not create folder: ' + e.message; return; }
+  openFolders.add(parent || name); openFolders.add(name); saveOpenFolders(); folders = await api('/api/folders').catch(() => folders); setView('files');
+}
+async function deleteFolder(path) {
+  if (!confirm(`Delete the empty folder “${path}”?`)) return;
+  try { await api('/api/folder?name=' + encodeURIComponent(path), { method: 'DELETE' }); }
+  catch (e) { $('#status').textContent = e.message === 'not empty' ? 'Folder is not empty' : 'Could not delete: ' + e.message; return; }
+  folders = await api('/api/folders').catch(() => folders); renderList();
+}
+async function duplicateNote(name) {
+  const n = notes.get(name); if (!n) return; await flush();
+  const copy = uniqueName(name + ' copy');
+  const r = await api('/api/note?name=' + encodeURIComponent(copy), { method: 'PUT', body: n.text, headers: { 'x-base-mtime': '0' } });
+  notes.set(copy, { name: copy, text: n.text, mtime: Date.now(), base: r.mtime }); await open(copy, false);
+}
+$('#list').addEventListener('contextmenu', (e) => {
+  if (trashMode) return;
+  const n = e.target.closest('[data-note]'), f = e.target.closest('[data-folder]');
+  e.preventDefault();
+  if (n) {
+    const name = n.dataset.note, dir = name.includes('/') ? name.slice(0, name.lastIndexOf('/') + 1) : '';
+    showCtx([['Open', () => open(name, false)], null,
+      ['Rename…', async () => { const v = (prompt('Rename note', name.split('/').pop()) || '').trim().replace(/[\\:*?"<>|]/g, ''); if (v && dir + v !== name) await renameNote(name, dir + v); }],
+      ['Duplicate', () => duplicateNote(name)],
+      ['Move to folder…', async () => { const v = prompt('Move to folder (empty for the top level)', dir.replace(/\/$/, '')); if (v !== null) await moveNote(name, v.trim().replace(/^\/+|\/+$/g, '')); }],
+      [pins.has(name) ? 'Unpin' : 'Pin to top', () => { pins.has(name) ? pins.delete(name) : pins.add(name); savePins(); renderPin(); renderList(); }],
+      ['Copy link', () => { try { navigator.clipboard.writeText(`[[${name}]]`); } catch {} }], null,
+      ['Move to trash…', async () => { await open(name, false); $('#del').click(); }]], e.clientX, e.clientY);
+  } else {
+    const path = f ? f.dataset.folder : '';
+    showCtx([['New note here', async () => { if (path) { openFolders.add(path); saveOpenFolders(); } await open(uniqueName((path ? path + '/' : '') + 'Untitled'), true); }],
+      ['New folder…', () => newFolder(path)], ...(f ? [null, ['Delete empty folder…', () => deleteFolder(path)]] : [])], e.clientX, e.clientY);
+  }
+});
+
+/* ---------- properties (frontmatter) ---------- */
+let propsOpen = true, addingProp = false, propsSig = '', curProps = [];
+try { propsOpen = localStorage.getItem('propsOpen') !== '0'; } catch {}
+function renderProps(force) {
+  const el = $('#props');
+  if (!cur || graphOn || !notes.get(cur)) { el.style.display = 'none'; propsSig = ''; return; }
+  const ps = MD.properties(notes.get(cur).text), sig = JSON.stringify([cur, ps, propsOpen, addingProp]);
+  if (!force && sig === propsSig) return;
+  if (!force && el.contains(document.activeElement)) return;
+  propsSig = sig; curProps = ps; el.style.display = 'block';
+  const row = (p, i) => {
+    const k = esc(p.key);
+    const ctl = p.type === 'checkbox' ? `<input type="checkbox" data-prop="${i}" aria-label="${k}"${p.value ? ' checked' : ''}>`
+      : p.type === 'list' ? `<input data-prop="${i}" aria-label="${k}" value="${esc(p.value.join(', '))}" placeholder="a, b, c">`
+      : `<input data-prop="${i}" aria-label="${k}" type="${p.type === 'number' ? 'number' : p.type === 'date' ? 'date' : 'text'}" value="${esc(String(p.value))}">`;
+    return `<div class="prow"><label title="${k}">${k}</label>${ctl}<button class="x" data-propdel="${i}" aria-label="Remove ${k}" title="Remove">×</button></div>`;
+  };
+  const head = ps.length ? `<a id="ptoggle">${propsOpen ? '▾' : '▸'} Properties · ${ps.length}</a>` : `<a id="ptoggle">+ Add property</a>`;
+  const open = ps.length ? propsOpen : addingProp;
+  el.innerHTML = `<div class="phead">${head}</div>` + (open ? ps.map(row).join('') + `<div class="prow add"><input id="pnew" placeholder="New property name" aria-label="New property name"><button id="padd">Add</button></div>` : '');
+}
+function setNoteText(t) {
+  const n = notes.get(cur); if (!n || n.text === t) return;
+  n.text = t; n.mtime = Date.now(); aliasMap = null; dirty = true;
+  const ed = $('#ed'); if (ed) { ed.value = t; syncEditor(); } else if ($('#pv')) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
+  updateWC(); renderOutline(); renderList(); renderProps(true);
+  $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
+}
+$('#props').addEventListener('change', (e) => {
+  const i = e.target.dataset.prop; if (i == null || !curProps[+i]) return;
+  const p = curProps[+i]; let v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+  if (p.type === 'list') v = String(v).split(',').map((x) => x.trim()).filter(Boolean);
+  setNoteText(MD.setProperty(notes.get(cur).text, p.key, v));
+});
+function addProperty() {
+  const k = ($('#pnew')?.value || '').trim().replace(/\s+/g, '-');
+  if (!/^[\w-]+$/.test(k)) { $('#status').textContent = 'Property names use letters, numbers, - and _'; return; }
+  addingProp = false; setNoteText(MD.setProperty(notes.get(cur).text, k, '')); setTimeout(() => $('#props input[data-prop]:last-of-type')?.focus(), 0);
+}
+$('#props').addEventListener('click', (e) => {
+  if (e.target.closest('#ptoggle')) { if (curProps.length) { propsOpen = !propsOpen; try { localStorage.setItem('propsOpen', propsOpen ? '1' : '0'); } catch {} } else addingProp = !addingProp; renderProps(true); if (addingProp) $('#pnew')?.focus(); return; }
+  if (e.target.closest('#padd')) return addProperty();
+  const d = e.target.closest('[data-propdel]'); if (d && curProps[+d.dataset.propdel]) setNoteText(MD.removeProperty(notes.get(cur).text, curProps[+d.dataset.propdel].key));
+});
+$('#props').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'pnew') { e.preventDefault(); addProperty(); } });
 
 /* hover preview: pause on a [[link]] to peek at the note (or the linked section) */
 const hp = document.createElement('div'); hp.id = 'hp'; document.body.appendChild(hp);
@@ -851,6 +1001,7 @@ window.addEventListener('hashchange', () => {
   let h = ''; try { h = decodeURIComponent(location.hash.slice(1)); } catch {}
   if (h && h !== cur && notes.has(h)) open(h, false);
 });
+setView(view);
 plainnote.ready = load().then(async () => {
   let h = decodeURIComponent(location.hash.slice(1)); if (!h) try { h = localStorage.getItem('last') || ''; } catch {}   // reopen where you left off
   if (h) await open(h, false);

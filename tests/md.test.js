@@ -244,3 +244,43 @@ test('search query language', () => {
   assert.equal(MD.searchSnippetAt(MD.parseQuery('zebra'), 'a big Zebra here'), 6);
   assert.equal(MD.searchSnippetAt(MD.parseQuery('tag:x'), 'abc'), -1);
 });
+
+test('buildTree groups notes by folder, folders first, with counts and empty folders', () => {
+  const t = MD.buildTree(['b', 'a/z', 'a/y', 'a/deep/x', 'Alpha'], ['empty', 'a/deep']), nm = (c) => c.type + ':' + (c.type === 'folder' ? c.name : c.label);
+  assert.deepEqual(t.children.map(nm), ['folder:a', 'folder:empty', 'note:Alpha', 'note:b']);
+  const a = t.children[0];
+  assert.deepEqual(a.children.map(nm), ['folder:deep', 'note:y', 'note:z']);
+  assert.equal(a.count, 3);
+  assert.equal(a.children[0].path, 'a/deep');
+  assert.equal(t.children[1].count, 0);
+  assert.equal(t.count, 5);
+});
+
+test('properties are listed with types', () => {
+  const p = MD.properties('---\ntitle: "Hello: world"\ndone: true\nn: 3\nwhen: 2026-11-02\ntags: [a, b]\nlinks:\n  - x\n  - y\n---\nbody');
+  assert.deepEqual(p.map((x) => [x.key, x.type]), [['title', 'text'], ['done', 'checkbox'], ['n', 'number'], ['when', 'date'], ['tags', 'list'], ['links', 'list']]);
+  assert.equal(p[0].value, 'Hello: world');
+  assert.equal(p[1].value, true);
+  assert.deepEqual(p[5].value, ['x', 'y']);
+  assert.deepEqual(MD.properties('no frontmatter'), []);
+});
+
+test('setProperty and removeProperty change only the frontmatter', () => {
+  const body = '\n# Title\n\ntext with --- inside\n';
+  const src = '---\ntitle: Old\nTags: [a]\nlinks:\n  - x\n---' + body;
+  let t = MD.setProperty(src, 'title', 'New: value');
+  assert.equal(t, '---\ntitle: "New: value"\nTags: [a]\nlinks:\n  - x\n---' + body);
+  assert.equal(MD.frontmatter(t).data.title, 'New: value', 'quoted values round-trip');
+  t = MD.setProperty(src, 'tags', ['a', 'b c']);
+  assert.match(t, /^---\ntitle: Old\nTags: \[a, b c\]\nlinks:/, 'keeps the original key spelling');
+  t = MD.setProperty(src, 'links', ['x', 'y', 'z']);
+  assert.match(t, /links:\n  - x\n  - y\n  - z\n---/, 'block lists stay block lists');
+  t = MD.setProperty(src, 'done', true);
+  assert.match(t, /links:\n  - x\ndone: true\n---/);
+  assert.ok(t.endsWith(body), 'body untouched');
+  assert.equal(MD.setProperty('just text\n', 'a', 'b'), '---\na: b\n---\njust text\n', 'creates the block');
+  assert.equal(MD.removeProperty(src, 'links'), '---\ntitle: Old\nTags: [a]\n---' + body, 'removes a block list with its items');
+  assert.equal(MD.removeProperty('---\na: 1\n---\nbody', 'a'), 'body', 'an emptied block disappears');
+  assert.equal(MD.removeProperty('plain', 'a'), 'plain');
+  assert.equal(MD.setProperty('---\r\na: 1\r\n---\r\nx', 'b', '2'), '---\r\na: 1\r\nb: 2\r\n---\r\nx', 'CRLF is preserved');
+});

@@ -64,6 +64,8 @@ plainnote --no-window          # server only, open the printed URL yourself
 
 - **Markdown files on disk**: subfolders work (`folder/name`); anything that reads Markdown can open them.
 - **Wikilinks** `[[Note]]` / `[[Note|alias]]` with autocomplete as you type `[[`. Links to missing notes are created on click. Renaming a note updates links to it.
+- **File tree**: switch the sidebar between *List* and *Files*. Drag a note onto a folder to move it (links to it are rewritten, including `[[Note#Heading]]`), right-click for Rename, Duplicate, Move to folder, Pin, Copy link, new folder and more. Empty folders are kept.
+- **Properties**: a panel above each note edits its frontmatter (text, number, date, checkbox, lists) without touching the rest of the file; notes without properties just offer *+ Add property*.
 - **Backlinks** for every note, and a **graph view** (drag, pan, zoom, click to open).
 - **Tags**: `#tag` or `#parent/child`, filter from the sidebar.
 - **Full-text search** with snippets, and a **quick switcher**. The sidebar search understands `"exact phrase"`, `tag:idea`, `path:work/`, `file:plan`, `-excluded`, and `/regex/`; **save** a search as a chip.

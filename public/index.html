@@ -12,6 +12,7 @@
 <div id="app">
   <aside id="side">
     <header><input id="q" placeholder="Search…" autocomplete="off"><button id="new" title="New note (Ctrl/Cmd+N)" aria-label="New note">+</button><button id="today" title="Today's daily note (Ctrl/Cmd+Shift+T)" aria-label="Today's note">Today</button><button id="theme"></button></header>
+    <div id="vsw" role="tablist"><button id="vlist" role="tab">List</button><button id="vfiles" role="tab">Files</button></div>
     <div id="tags"></div>
     <div id="list"></div>
     <footer id="sf"><button id="sync" title="Sync notes with a git remote" aria-label="Sync">Sync</button><label title="Sync every 2 minutes" style="white-space:nowrap"><input type="checkbox" id="auto"> Auto</label><button id="trash" title="Deleted notes" aria-label="Trash">Trash</button><span id="ss"></span></footer>
@@ -22,6 +23,7 @@
     <div id="moremenu" role="menu"><button id="exp" role="menuitem" title="Download as a standalone HTML page">Export as HTML</button><button id="pdfb" role="menuitem">Export as PDF / Print…</button><button id="gfb" role="menuitem">Find in all notes…</button></div>
     <div id="fr"><input id="frq" placeholder="Find" autocomplete="off" spellcheck="false"><input id="frr" placeholder="Replace" autocomplete="off" spellcheck="false"><span id="frc"></span>
       <button id="frp" title="Previous (Shift+Enter)">↑</button><button id="frn" title="Next (Enter)">↓</button><button id="frs">Replace</button><button id="fra">All</button><button id="frx" title="Close (Esc)">✕</button></div>
+    <div id="props"></div>
     <div id="pane"><div class="empty"><kbd>Ctrl/Cmd+K</kbd> jump or create · <kbd>Ctrl/Cmd+N</kbd> new note · <kbd>Ctrl/Cmd+E</kbd> preview</div></div>
     <div id="outline"></div>
     <div id="back"></div>
@@ -31,6 +33,7 @@
 <div id="gf"><div><div class="row"><input id="gfq" placeholder="Find in all notes…" autocomplete="off"><input id="gfr" placeholder="Replace with…" autocomplete="off"></div><div id="gfl"></div><div id="gfs"><span id="gfc"></span><span><button id="gfx">Close</button> <button id="gfa" class="pri">Replace selected</button></span></div></div></div>
 <div id="sw"><div><input id="swq" placeholder="Jump to or create a note…" autocomplete="off"><div id="swl"></div></div></div>
 
+<div id="ctx" role="menu"></div>
 <script src="md.js"></script>
 <script src="app.js"></script>
 </body>
