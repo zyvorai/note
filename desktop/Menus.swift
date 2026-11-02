@@ -20,6 +20,8 @@ extension AppDelegate {
         let app = submenu("Plainnote")
         add(app, "About Plainnote", #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
         app.addItem(.separator())
+        page(app, "Settings…", "settings", ",")
+        app.addItem(.separator())
         add(app, "Hide Plainnote", #selector(NSApplication.hide(_:)), "h")
         add(app, "Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", mods: [.command, .option])
         add(app, "Show All", #selector(NSApplication.unhideAllApplications(_:)))

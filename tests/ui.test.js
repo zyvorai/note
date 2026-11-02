@@ -327,6 +327,55 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.equal(await ev(`getComputedStyle(document.querySelector('#split')).display`), 'none', 'split closes');
     assert.equal(await ev(`localStorage.getItem('split')`), null);
 
+    // settings: appearance, folders, custom shortcuts, CSS snippets
+    fs.mkdirSync(path.join(dir, '.plainnote/snippets'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.plainnote/snippets/ui-test.css'), 'body{--snippet-on:1}');
+    await ev(`plainnote.run('settings')`);
+    await until(`document.querySelector('#st').style.display === 'flex' && document.querySelector('[data-snip="ui-test.css"]')`, 'settings open, snippet listed');
+    const setCtl = (id, v) => ev(`(() => { const e = document.querySelector('#${id}'); e.value = ${JSON.stringify(v)}; e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    const cssVar = (n) => ev(`document.documentElement.style.getPropertyValue('${n}')`);
+    await setCtl('st-width', 'wide'); assert.equal(await cssVar('--measure'), '1040px');
+    await setCtl('st-font', 'serif'); assert.match(await cssVar('--read-font'), /Georgia/);
+    assert.equal(await ev(`JSON.parse(localStorage.getItem('settings')).width`), 'wide', 'settings persist');
+    await setCtl('st-accent', '#ff9f0a'); assert.equal(await cssVar('--acc'), '#ff9f0a');
+    await ev(`plainnote.setAccent('#123456')`); assert.equal(await cssVar('--acc'), '#ff9f0a', 'your accent beats the system colour');
+    await ev(`document.querySelector('#st-accent-reset').click()`); assert.equal(await cssVar('--acc'), '#123456', 'reset falls back to the system colour');
+    await setCtl('st-width', 'normal'); await setCtl('st-font', 'system');
+    assert.equal(await cssVar('--read-font'), '');
+    // daily notes and new notes honour their folders
+    await setCtl('st-daily', ' Journal/ '); await setCtl('st-newf', 'Inbox');
+    assert.equal(await ev(`document.querySelector('#st-daily').value`), 'Journal', 'value is cleaned up');
+    await ev(`document.querySelector('#stx').click(); plainnote.run('today')`);
+    await until(`!!cur && cur.startsWith('Journal/') && cur.length === 'Journal/2026-11-02'.length`, 'daily note in the chosen folder');
+    await ev(`plainnote.run('new')`); await until(`cur === 'Inbox/Untitled'`, 'new note in the chosen folder');
+    await ev(`(async () => { for (const n of [cur, notes.has('Journal') ? '' : [...notes.keys()].find((k) => k.startsWith('Journal/'))].filter(Boolean)) await api('/api/note?name=' + encodeURIComponent(n), { method: 'DELETE' }); await load(); await open('Home', false); })()`);
+    await ev(`plainnote.run('settings')`); await until(`document.querySelector('#st').style.display === 'flex'`, 'reopen');
+    await setCtl('st-daily', 'daily'); await setCtl('st-newf', '');
+    // custom shortcuts: records only valid combos, runs the command, can be cleared
+    const press = (o) => ev(`document.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true, cancelable: true }, ${JSON.stringify(o)})))`);
+    await ev(`document.querySelector('[data-hk="focus"]').click()`);
+    await press({ key: 'x', code: 'KeyX' });
+    assert.equal(await ev(`settings.hotkeys.focus`), undefined, 'a bare letter is refused');
+    await press({ key: 'Escape' }); assert.equal(await ev(`hkCapture`), null, 'Esc cancels recording');
+    await ev(`document.querySelector('[data-hk="focus"]').click()`);
+    await press({ key: 'j', code: 'KeyJ', ctrlKey: true, altKey: true });
+    assert.equal(await ev(`settings.hotkeys.focus`), 'mod+alt+j');
+    await press({ key: 'Escape' }); assert.equal(await ev(`document.querySelector('#st').style.display`), 'none', 'Esc closes the sheet');
+    await press({ key: 'j', code: 'KeyJ', ctrlKey: true, altKey: true });
+    assert.equal(await ev(`document.body.classList.contains('focus')`), true, 'custom shortcut runs the command');
+    await press({ key: 'j', code: 'KeyJ', ctrlKey: true, altKey: true });
+    assert.equal(await ev(`document.body.classList.contains('focus')`), false);
+    await ev(`plainnote.run('settings')`); await until(`document.querySelector('#st').style.display === 'flex'`, 'reopen again');
+    await ev(`document.querySelector('[data-hkclear="focus"]').click()`);
+    await press({ key: 'j', code: 'KeyJ', ctrlKey: true, altKey: true });
+    assert.equal(await ev(`document.body.classList.contains('focus')`), false, 'cleared shortcut does nothing');
+    // CSS snippets toggle on and off
+    await ev(`document.querySelector('[data-snip="ui-test.css"]').click()`);
+    await until(`!!document.querySelector('style[data-snippet="ui-test.css"]') && getComputedStyle(document.body).getPropertyValue('--snippet-on').trim() === '1'`, 'snippet applied');
+    await ev(`document.querySelector('[data-snip="ui-test.css"]').click()`);
+    await until(`!document.querySelector('style[data-snippet="ui-test.css"]')`, 'snippet removed');
+    await ev(`document.querySelector('#stx').click()`);
+
     // icon toolbar: every icon button has an accessible name; the overflow menu opens, runs an item and closes
     assert.equal(await ev(`[...document.querySelectorAll('button.ico')].every((b) => b.getAttribute('aria-label') && b.querySelector('svg'))`), true);
     await ev(`document.querySelector('#more').click()`);

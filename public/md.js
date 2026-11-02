@@ -360,6 +360,40 @@
     walk(root); return root;
   }
 
+
+  // ---- settings and keyboard shortcuts (pure, so they can be tested without a browser) ----
+  const FONTS = ['system', 'serif', 'mono'], WIDTHS = ['normal', 'wide', 'full'];
+  const COMBO = /^(?:(?:mod|alt|shift)\+){0,3}[^\s+]+$|^(?:(?:mod|alt|shift)\+){1,3}\+$/;
+  function normalizeSettings(o) {
+    o = o && typeof o === 'object' ? o : {};
+    const folder = (v, d) => (typeof v === 'string' ? v.trim().replace(/\\/g, '/').split('/').map((x) => x.trim()).filter((x) => x && x !== '.' && x !== '..' && !x.startsWith('.')).join('/') : d);
+    const hotkeys = {};
+    if (o.hotkeys && typeof o.hotkeys === 'object') for (const [id, c] of Object.entries(o.hotkeys)) if (/^[\w-]+$/.test(id) && typeof c === 'string' && COMBO.test(c)) hotkeys[id] = c;
+    return {
+      font: FONTS.includes(o.font) ? o.font : 'system',
+      width: WIDTHS.includes(o.width) ? o.width : 'normal',
+      accent: typeof o.accent === 'string' && /^#[0-9a-f]{6}$/i.test(o.accent) ? o.accent.toLowerCase() : '',
+      dailyFolder: folder(o.dailyFolder, 'daily'),
+      dailyTemplate: typeof o.dailyTemplate === 'string' ? o.dailyTemplate.trim().replace(/^\/+|\.md$/gi, '') || 'templates/Daily' : 'templates/Daily',
+      newFolder: folder(o.newFolder, ''),
+      hotkeys,
+      snippets: Array.isArray(o.snippets) ? [...new Set(o.snippets.filter((n) => typeof n === 'string' && /^\w[\w .-]*\.css$/.test(n)))] : [],
+    };
+  }
+  // A key event (or anything shaped like one) as "mod+alt+shift+key"; '' for a bare modifier press.
+  function comboOf(e) {
+    let k = String(e.key || '').toLowerCase();
+    const code = e.code || '', m = /^Key([A-Z])$/.exec(code) || /^Digit(\d)$/.exec(code);
+    if (m && (e.altKey || k.length !== 1)) k = m[1].toLowerCase();
+    if (!k || ['control', 'meta', 'alt', 'shift', 'altgraph', 'dead'].includes(k)) return '';
+    if (k === ' ') k = 'space';
+    return [(e.metaKey || e.ctrlKey) && 'mod', e.altKey && 'alt', e.shiftKey && 'shift', k].filter(Boolean).join('+');
+  }
+  const comboValid = (c) => /^(?:(?:mod|alt)\+)/.test(c) || /(^|\+)f(?:[1-9]|1[0-2])$/.test(c);   // a bare letter must never steal typing
+  function comboLabel(c, mac) {
+    return c.split('+').map((p, i, a) => (p === 'mod' ? (mac ? '⌘' : 'Ctrl') : p === 'alt' ? (mac ? '⌥' : 'Alt') : p === 'shift' ? (mac ? '⇧' : 'Shift') : (i === a.length - 1 ? (p.length === 1 ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1)) : p))).join(mac ? '' : '+');
+  }
+
   // templates: {{date}} {{time}} {{datetime}} {{title}} (case-insensitive); unknown {{x}} are left alone
   function fillTemplate(text, title, now) {
     const d = now || new Date(), p = (x) => String(x).padStart(2, '0');
@@ -471,7 +505,7 @@
     return { text: out + text.slice(last), count: hits.length };
   }
 
-  const api = { buildTree, properties, setProperty, removeProperty, splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
+  const api = { normalizeSettings, comboOf, comboValid, comboLabel, buildTree, properties, setProperty, removeProperty, splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);

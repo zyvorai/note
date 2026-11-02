@@ -284,3 +284,36 @@ test('setProperty and removeProperty change only the frontmatter', () => {
   assert.equal(MD.removeProperty('plain', 'a'), 'plain');
   assert.equal(MD.setProperty('---\r\na: 1\r\n---\r\nx', 'b', '2'), '---\r\na: 1\r\nb: 2\r\n---\r\nx', 'CRLF is preserved');
 });
+
+test('settings are validated and cleaned', () => {
+  const d = MD.normalizeSettings(null);
+  assert.deepEqual(d, { font: 'system', width: 'normal', accent: '', dailyFolder: 'daily', dailyTemplate: 'templates/Daily', newFolder: '', hotkeys: {}, snippets: [] });
+  const s = MD.normalizeSettings({ font: 'comic', width: 'wide', accent: '#FF9F0A', dailyFolder: '../x/.hidden/Journal/', newFolder: ' Inbox ', dailyTemplate: '/templates/My.md',
+    hotkeys: { new: 'mod+shift+x', bad: '  ', 'we ird': 'mod+k', q: 'mod+alt+[', plain: 'mod+' }, snippets: ['a.css', '../b.css', 'a.css', 'x/y.css', 'ok name.css', 'no.txt'] });
+  assert.equal(s.font, 'system', 'unknown font falls back');
+  assert.equal(s.width, 'wide');
+  assert.equal(s.accent, '#ff9f0a');
+  assert.equal(s.dailyFolder, 'x/Journal', 'no .., no dot-folders');
+  assert.equal(s.newFolder, 'Inbox');
+  assert.equal(s.dailyTemplate, 'templates/My');
+  assert.deepEqual(s.hotkeys, { new: 'mod+shift+x', q: 'mod+alt+[' });
+  assert.deepEqual(s.snippets, ['a.css', 'ok name.css'], 'plain css file names only, no duplicates');
+  assert.equal(MD.normalizeSettings({ dailyFolder: '' }).dailyFolder, '', 'an empty folder means the top level');
+  assert.equal(MD.normalizeSettings({ accent: 'red' }).accent, '');
+});
+
+test('keyboard combos', () => {
+  assert.equal(MD.comboOf({ key: 'k', metaKey: true, code: 'KeyK' }), 'mod+k');
+  assert.equal(MD.comboOf({ key: 'K', ctrlKey: true, shiftKey: true, code: 'KeyK' }), 'mod+shift+k');
+  assert.equal(MD.comboOf({ key: '¬', altKey: true, metaKey: true, code: 'KeyL' }), 'mod+alt+l', 'Option+letter uses the physical key');
+  assert.equal(MD.comboOf({ key: 'Shift', shiftKey: true }), '', 'a bare modifier is not a shortcut');
+  assert.equal(MD.comboOf({ key: 'F5' }), 'f5');
+  assert.equal(MD.comboOf({ key: ' ', ctrlKey: true }), 'mod+space');
+  assert.equal(MD.comboValid('k'), false, 'a bare letter would steal typing');
+  assert.equal(MD.comboValid('shift+k'), false);
+  assert.equal(MD.comboValid('mod+k'), true);
+  assert.equal(MD.comboValid('alt+x'), true);
+  assert.equal(MD.comboValid('f5'), true);
+  assert.equal(MD.comboLabel('mod+shift+k', true), '⌘⇧K');
+  assert.equal(MD.comboLabel('mod+alt+f5', false), 'Ctrl+Alt+F5');
+});

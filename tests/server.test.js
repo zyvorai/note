@@ -168,3 +168,24 @@ test('folders: create, list, delete only when empty, and stay inside the notes f
     assert.ok((await s.j('/api/folder?name=..', { method: 'DELETE' })).status >= 400);
   } finally { s.stop(); }
 });
+
+test('CSS snippets are listed and served from .plainnote/snippets only', async () => {
+  const s = await start();
+  try {
+    assert.deepEqual((await s.j('/api/snippets')).body, [], 'none yet');
+    fs.mkdirSync(path.join(s.dir, '.plainnote/snippets'), { recursive: true });
+    fs.writeFileSync(path.join(s.dir, '.plainnote/snippets/dark tweaks.css'), 'body{--x:1}');
+    fs.writeFileSync(path.join(s.dir, '.plainnote/snippets/readme.txt'), 'not css');
+    fs.writeFileSync(path.join(s.dir, 'secret.css'), 'outside');
+    assert.deepEqual((await s.j('/api/snippets')).body, [{ name: 'dark tweaks.css' }]);
+    const r = await fetch(s.base + '/api/snippet?name=' + encodeURIComponent('dark tweaks.css'));
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type'), /text\/css/);
+    assert.equal(await r.text(), 'body{--x:1}');
+    for (const bad of ['../../secret.css', '../secret.css', 'sub/x.css', 'readme.txt', '', '.hidden.css', '..%2Fsecret.css']) {
+      const x = await fetch(s.base + '/api/snippet?name=' + bad.replace(/\//g, '%2F'));
+      assert.ok(x.status >= 400, `rejected ${JSON.stringify(bad)}`);
+      assert.notEqual(await x.text(), 'outside');
+    }
+  } finally { s.stop(); }
+});

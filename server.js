@@ -23,6 +23,8 @@ async function readPublic(rel) {
 function createServer(ROOT, hooks = {}) {
 ROOT = path.resolve(ROOT);
 const TRASH = path.join(ROOT, '.trash');
+const SNIPPETS = path.join(ROOT, '.plainnote', 'snippets');
+const SNIPPET = /^\w[\w .-]*\.css$/;       // plain file names only: no slashes, so nothing outside the snippets folder is reachable
 
 // Resolve a note name ("folder/idea") to a safe absolute .md path inside ROOT.
 function notePath(name) {
@@ -148,6 +150,15 @@ return http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/ping') { hooks.onPing?.(); return send(res, 200, { app: 'plainnote' }); }
     if (url.pathname === '/api/notes' && req.method === 'GET') return send(res, 200, await walk(ROOT));
+    if (url.pathname === '/api/snippets' && req.method === 'GET') {        // user CSS: <notes>/.plainnote/snippets/*.css
+      const files = await fs.readdir(SNIPPETS).catch(() => []);
+      return send(res, 200, files.filter((f) => SNIPPET.test(f)).sort().map((name) => ({ name })));
+    }
+    if (url.pathname === '/api/snippet' && req.method === 'GET') {
+      const name = url.searchParams.get('name') || '';
+      if (!SNIPPET.test(name)) return send(res, 400, { error: 'bad name' });
+      return send(res, 200, await fs.readFile(path.join(SNIPPETS, name), 'utf8'), 'text/css; charset=utf-8');
+    }
     if (url.pathname === '/api/folders' && req.method === 'GET') return send(res, 200, (await listFolders(ROOT)).sort());
     if (url.pathname === '/api/folder') {
       if (req.method === 'POST') {                          // create (possibly nested) folder

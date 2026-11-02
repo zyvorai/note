@@ -168,6 +168,107 @@ function closeSplit() { split = null; try { localStorage.removeItem('split'); } 
 $('#spx').onclick = closeSplit;
 $('#sptitle').onclick = () => { if (split) open(split, false); };
 
+
+/* ---------- settings, custom shortcuts, CSS snippets ---------- */
+let settings = MD.normalizeSettings(null);
+try { settings = MD.normalizeSettings(JSON.parse(localStorage.getItem('settings') || 'null')); } catch {}
+const saveSettings = () => { try { localStorage.setItem('settings', JSON.stringify(settings)); } catch {} };
+const READ_FONTS = { serif: '"New York","Iowan Old Style",Palatino,Georgia,serif', mono: 'ui-monospace,Menlo,monospace' };
+let hkMap = new Map(), hkCapture = null;
+const EXTRA_NAMES = { palette: 'Command palette', switcher: 'Quick switcher', sidebar: 'Toggle sidebar' };
+function applySettings() {
+  const st = document.documentElement.style;
+  st.setProperty('--measure', { normal: '760px', wide: '1040px', full: 'none' }[settings.width]);
+  if (READ_FONTS[settings.font]) st.setProperty('--read-font', READ_FONTS[settings.font]); else st.removeProperty('--read-font');
+  applyAccent(settings.accent || nativeAccent);
+  hkMap = new Map(Object.entries(settings.hotkeys).map(([id, c]) => [c, id]));
+  applySnippets();
+}
+let snippetList = [], snippetBusy = false;
+async function loadSnippets() { try { snippetList = await api('/api/snippets'); } catch { snippetList = []; } return applySnippets(); }
+async function applySnippets() {
+  if (snippetBusy) return; snippetBusy = true;
+  try {
+    const want = settings.snippets.filter((n) => snippetList.some((x) => x.name === n));
+    document.querySelectorAll('style[data-snippet]').forEach((el) => { if (!want.includes(el.dataset.snippet)) el.remove(); });
+    for (const name of want) {
+      let css; try { css = await (await fetch('/api/snippet?name=' + encodeURIComponent(name))).text(); } catch { continue; }
+      let el = [...document.querySelectorAll('style[data-snippet]')].find((x) => x.dataset.snippet === name);
+      if (!el) { el = document.createElement('style'); el.dataset.snippet = name; document.head.appendChild(el); }
+      if (el.textContent !== css) el.textContent = css;
+    }
+  } finally { snippetBusy = false; }
+}
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '') || document.documentElement.classList.contains('mac');
+function settingsCommands() {
+  return [...COMMANDS.filter((c) => c.id !== 'settings').map((c) => ({ id: c.id, name: c.name })), ...Object.entries(EXTRA_NAMES).map(([id, name]) => ({ id, name }))];
+}
+function renderSettings() {
+  const S = settings, sel = (id, val, opts) => `<select id="${id}">${opts.map(([v, l]) => `<option value="${v}"${v === val ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
+  const theme = $('#theme').dataset.mode || 'auto';
+  const hk = settingsCommands().map((c) => {
+    const combo = S.hotkeys[c.id];
+    return `<div class="strow"><span class="l">${esc(c.name)}</span><button class="hk${hkCapture === c.id ? ' rec' : ''}" data-hk="${c.id}">${hkCapture === c.id ? 'Press keys…' : combo ? esc(MD.comboLabel(combo, isMac)) : 'Add'}</button>${combo ? `<button class="x" data-hkclear="${c.id}" aria-label="Clear shortcut" title="Clear">×</button>` : ''}</div>`;
+  }).join('');
+  $('#stbody').innerHTML = `
+    <h4>Appearance</h4>
+    <div class="strow"><label for="st-theme">Theme</label>${sel('st-theme', theme, [['auto', 'Follow the system'], ['light', 'Light'], ['dark', 'Dark']])}</div>
+    <div class="strow"><label for="st-font">Reading font</label>${sel('st-font', S.font, [['system', 'System'], ['serif', 'Serif'], ['mono', 'Monospace']])}</div>
+    <div class="strow"><label for="st-width">Reading width</label>${sel('st-width', S.width, [['normal', 'Comfortable'], ['wide', 'Wide'], ['full', 'Full width']])}</div>
+    <div class="strow"><label for="st-fs">Text size</label><input id="st-fs" type="number" min="10" max="28" value="${fontSize}" style="width:70px"></div>
+    <div class="strow"><label for="st-accent">Accent colour</label><input id="st-accent" type="color" value="${S.accent || nativeAccent || '#5b5bd6'}"><button id="st-accent-reset"${S.accent ? '' : ' disabled'}>${nativeAccent ? 'Use system colour' : 'Reset'}</button></div>
+    <h4>Notes</h4>
+    <div class="strow"><label for="st-daily">Daily notes folder</label><input id="st-daily" type="text" value="${esc(S.dailyFolder)}" placeholder="(top level)"></div>
+    <div class="strow"><label for="st-dtpl">Daily note template</label><input id="st-dtpl" type="text" value="${esc(S.dailyTemplate)}"></div>
+    <div class="strow"><label for="st-newf">New notes go in</label><input id="st-newf" type="text" value="${esc(S.newFolder)}" placeholder="(top level)"></div>
+    <h4>Custom shortcuts</h4>
+    <div class="hint">Added on top of the built-in shortcuts. Click a button, then press the keys (needs ⌘/Ctrl or Alt, or an F-key). Esc cancels, Backspace clears.</div>
+    ${hk}
+    <h4>CSS snippets &amp; themes</h4>
+    <div class="hint">Put <code>.css</code> files in <code>.plainnote/snippets/</code> inside your notes folder. Snippets are trusted code: only enable ones you wrote or read.</div>
+    ${snippetList.map((x) => `<div class="strow"><label><input type="checkbox" data-snip="${esc(x.name)}"${S.snippets.includes(x.name) ? ' checked' : ''}> ${esc(x.name)}</label></div>`).join('') || '<div class="hint">No snippets found.</div>'}
+    <div class="strow"><button id="st-reload">Reload snippets</button></div>`;
+}
+async function openSettings() { $('#st').style.display = 'flex'; await loadSnippets(); renderSettings(); }
+function closeSettings() { hkCapture = null; $('#st').style.display = 'none'; }
+$('#stx').onclick = closeSettings;
+$('#st').addEventListener('mousedown', (e) => { if (e.target.id === 'st') closeSettings(); });
+const setSetting = (patch) => { settings = MD.normalizeSettings({ ...settings, ...patch }); saveSettings(); applySettings(); };
+$('#st').addEventListener('change', (e) => {
+  const t = e.target, id = t.id;
+  if (id === 'st-theme') applyTheme(t.value, true);
+  else if (id === 'st-font') setSetting({ font: t.value });
+  else if (id === 'st-width') setSetting({ width: t.value });
+  else if (id === 'st-fs') setFontSize(Math.max(10, Math.min(28, +t.value || 14)), true);
+  else if (id === 'st-accent') { setSetting({ accent: t.value }); renderSettings(); }
+  else if (id === 'st-daily') setSetting({ dailyFolder: t.value });
+  else if (id === 'st-dtpl') setSetting({ dailyTemplate: t.value });
+  else if (id === 'st-newf') setSetting({ newFolder: t.value });
+  else if (t.dataset.snip) setSetting({ snippets: [...$('#stbody').querySelectorAll('[data-snip]')].filter((c) => c.checked).map((c) => c.dataset.snip) });
+  if (/^st-(daily|dtpl|newf)$/.test(id)) renderSettings();            // show the cleaned-up value
+});
+$('#st').addEventListener('click', async (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.id === 'st-accent-reset') { setSetting({ accent: '' }); renderSettings(); }
+  else if (b.id === 'st-reload') { await loadSnippets(); renderSettings(); }
+  else if (b.dataset.hk) { hkCapture = hkCapture === b.dataset.hk ? null : b.dataset.hk; renderSettings(); }
+  else if (b.dataset.hkclear) { const h = { ...settings.hotkeys }; delete h[b.dataset.hkclear]; setSetting({ hotkeys: h }); renderSettings(); }
+});
+// Capture phase: records a shortcut while the settings sheet waits for one, and otherwise runs custom shortcuts before anything else sees the key.
+document.addEventListener('keydown', (e) => {
+  if (hkCapture) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (e.key === 'Escape') hkCapture = null;
+    else if (e.key === 'Backspace' || e.key === 'Delete') { const h = { ...settings.hotkeys }; delete h[hkCapture]; setSetting({ hotkeys: h }); hkCapture = null; }
+    else { const c = MD.comboOf(e); if (!c || !MD.comboValid(c)) return; const h = Object.fromEntries(Object.entries(settings.hotkeys).filter(([, v]) => v !== c)); h[hkCapture] = c; setSetting({ hotkeys: h }); hkCapture = null; }
+    renderSettings(); return;
+  }
+  if (e.key === 'Escape' && $('#st').style.display === 'flex') { closeSettings(); e.stopImmediatePropagation(); return; }
+  if (e.isComposing || !hkMap.size) return;
+  const c = MD.comboOf(e), id = MD.comboValid(c) && hkMap.get(c);
+  if (id) { e.preventDefault(); e.stopImmediatePropagation(); plainnote.run(id); }
+}, true);
+
 /* ---------- tabs: each tab shows one note; the active tab's note is `cur` ---------- */
 let tabs = [{ name: null, preview: false }], ti = 0, pendingPreview = false;
 const saveTabs = () => { try { localStorage.setItem('tabs', JSON.stringify({ i: ti, tabs: tabs.map((t) => ({ name: t.name, preview: !!t.preview })) })); } catch {} };
@@ -343,7 +444,8 @@ async function flush() {
   }
 }
 async function newNote() {
-  let i = 0, n; do { n = i ? `Untitled ${i}` : 'Untitled'; i++; } while (notes.has(n));
+  const pre = settings.newFolder ? settings.newFolder + '/' : '';
+  let i = 0, n; do { n = pre + (i ? `Untitled ${i}` : 'Untitled'); i++; } while (notes.has(n));
   await open(n, true);
 }
 /* templates: notes in templates/ ({{date}} {{time}} {{title}} get filled in) */
@@ -426,10 +528,10 @@ $('#frs').onclick = () => frReplace(false); $('#fra').onclick = () => frReplace(
 
 async function openToday() {
   const d = new Date(), p = (x) => String(x).padStart(2, '0');
-  const name = `daily/${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  const name = `${settings.dailyFolder ? settings.dailyFolder + '/' : ''}${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   const fresh = !notes.has(name);
   await open(name, fresh);
-  if (fresh && notes.has('templates/Daily') && !notes.get(name).text) applyTemplate('templates/Daily');
+  if (fresh && notes.has(settings.dailyTemplate) && !notes.get(name).text) applyTemplate(settings.dailyTemplate);
 }
 /* export: the rendered note as one self-contained .html file (page styles are reused, so it matches the preview) */
 function exportHtml() {
@@ -597,6 +699,7 @@ const COMMANDS = [
   { id: 'tasks', name: 'Show open tasks from all notes', run: () => swOpen('tasks') },
   { id: 'find', name: 'Find and replace in this note', hint: 'Ctrl/Cmd+F', run: () => openFind() },
   { id: 'starter', name: 'Add starter templates (Daily, Meeting, Project)', run: () => addStarterTemplates() },
+  { id: 'settings', name: 'Settings…', hint: 'Ctrl/Cmd+,', run: () => openSettings() },
   { id: 'splitcur', name: 'Open this note in a split pane to the right', hint: 'Ctrl/Cmd+Alt+\\', run: () => cur && openSplit(cur) },
   { id: 'splitclose', name: 'Close the split pane', run: () => closeSplit() },
   { id: 'newtab', name: 'New tab', hint: 'Ctrl/Cmd+T', run: () => newTab() },
@@ -612,6 +715,14 @@ const EXTRA = {
   sidebar: () => { const off = document.body.classList.toggle('side-off'); try { off ? localStorage.setItem('sideOff', '1') : localStorage.removeItem('sideOff'); } catch {} reportSide(); },
 };
 try { if (localStorage.getItem('sideOff')) document.body.classList.add('side-off'); } catch {}
+let nativeAccent = '';
+function applyAccent(hex) {
+  const st = document.documentElement.style;
+  if (!hex) { for (const v of ['--acc', '--sel', '--on-acc']) st.removeProperty(v); return; }
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  st.setProperty('--acc', hex); st.setProperty('--sel', hex + '44');
+  st.setProperty('--on-acc', (0.299 * r + 0.587 * g + 0.114 * b) > 170 ? '#000' : '#fff');
+}
 window.plainnote = {
   ready: null,                                                      // resolves once the first load finished (the app waits on it)
   async run(id) { await this.ready; const c = COMMANDS.find((x) => x.id === id); (c ? c.run : EXTRA[id])?.(); },
@@ -619,9 +730,7 @@ window.plainnote = {
   setInset(px) { if (px >= 0 && px < 200) document.documentElement.style.setProperty('--tb', px + 'px'); },   // toolbar height from AppKit
   setAccent(hex) {                                                  // the Mac app passes the system accent colour
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
-    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)), st = document.documentElement.style;
-    st.setProperty('--acc', hex); st.setProperty('--sel', hex + '44');
-    st.setProperty('--on-acc', (0.299 * r + 0.587 * g + 0.114 * b) > 170 ? '#000' : '#fff');
+    nativeAccent = hex; applyAccent(settings.accent || hex);
   },
   current: () => (cur && notes.get(cur) ? { name: cur, text: notes.get(cur).text } : null),
 };
@@ -1044,6 +1153,7 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (e.shiftKey && (e.key === '[' || e.key === '{')) { e.preventDefault(); stepTab(-1); }
   else if (e.shiftKey && (e.key === ']' || e.key === '}')) { e.preventDefault(); stepTab(1); }
+  else if (e.key === ',' && !e.shiftKey && !e.altKey) { e.preventDefault(); openSettings(); }
   else if (e.altKey && e.code === 'Backslash') { e.preventDefault(); if (cur) openSplit(cur); }
   else if (k === 't' && !e.shiftKey) { e.preventDefault(); newTab(); }
   else if (k === 'w' && !e.shiftKey) { e.preventDefault(); closeTabCmd(); }
@@ -1078,6 +1188,7 @@ window.addEventListener('hashchange', () => {
   let h = ''; try { h = decodeURIComponent(location.hash.slice(1)); } catch {}
   if (h && h !== cur && notes.has(h)) open(h, false);
 });
+applySettings(); loadSnippets();
 setView(view);
 plainnote.ready = load().then(async () => {
   let h = decodeURIComponent(location.hash.slice(1));
