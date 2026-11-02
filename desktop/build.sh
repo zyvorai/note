@@ -30,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<'P'
   <key>CFBundleExecutable</key><string>Plainnote</string>
   <key>CFBundleIconFile</key><string>Plainnote</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.11.0</string>
+  <key>CFBundleShortVersionString</key><string>0.11.1</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
