@@ -63,7 +63,7 @@ jobs:
           lipo -info dist/Plainnote.app/Contents/MacOS/Plainnote
           hdiutil verify -quiet dist/Plainnote-*.dmg
       - name: Sign, notarize and staple the disk image
-        if: runner.os == 'macOS' && env.NOTARY_KEY_P8 != ''
+        if: runner.os == 'macOS' && env.NOTARY_KEY_P8 != '' && env.MACOS_CERT_P12 != ''
         env:
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
