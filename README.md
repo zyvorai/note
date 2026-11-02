@@ -66,7 +66,8 @@ plainnote --no-window          # server only, open the printed URL yourself
 - **Wikilinks** `[[Note]]` / `[[Note|alias]]` with autocomplete as you type `[[`. Links to missing notes are created on click. Renaming a note updates links to it.
 - **Backlinks** for every note, and a **graph view** (drag, pan, zoom, click to open).
 - **Tags**: `#tag` or `#parent/child`, filter from the sidebar.
-- **Full-text search** with snippets, and a **quick switcher**.
+- **Full-text search** with snippets, and a **quick switcher**. The sidebar search understands `"exact phrase"`, `tag:idea`, `path:work/`, `file:plan`, `-excluded`, and `/regex/`; **save** a search as a chip.
+- **Smarter links**: `[[Note#Heading]]` and `[[Note^block]]` (end a line with ` ^id`) jump to the spot, frontmatter `aliases:` resolve to the note, `[[Note#` autocompletes headings, hovering a link previews the note, and each note lists the notes it links to as well as its backlinks.
 - **Preview** with tables, images (remote or from your folder), task lists and syntax-highlighted code blocks.
 - **Live syntax highlighting while you edit** (headings, bold, links, wikilinks, tags, code blocks with per-language colours).
 - **Slash menu**: type `/` at the start of a line for headings, tasks, tables, code blocks, dividers, links and today's date.
@@ -124,7 +125,7 @@ The UI test drives the real app through the Chrome DevTools protocol (no depende
 
 ```
 server.js          zero-dependency HTTP server + file/git API
-public/index.html  the UI (HTML, CSS, JS)
+public/index.html  the page shell; public/app.css and public/app.js hold the UI
 public/md.js       Markdown renderer and editor helpers (shared with the tests)
 desktop/           macOS wrapper (Plainnote.swift, build.sh), cross-platform launcher.js, Linux .desktop
 scripts/build-sea.js  builds the single-file executable

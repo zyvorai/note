@@ -90,9 +90,13 @@
       s = esc(s);
       const codes = [];
       s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+      s = s.replace(/(^|\s)\^([A-Za-z0-9-]+)[ \t]*$/gm, '$1<span class="blk" data-blk="$2"></span>');      // block id ^abc at the end of a line
       s = s.replace(linkRe, (_, t, a) => {
-        const r = resolve(t);
-        return `<a href="#" data-note="${esc(r || t.trim())}" class="${r ? '' : 'new'}">${a || t}</a>`;
+        let r = resolve(t), anchor = '', block = '';
+        if (!r) { const sp = splitTarget(t.replace(/&amp;/g, '&')); if ((sp.heading || sp.block) && (r = resolve(sp.name))) { anchor = sp.heading; block = sp.block; } }
+        const extra = (anchor ? ` data-anchor="${esc(anchor)}"` : '') + (block ? ` data-block="${esc(block)}"` : '');
+        const label = a || (anchor ? t.replace('#', ' › ') : block ? t.replace(/\^.*/, '').trim() || t : t);
+        return `<a href="#" data-note="${esc(r || t.trim())}"${extra} class="${r ? '' : 'new'}">${label}</a>`;
       });
       s = s.replace(tagRe, (_, pre, t) => `${pre}<a href="#" class="tag" data-tag="${t.toLowerCase()}">#${t}</a>`);
       s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, u) => {
@@ -234,6 +238,53 @@
     return m ? { query: m[1], start: pos - m[1].length } : null;
   }
 
+
+  // [[Note#Heading]] / [[Note^block]] / [[#Heading]] -> { name, heading, block }
+  function splitTarget(t) {
+    const m = String(t).trim().match(/^([^#^]*)(?:#([^^]*))?(?:\^(.+))?$/);
+    return { name: (m[1] || '').trim(), heading: (m[2] || '').trim(), block: (m[3] || '').trim() };
+  }
+  // aliases from frontmatter (`aliases: [a, b]`, a list, or `alias: a, b`)
+  function aliasesOf(text) {
+    const d = frontmatter(text).data, v = d.aliases ?? d.alias ?? [];
+    return [].concat(v).flatMap((x) => String(x).split(',')).map((x) => x.trim()).filter(Boolean);
+  }
+  // Search syntax: words (AND), "exact phrase", tag:x, path:x, file:x, /regex/, and a leading - to exclude.
+  function parseQuery(q) {
+    const out = { terms: [], phrases: [], tags: [], paths: [], files: [], regex: [], not: [] };
+    const toks = String(q || '').match(/-?(?:\w+:)?(?:"[^"]*"|\/(?:[^\/\\]|\\.)+\/[a-z]*|\S+)/g) || [];
+    for (const raw of toks) {
+      let t = raw, neg = false;
+      if (t.length > 1 && t[0] === '-') { neg = true; t = t.slice(1); }
+      let kind = 'terms';
+      const op = t.match(/^(tag|path|file):(.*)$/i);
+      if (op) { kind = { tag: 'tags', path: 'paths', file: 'files' }[op[1].toLowerCase()]; t = op[2]; }
+      const rx = !op && t.match(/^\/((?:[^\/\\]|\\.)+)\/([a-z]*)$/);
+      if (rx) { try { const re = new RegExp(rx[1], rx[2].includes('i') ? rx[2] : rx[2] + 'i'); neg ? out.not.push({ re }) : out.regex.push(re); } catch {} continue; }
+      if (t[0] === '"' && !op) { kind = 'phrases'; t = t.replace(/^"|"$/g, ''); } else t = t.replace(/^"|"$/g, '');
+      t = t.toLowerCase(); if (kind === 'tags') t = t.replace(/^#/, '');
+      if (!t) continue;
+      neg ? out.not.push({ kind, t }) : out[kind].push(t);
+    }
+    return out;
+  }
+  const emptyQuery = (p) => !(p.terms.length || p.phrases.length || p.tags.length || p.paths.length || p.files.length || p.regex.length || p.not.length);
+  function searchMatch(p, name, text) {
+    const n = name.toLowerCase(), body = text.toLowerCase(), both = n + '\n' + body;
+    const has = (kind, t) => kind === 'tags' ? [...tagsOf(text)].some((x) => x === t || x.startsWith(t + '/'))
+      : kind === 'paths' ? n.includes(t) : kind === 'files' ? n.split('/').pop().includes(t) : both.includes(t);
+    if (p.not.some((x) => x.re ? x.re.test(name + '\n' + text) : has(x.kind, x.t))) return false;
+    return p.terms.every((t) => both.includes(t)) && p.phrases.every((t) => both.includes(t)) && p.regex.every((re) => re.test(name + '\n' + text))
+      && p.tags.every((t) => has('tags', t)) && p.paths.every((t) => n.includes(t)) && p.files.every((t) => n.split('/').pop().includes(t));
+  }
+  // where to show a snippet for a match: index of the first positive term/phrase/regex in the body, or -1
+  function searchSnippetAt(p, text) {
+    const lower = text.toLowerCase();
+    for (const t of [...p.phrases, ...p.terms]) { const i = lower.indexOf(t); if (i >= 0) return i; }
+    for (const re of p.regex) { const m = re.exec(text); if (m) return m.index; }
+    return -1;
+  }
+
   // templates: {{date}} {{time}} {{datetime}} {{title}} (case-insensitive); unknown {{x}} are left alone
   function fillTemplate(text, title, now) {
     const d = now || new Date(), p = (x) => String(x).padStart(2, '0');
@@ -345,7 +396,7 @@
     return { text: out + text.slice(last), count: hits.length };
   }
 
-  const api = { replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
+  const api = { splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);

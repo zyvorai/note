@@ -197,3 +197,50 @@ test('replaceAll is literal, case-insensitive and counts', () => {
   assert.deepEqual(MD.replaceAll('a.b axb', 'a.b', '$&'), { text: '$& axb', count: 1 });
   assert.deepEqual(MD.replaceAll('none', 'zzz', 'q'), { text: 'none', count: 0 });
 });
+
+test('link targets: heading, block and plain', () => {
+  assert.deepEqual(MD.splitTarget('Note#Head'), { name: 'Note', heading: 'Head', block: '' });
+  assert.deepEqual(MD.splitTarget('Note^abc-1'), { name: 'Note', heading: '', block: 'abc-1' });
+  assert.deepEqual(MD.splitTarget('#Only'), { name: '', heading: 'Only', block: '' });
+  assert.deepEqual(MD.splitTarget('Plain'), { name: 'Plain', heading: '', block: '' });
+});
+
+test('heading and block links render with anchors; block ids are marked', () => {
+  const h = md('see [[Home#Setup]] and [[Home^x1]] and [[Home#Setup|the setup]] and [[Nope#Heading]]');
+  assert.match(h, /<a href="#" data-note="Home" data-anchor="Setup" class="">Home › Setup<\/a>/);
+  assert.match(h, /data-note="Home" data-block="x1"/);
+  assert.match(h, />the setup<\/a>/);
+  assert.match(h, /data-note="Nope#Heading" class="new"/, 'unknown notes stay new-note links');
+  assert.match(md('a paragraph ^x1'), /<span class="blk" data-blk="x1"><\/span>/);
+  assert.ok(!md('2^3 is eight').includes('class="blk"'), 'a caret inside a sentence is not a block id');
+});
+
+test('aliases come from frontmatter', () => {
+  assert.deepEqual(MD.aliasesOf('---\naliases: [Big, Large One]\n---\nbody'), ['Big', 'Large One']);
+  assert.deepEqual(MD.aliasesOf('---\nalias: a, b\n---\n'), ['a', 'b']);
+  assert.deepEqual(MD.aliasesOf('---\naliases:\n  - X\n  - Y\n---\n'), ['X', 'Y']);
+  assert.deepEqual(MD.aliasesOf('no frontmatter'), []);
+});
+
+test('search query language', () => {
+  const q = (s, name, text) => MD.searchMatch(MD.parseQuery(s), name, text);
+  assert.equal(q('foo bar', 'n', 'bar and Foo'), true, 'words are ANDed, case-insensitive');
+  assert.equal(q('foo bar', 'n', 'only foo'), false);
+  assert.equal(q('"foo bar"', 'n', 'foo  bar'), false, 'phrases are exact');
+  assert.equal(q('"foo bar"', 'n', 'a foo bar b'), true);
+  assert.equal(q('tag:idea', 'n', 'x #idea y'), true);
+  assert.equal(q('tag:idea', 'n', 'x #ideas y'), false, 'tags match whole names');
+  assert.equal(q('tag:project', 'n', 'x #project/alpha'), true, 'and their children');
+  assert.equal(q('path:work/', 'work/plan', 'x'), true);
+  assert.equal(q('path:work/', 'home/plan', 'x'), false);
+  assert.equal(q('file:plan', 'work/plan', 'x'), true);
+  assert.equal(q('file:work', 'work/plan', 'x'), false, 'file: looks at the last path segment only');
+  assert.equal(q('-draft', 'n', 'a draft'), false);
+  assert.equal(q('-draft foo', 'n', 'foo final'), true);
+  assert.equal(q('/fo+\\d/', 'n', 'xx fooo9'), true);
+  assert.equal(q('/fo+\\d/', 'n', 'xx foo'), false);
+  assert.equal(q('/(/', 'n', 'x'), true, 'a broken regex is ignored, not fatal');
+  assert.equal(MD.emptyQuery(MD.parseQuery('  ')), true);
+  assert.equal(MD.searchSnippetAt(MD.parseQuery('zebra'), 'a big Zebra here'), 6);
+  assert.equal(MD.searchSnippetAt(MD.parseQuery('tag:x'), 'abc'), -1);
+});

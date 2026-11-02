@@ -218,6 +218,42 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.equal(await ev(`notes.get('GF Three').text`), 'zebra too', 'unticked note untouched');
     assert.equal(await ev(`document.querySelector('#gf').style.display`), 'none', 'dialog closes');
 
+    // links to headings and blocks, aliases, outgoing links; search operators, saved searches; hover preview
+    await ev(`(async () => { for (const [n, t] of [['Guide', '# Intro\\n\\ntext\\n\\n## Setup\\n\\nsetup steps ^step1\\n'], ['Linker', '---\\naliases: [Linky]\\n---\\nsee [[Guide#Setup]] and [[Guide^step1]]'], ['Alias user', 'via [[Linky]]']]) await api('/api/note?name=' + encodeURIComponent(n), { method: 'PUT', body: t, headers: { 'x-base-mtime': '0' } }); await load(); })()`);
+    await ev(`open('Alias user', false)`); await until(`cur === 'Alias user'`, 'alias user open');
+    await ev(`document.querySelector('#tog').click()`);
+    assert.equal(await ev(`!!document.querySelector('#pv a[data-note="Linker"]:not(.new)')`), true, 'alias resolves to its note');
+    await ev(`open('Linker', false)`); await until(`cur === 'Linker'`, 'linker open');
+    assert.match(await ev(`document.querySelector('#back').textContent`), /Linked from:\s*Alias user/, 'alias counts as a backlink');
+    assert.match(await ev(`document.querySelector('#outgoing').textContent`), /Links to:\s*Guide/, 'outgoing links listed');
+    await ev(`document.querySelector('#tog').click()`);
+    await ev(`document.querySelector('#pv a[data-anchor="Setup"]').click()`);
+    await until(`cur === 'Guide' && document.querySelector('#ed') && document.querySelector('#ed').selectionStart === notes.get('Guide').text.indexOf('## Setup')`, 'heading link jumps to the heading');
+    await ev(`open('Linker', false)`); await until(`cur === 'Linker'`, 'back to linker');
+    await ev(`document.querySelector('#tog').click()`);
+    await ev(`document.querySelector('#pv a[data-block="step1"]').click()`);
+    await until(`cur === 'Guide' && document.querySelector('#ed') && document.querySelector('#ed').selectionStart === notes.get('Guide').text.indexOf(' ^step1')`, 'block link jumps to the block');
+    // hover preview shows the linked section
+    await ev(`open('Linker', false)`); await until(`cur === 'Linker'`, 'linker again');
+    await ev(`document.querySelector('#tog').click()`);
+    await ev(`document.querySelector('#pv a[data-anchor="Setup"]').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))`);
+    await until(`getComputedStyle(document.querySelector('#hp')).display === 'block' && /setup steps/.test(document.querySelector('#hp').textContent)`, 'hover preview');
+    await ev(`document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
+    assert.equal(await ev(`getComputedStyle(document.querySelector('#hp')).display`), 'none', 'preview hides');
+    // search operators and saved searches
+    const listed = () => ev(`[...document.querySelectorAll('#list .item')].map((i) => i.dataset.note).sort().join(',')`);
+    await ev(`(() => { const q = document.querySelector('#q'); q.value = 'setup -steps'; q.dispatchEvent(new Event('input')); })()`);
+    assert.equal(await listed(), 'Linker', 'words and exclusions');
+    await ev(`document.querySelector('#sssave').click()`);
+    await ev(`(() => { const q = document.querySelector('#q'); q.value = ''; q.dispatchEvent(new Event('input')); })()`);
+    assert.equal(await ev(`document.querySelectorAll('#tags .chip.ss').length`), 1, 'saved search chip');
+    await ev(`document.querySelector('#tags .chip.ss').click()`);
+    assert.equal(await ev(`document.querySelector('#q').value`), 'setup -steps', 'chip restores the query');
+    await ev(`document.querySelector('[data-ssdel="0"]').click()`);
+    await ev(`(() => { const q = document.querySelector('#q'); q.value = ''; q.dispatchEvent(new Event('input')); })()`);
+    assert.equal(await ev(`document.querySelectorAll('#tags .chip.ss').length`), 0, 'saved search removed');
+    await ev(`(async () => { graphOn = false; await open('Home', false); })()`);
+
     // icon toolbar: every icon button has an accessible name; the overflow menu opens, runs an item and closes
     assert.equal(await ev(`[...document.querySelectorAll('button.ico')].every((b) => b.getAttribute('aria-label') && b.querySelector('svg'))`), true);
     await ev(`document.querySelector('#more').click()`);
