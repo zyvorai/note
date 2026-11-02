@@ -53,6 +53,7 @@ extension AppDelegate: WKScriptMessageHandler {
             case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
             default: NSApp.appearance = nil
             }
+            DispatchQueue.main.async { [weak self] in self?.sendAccent() }
         case "side":
             let w = CGFloat((d["w"] as? NSNumber)?.doubleValue ?? 0)
             effect.isHidden = w <= 0
@@ -68,5 +69,49 @@ extension AppDelegate: WKScriptMessageHandler {
             op.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
         default: break
         }
+    }
+}
+
+// MARK: toolbar and system accent colour
+extension AppDelegate: NSToolbarDelegate {
+    static let tbSidebar = NSToolbarItem.Identifier("sidebar"), tbNew = NSToolbarItem.Identifier("new"), tbShare = NSToolbarItem.Identifier("share")
+
+    func buildToolbar() {
+        let tb = NSToolbar(identifier: "main")
+        tb.delegate = self
+        tb.displayMode = .iconOnly
+        window.toolbar = tb
+        window.toolbarStyle = .unified
+        window.titlebarSeparatorStyle = .none
+    }
+    func toolbarDefaultItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [Self.tbSidebar, Self.tbNew, .flexibleSpace, Self.tbShare]
+    }
+    func toolbarAllowedItemIdentifiers(_ t: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarDefaultItemIdentifiers(t) }
+    func toolbar(_ t: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        let spec: [NSToolbarItem.Identifier: (String, String, String, Selector)] = [
+            Self.tbSidebar: ("Sidebar", "sidebar.left", "Toggle Sidebar", #selector(tbSidebarTapped)),
+            Self.tbNew: ("New Note", "square.and.pencil", "New Note", #selector(tbNewTapped)),
+            Self.tbShare: ("Share", "square.and.arrow.up", "Share Note", #selector(shareNote)),
+        ]
+        guard let (label, symbol, tip, action) = spec[id] else { return nil }
+        let item = NSToolbarItem(itemIdentifier: id)
+        item.label = label; item.toolTip = tip; item.target = self; item.action = action
+        if #available(macOS 11.0, *) { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label) }
+        else { item.title = label }
+        return item
+    }
+    @objc func tbSidebarTapped() { js("plainnote.run('sidebar')") }
+    @objc func tbNewTapped() { js("plainnote.run('new')") }
+
+    /// Pass the system accent colour to the page, which uses it for selection, chips and primary buttons.
+    func sendAccent() {
+        var hex = "#5b5bd6"
+        NSApp.effectiveAppearance.performAsCurrentDrawingAppearance {
+            if let c = NSColor.controlAccentColor.usingColorSpace(.sRGB) {
+                hex = String(format: "#%02x%02x%02x", Int(round(c.redComponent * 255)), Int(round(c.greenComponent * 255)), Int(round(c.blueComponent * 255)))
+            }
+        }
+        js("plainnote.setAccent('\(hex)')")
     }
 }

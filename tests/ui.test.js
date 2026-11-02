@@ -217,6 +217,13 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.equal(await ev(`notes.get('GF Three').text`), 'zebra too', 'unticked note untouched');
     assert.equal(await ev(`document.querySelector('#gf').style.display`), 'none', 'dialog closes');
 
+    // the Mac app passes the system accent colour; light accents flip the text on selected rows to black
+    await ev(`plainnote.setAccent('#ff9f0a')`);
+    assert.equal(await ev(`document.documentElement.style.getPropertyValue('--acc')`), '#ff9f0a');
+    assert.equal(await ev(`document.documentElement.style.getPropertyValue('--on-acc')`), '#000');
+    await ev(`plainnote.setAccent('not a colour')`);
+    assert.equal(await ev(`document.documentElement.style.getPropertyValue('--acc')`), '#ff9f0a', 'invalid values ignored');
+
     // native-app bridge: plainnote.run(id) drives the same actions as the palette (the Mac menus call it)
     const before = await ev(`notes.size`);
     await ev(`plainnote.run('new')`);
@@ -326,13 +333,13 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     const mode = () => ev(`document.querySelector('#theme').dataset.mode`);
     const sys = await ev(`matchMedia('(prefers-color-scheme: dark)').matches`);
     assert.equal(await mode(), 'auto');
-    assert.equal(await bg(), sys ? 'rgb(24, 24, 27)' : 'rgb(255, 255, 255)', 'auto follows the system');
+    assert.equal(await bg(), sys ? 'rgb(30, 30, 30)' : 'rgb(255, 255, 255)', 'auto follows the system');
     await ev(`document.querySelector('#theme').click()`);
     assert.equal(await mode(), 'light'); assert.equal(await bg(), 'rgb(255, 255, 255)');
     assert.equal(await ev(`document.documentElement.dataset.theme`), 'light');
     await shot('8-light');
     await ev(`document.querySelector('#theme').click()`);
-    assert.equal(await mode(), 'dark'); assert.equal(await bg(), 'rgb(24, 24, 27)');
+    assert.equal(await mode(), 'dark'); assert.equal(await bg(), 'rgb(30, 30, 30)');
     await ev(`document.querySelector('#theme').click()`);
     assert.equal(await mode(), 'auto'); assert.equal(await ev(`document.documentElement.dataset.theme === undefined`), true);
     await ev(`document.querySelector('#theme').click()`);                                   // light again, then reload

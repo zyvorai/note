@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     func applicationDidFinishLaunching(_ n: Notification) {
         buildMenu()
         buildWindow()
+        buildToolbar()
+        NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.sendAccent() }
         startServer()
         setupIntegrations()
     }
@@ -130,22 +132,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
 
     // MARK: web delegates — the UI uses confirm()/prompt(), which WKWebView ignores unless handled.
     func webView(_ w: WKWebView, runJavaScriptAlertPanelWithMessage m: String, initiatedByFrame f: WKFrameInfo, completionHandler c: @escaping () -> Void) {
-        let a = NSAlert(); a.messageText = m; a.runModal(); c()
+        let a = NSAlert(); a.messageText = m
+        if let w = window, w.isVisible { a.beginSheetModal(for: w) { _ in c() } } else { a.runModal(); c() }
     }
     func webView(_ w: WKWebView, runJavaScriptConfirmPanelWithMessage m: String, initiatedByFrame f: WKFrameInfo, completionHandler c: @escaping (Bool) -> Void) {
         let a = NSAlert(); a.messageText = m
         a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
-        c(a.runModal() == .alertFirstButtonReturn)
+        if let w = window, w.isVisible { a.beginSheetModal(for: w) { c($0 == .alertFirstButtonReturn) } } else { c(a.runModal() == .alertFirstButtonReturn) }
     }
     func webView(_ w: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame f: WKFrameInfo, completionHandler c: @escaping (String?) -> Void) {
         let a = NSAlert(); a.messageText = prompt
         a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24)); field.stringValue = defaultText ?? ""
         a.accessoryView = field; a.window.initialFirstResponder = field
-        c(a.runModal() == .alertFirstButtonReturn ? field.stringValue : nil)
+        if let w = window, w.isVisible { a.beginSheetModal(for: w) { c($0 == .alertFirstButtonReturn ? field.stringValue : nil) } }
+        else { c(a.runModal() == .alertFirstButtonReturn ? field.stringValue : nil) }
     }
     func webView(_ w: WKWebView, didFinish navigation: WKNavigation!) {
         pageReady = true
+        sendAccent()
         let urls = pending; pending = []
         urls.forEach(handle)
     }
