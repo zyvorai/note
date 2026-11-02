@@ -12,6 +12,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,8 +34,25 @@ jobs:
           grep -q "Plainnote" "$RUNNER_TEMP/index.html"
           grep -q "wikiContext" "$RUNNER_TEMP/md.js"
           kill $PID || true
+      - name: Import the Developer ID certificate
+        if: runner.os == 'macOS' && env.MACOS_CERT_P12 != ''
+        env:
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain-db"
+          KCPW=$(uuidgen)
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KCPW" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
       - name: Build the macOS app and disk image
         if: runner.os == 'macOS'
+        env:
+          SIGN_ID: ${{ env.MACOS_CERT_P12 != '' && secrets.MACOS_SIGN_ID || '' }}
         run: |
           ./desktop/build.sh
           VER=$(node -p "require('./package.json').version")
@@ -42,6 +62,31 @@ jobs:
           hdiutil create -quiet -volname Plainnote -srcfolder "$RUNNER_TEMP/dmg" -ov -format UDZO "dist/Plainnote-$VER-universal.dmg"
           lipo -info dist/Plainnote.app/Contents/MacOS/Plainnote
           hdiutil verify -quiet dist/Plainnote-*.dmg
+      - name: Sign, notarize and staple the disk image
+        if: runner.os == 'macOS' && env.NOTARY_KEY_P8 != ''
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          SIGN_ID: ${{ secrets.MACOS_SIGN_ID }}
+        run: |
+          DMG=$(ls dist/Plainnote-*.dmg | head -1)
+          echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          codesign --force --timestamp --sign "$SIGN_ID" "$DMG"
+          if ! xcrun notarytool submit "$DMG" --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait --output-format json > "$RUNNER_TEMP/notary.json"; then
+            cat "$RUNNER_TEMP/notary.json"
+            ID=$(node -p "require('$RUNNER_TEMP/notary.json').id" 2>/dev/null || true)
+            [ -n "$ID" ] && xcrun notarytool log "$ID" --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/notary.json"
+          node -e "process.exit(require('$RUNNER_TEMP/notary.json').status==='Accepted'?0:1)"
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          spctl -a -vv -t install "$DMG"
+          rm -f "$RUNNER_TEMP/notary.p8"
+      - name: Remove the temporary keychain
+        if: always() && runner.os == 'macOS'
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
           name: plainnote-${{ matrix.os }}

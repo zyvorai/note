@@ -48,6 +48,12 @@ cat > "$APP/Contents/Info.plist" <<'P'
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 P
-# Ad-hoc signature by default. For distribution set SIGN_ID="Developer ID Application: …" (then notarize with notarytool).
-codesign --force --sign "${SIGN_ID:--}" "$APP" >/dev/null 2>&1 || true
+# Ad-hoc signature by default. For distribution set SIGN_ID="Developer ID Application: …"
+# (hardened runtime + secure timestamp, required for notarization; failures are fatal).
+if [ -n "${SIGN_ID:-}" ]; then
+  codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$APP"
+  codesign --verify --deep --strict "$APP"
+else
+  codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+fi
 echo "Built $APP"
