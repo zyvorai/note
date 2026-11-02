@@ -167,14 +167,15 @@ button.ico svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width
 #moremenu button:hover:not(:disabled){background:var(--acc);color:var(--on-acc)}
 #wc{position:absolute;right:14px;bottom:10px;z-index:3;padding:2px 9px;border-radius:999px;background:color-mix(in srgb,var(--bg) 78%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
 .chip.more{border:0;background:none;color:var(--acc)}
-/* native app: the web view runs under the unified toolbar; --tb is the toolbar height reported by AppKit */
+/* native app: the web view runs under the unified toolbar; --tb is the toolbar height reported by AppKit.
+   The note bar shares the toolbar's row (title and page buttons sit beside the native items), so there is a single header. */
 html.native{--tb:52px}
-html.native #app{padding-top:var(--tb)}
-html.native #side header{padding-top:8px}
-html.native #bar{min-height:0}
+html.native #side header{padding-top:var(--tb)}
+html.native #bar{height:var(--tb);min-height:var(--tb);padding-top:0;padding-bottom:0;padding-right:60px}   /* right: room for the native Share item */
+html.native body.side-off #bar{padding-left:176px}                                                       /* left: traffic lights + sidebar/new items */
 html.native #menu{display:none}
-html.native.mac #moremenu{top:calc(var(--tb) + 50px)}
-html.native #fr{top:calc(var(--tb) + 58px)}
+html.native #moremenu{top:calc(var(--tb) + 2px)}
+html.native #fr{top:calc(var(--tb) + 8px)}
 </style>
 </head>
 <body>
