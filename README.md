@@ -9,6 +9,8 @@
 
 **[Website](https://zyvorai.github.io/note/) · [Download](https://github.com/zyvorai/note/releases/latest) · [Contributing](CONTRIBUTING.md)**
 
+[Client overview (PDF)](docs/Plainnote-Client-Overview.pdf)
+
 <p align="center"><img src="docs/assets/hero-light.png" alt="Plainnote screenshot" width="860"></p>
 
 A free, lightweight, local-first notes app. Your notes are plain Markdown files in a folder you choose. No dependencies, no build step, no accounts, no telemetry: just Node.js.
