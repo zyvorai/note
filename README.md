@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/assets/icon.svg" width="96" alt="Plainnote"></p>
+<p align="center"><img src="docs/social/og.png" alt="Plainnote: Notes that feel instant. Files you own." width="860"></p>
 
 # Plainnote
 
