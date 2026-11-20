@@ -20,12 +20,11 @@ A fast, private notes app that keeps everything as **plain Markdown** files. No 
 - [ ] Sync with git when you want to — see [[Sync]]
 
 ## At a glance
-| Feature | Plainnote | Typical notes app |
-|---|---|---|
-| Install size | **~100 MB** single file | 400 MB+ |
-| Startup | instant | seconds |
-| Your data | plain text files | proprietary database |
-| Price | free forever | subscription |
+| Feature | Plainnote |
+|---|---|
+| Install size | **~100 MB** single file |
+| Startup | instant |
+| Your data | plain text files |
 
 ## Try it
 \`\`\`js
