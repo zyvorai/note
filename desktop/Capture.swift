@@ -1,3 +1,6 @@
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
 // Quick capture: a small floating panel that appends a line to today's daily note without bringing the main window forward.
 import Cocoa
 

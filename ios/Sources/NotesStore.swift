@@ -1,3 +1,6 @@
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
 // File operations on the notes folder: a Swift port of the rules in server.js (path confinement, conflict detection on
 // save, the .trash folder, folders, image uploads, CSS snippets). Foundation only, so it is unit-testable without a UI.
 import Foundation

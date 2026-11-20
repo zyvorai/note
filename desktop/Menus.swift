@@ -1,3 +1,6 @@
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
 // The native menu bar. Items that act on the page call plainnote.run('<id>') (see COMMANDS in public/index.html).
 import Cocoa
 

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
 // Zero-dependency local notes server. Usage: node server.js [notesDir] [port]
 const http = require('http');
 const fs = require('fs/promises');

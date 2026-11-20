@@ -1,3 +1,6 @@
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
 // Generates Plainnote.icns: swiftc icon.swift -o icon && ./icon out.iconset   (optionally: ./icon out.iconset preview.png)
 import Cocoa
 

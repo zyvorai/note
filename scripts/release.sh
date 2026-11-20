@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
 # Cut a release from this Mac:  ./scripts/release.sh 0.11.0
 #
 # Bumps the version, tests, commits, tags and pushes; builds, signs, notarizes and staples the DMG

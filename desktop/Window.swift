@@ -1,3 +1,6 @@
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
 // The native window: full-size content under a transparent title bar, a vibrancy sidebar behind the web view,
 // and the message bridge the page uses to talk to AppKit (window drag, theme, sidebar width).
 import Cocoa

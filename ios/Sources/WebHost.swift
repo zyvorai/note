@@ -1,3 +1,6 @@
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
 // Hosts the web UI (public/) in a WKWebView with no server: static files come from the app bundle through a custom URL
 // scheme, and the page's fetch('/api/…') calls are answered natively by Router (a JS shim forwards them through a
 // message handler, because WKURLSchemeHandler cannot see request bodies reliably). Notes live in a folder chosen by the

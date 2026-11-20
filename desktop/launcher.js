@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
 // Cross-platform desktop launcher (Windows, Linux, macOS).
 // Starts the notes server on localhost and opens it in a standalone app window using an installed
 // Chromium-based browser (Chrome, Edge, Chromium, Brave) in --app mode. Falls back to your default browser.

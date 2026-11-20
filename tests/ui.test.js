@@ -1,3 +1,6 @@
+// Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+
 // Real-browser smoke test: drives the UI through headless Chrome via the DevTools protocol (no dependencies).
 // Skipped when Chrome isn't installed. Set UI_SHOTS=dir to save screenshots.
 const test = require('node:test');
