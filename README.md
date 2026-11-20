@@ -179,6 +179,10 @@ The editor is a plain textarea, not a full code editor. The graph layout is O(n�
 
 Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately ([SECURITY.md](SECURITY.md)).
 
+## Support
+
+Plainnote is free and MIT licensed. If it helps you, you can give any amount you like, from ₹1 up: by UPI, card or netbanking at <https://rzp.io/rzp/utwdYh3> (Razorpay; international cards work too). Suggested: ₹999 (about $10), ₹2,999 (about $30) or ₹9,999 (about $100). A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or licence, and it is not tax-deductible (Zyvor AI Labs Private Limited is a company, not a charity).
+
 ## License
 
 MIT
