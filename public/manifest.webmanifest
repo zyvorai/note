@@ -1,0 +1,42 @@
+{
+  "name": "Plainnote",
+  "short_name": "Plainnote",
+  "description": "A free, lightweight, local-first notes app. Plain Markdown files.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#5b5bd6",
+  "categories": [
+    "productivity",
+    "notes"
+  ],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Today's note",
+      "short_name": "Today",
+      "url": "/#today"
+    },
+    {
+      "name": "New note",
+      "short_name": "New",
+      "url": "/#new"
+    }
+  ]
+}

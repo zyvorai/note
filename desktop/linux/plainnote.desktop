@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Plainnote
+Comment=Free, lightweight, local-first Markdown notes
+# Put the downloaded plainnote-linux-x64 file at ~/.local/bin/plainnote (chmod +x), then copy this file to ~/.local/share/applications/
+Exec=%h/.local/bin/plainnote
+Terminal=false
+Categories=Office;Utility;TextEditor;

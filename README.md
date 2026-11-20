@@ -1,0 +1,189 @@
+<p align="center"><img src="docs/social/og.png" alt="Plainnote: Notes that feel instant. Files you own." width="860"></p>
+
+# Plainnote
+
+[![test](https://github.com/zyvorai/note/actions/workflows/test.yml/badge.svg)](https://github.com/zyvorai/note/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/zyvorai/note?color=5b5bd6)](https://github.com/zyvorai/note/releases/latest)
+[![license: Zyvor Production](https://img.shields.io/badge/license-Zyvor%20Production%201.0-5b5bd6)](LICENSE)
+![dependencies: 0](https://img.shields.io/badge/dependencies-0-5b5bd6)
+
+**[Website](https://zyvorai.github.io/note/) · [Download](https://github.com/zyvorai/note/releases/latest) · [Contributing](CONTRIBUTING.md)**
+
+<p align="center"><img src="docs/assets/hero-light.png" alt="Plainnote screenshot" width="860"></p>
+
+A free, lightweight, local-first notes app. Your notes are plain Markdown files in a folder you choose. No dependencies, no build step, no accounts, no telemetry: just Node.js.
+
+## Run
+
+```sh
+node server.js [notesDir] [port]
+# e.g.
+node server.js ~/Notes          # http://localhost:4777
+```
+
+`notesDir` defaults to `./notes` and `port` to `4777` (or `$PORT`). Requires Node.js 20+. You can point it at an existing Obsidian vault or any folder of `.md` files.
+
+## Desktop app (macOS)
+
+```sh
+./desktop/build.sh      # builds dist/Plainnote.app (needs Xcode command line tools)
+open dist/Plainnote.app
+```
+
+A native wrapper (Swift + WKWebView, no Electron), universal for Apple Silicon and Intel. It has a translucent sidebar and full-size window, a real menu bar, a Dock menu and a menu-bar icon, and integrates with macOS:
+
+- **Quick capture**: press **Ctrl+Option+N** anywhere to jot a line into today's daily note without leaving what you're doing (⌘↩ saves, esc cancels).
+- **`plainnote://` links**: `plainnote://open/<note>`, `plainnote://today`, `plainnote://new?title=…&text=…`.
+- **Open files and folders**: open a `.md` file from Finder, or drop a folder on the Dock icon to use it as your notes folder.
+- **Services**: select text in any app, then *Services ▸ New Plainnote from Selection*.
+- **Share** the open note from the File menu, and sync notifications when the app is in the background.
+
+A tiny native wrapper (Swift + WKWebView, no Electron). It starts the bundled server on a free local port, shows it in a window, and stops it on quit. Node.js must be installed. **File → Choose Notes Folder…** switches folders (default `~/Notes`). Local builds are ad-hoc signed. For distribution, build with `SIGN_ID="Developer ID Application: …" ./desktop/build.sh` (hardened runtime), then sign the DMG and run `xcrun notarytool submit <dmg> --key AuthKey.p8 --key-id … --issuer … --wait` and `xcrun stapler staple <dmg>`. CI does all of this on tagged releases when these repository secrets are set: `MACOS_CERT_P12` (base64 .p12), `MACOS_CERT_PASSWORD`, `MACOS_SIGN_ID`, `NOTARY_KEY_P8` (base64 App Store Connect API key), `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`. Without them it produces an unsigned-for-distribution DMG. To release without storing the certificate in GitHub, run `./scripts/release.sh <version>` on a Mac that has the Developer ID identity and a `notary` notarytool profile: it tags, builds, signs, notarizes, staples and publishes the release (CI supplies the Linux and Windows binaries).
+
+## iPhone and iPad app
+
+A native app (SwiftUI + WKWebView) that bundles the same interface and needs no server and no network: the file operations are done in Swift (`ios/Sources/NotesStore.swift`, `Router.swift`), against a folder of `.md` files. It opens notes in a reading view (tap the text to edit), has a tab bar, bottom-sheet panels, note previews, haptics and a formatting bar above the keyboard, and follows light/dark mode. Notes live in the app's own *Files → On My iPhone → Plainnote* folder, or any folder you pick in **Settings → Notes folder** (iCloud Drive keeps it in sync with your Mac). Git sync is a desktop feature; on iOS use iCloud Drive or another Files provider.
+
+```sh
+./ios/build.sh test       # XCTests: the Swift routes against the same rules as tests/server.test.js
+./ios/build.sh selftest   # build, launch twice in the simulator, drive the real UI through the native bridge
+./ios/build.sh build      # simulator build (open ios/Plainnote.xcodeproj in Xcode to run it)
+DEVELOPMENT_TEAM=<team id> ./ios/build.sh archive    # signed device archive (needs your Apple developer account)
+./ios/build.sh icon       # regenerate the app and web-app icons from desktop/icon.swift
+```
+
+Needs Xcode 15+ and [xcodegen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). Not included: App Store submission, widgets, a share extension.
+
+## Phones and other devices: the web app
+
+Plainnote is also an installable web app (PWA) for Android and any phone browser. The notes stay on your computer: start the server in **remote mode** and open it from the phone.
+
+```sh
+node server.js ~/Notes 4777 --remote            # still bound to 127.0.0.1; prints a link ending in ?token=…
+tailscale serve --bg 4777                       # then open https://<your-mac>.<tailnet>.ts.net/?token=… on the phone
+node server.js ~/Notes 4777 --remote --host 0.0.0.0    # or listen on your LAN (plain http, so no install prompt)
+```
+
+Remote mode needs the secret token on **every** request (a cookie set by the link, or an `Authorization: Bearer` header). The token is generated once and kept in `<notes>/.plainnote/token` (owner-readable only; delete the file to rotate it), compared in constant time, and repeated wrong guesses are throttled. Without `--remote` nothing changes: localhost only, no login. Because the token is the only gate, **serve it over HTTPS** (Tailscale Serve, a reverse proxy) whenever it leaves your machine, and don't share the link. Then use *Add to Home screen* (Android Chrome: *Install app*; iPhone Safari: *Share → Add to Home Screen*). The app shell works offline; notes always come from the server.
+
+## Desktop app (Windows and Linux)
+
+A single downloadable executable, no Node install needed. Build it on the target OS:
+
+```sh
+node scripts/build-sea.js      # -> dist/plainnote-<platform>-<arch>[.exe]
+```
+
+CI builds all three platforms: run the **build-desktop** workflow, or push a `v*` tag to attach the executables to a GitHub release (the macOS build also attaches a universal `Plainnote-<version>-universal.dmg`).
+
+It starts the notes server on `127.0.0.1` and opens it in a standalone app window using an installed Chrome, Edge, Chromium or Brave (Edge ships with Windows), falling back to your default browser. Closing the window quits the app. Launching it again opens another window on the running instance.
+
+```sh
+plainnote                      # notes in ~/Notes
+plainnote --notes D:\Notes     # or set PLAINNOTE_DIR
+plainnote --no-window          # server only, open the printed URL yourself
+```
+
+`PLAINNOTE_BROWSER` points at a specific browser. On Linux, `desktop/linux/plainnote.desktop` is a starter launcher entry. Without Node installed you can also run the launcher directly with `node desktop/launcher.js`. On Windows a console window stays open while the app runs; the executable is unsigned, so SmartScreen may warn on first run.
+
+## Features
+
+- **Markdown files on disk**: subfolders work (`folder/name`); anything that reads Markdown can open them.
+- **Wikilinks** `[[Note]]` / `[[Note|alias]]` with autocomplete as you type `[[`. Links to missing notes are created on click. Renaming a note updates links to it.
+- **File tree**: switch the sidebar between *List* and *Files*. Drag a note onto a folder to move it (links to it are rewritten, including `[[Note#Heading]]`), right-click for Rename, Duplicate, Move to folder, Pin, Copy link, new folder and more. Empty folders are kept.
+- **Tabs and a split pane**: Cmd/Ctrl-click a note or link (or right-click → *Open in new tab*) to open it in a new tab; tabs are restored when you relaunch. Option/Alt-click a link, or use *Open to the right*, to keep a second note beside the one you're editing as a live read-only preview.
+- **Settings** (Cmd/Ctrl+, or the command palette): theme, reading font and width, text size, an accent colour that overrides the system one, the daily-notes folder and template, and a default folder for new notes. Add **custom shortcuts** for any command (on top of the built-in ones), and drop CSS files into `.plainnote/snippets/` in your notes folder to restyle the app: enable them in Settings (snippets are trusted code, so only use ones you've read).
+- **Live Preview (beta)**: turn it on in Settings or with the *Toggle Live Preview editor* command. The line with the caret shows raw Markdown; every other line renders in place (headings, bold/italic/code/highlights, links, lists, quotes, checkboxes you can tick). Not there yet: find in note, `[[` completion, the slash menu, image paste, and selections that cross rendered lines can land a few characters off.
+- **Properties**: a panel above each note edits its frontmatter (text, number, date, checkbox, lists) without touching the rest of the file; notes without properties just offer *+ Add property*.
+- **Backlinks** for every note, and a **graph view** (drag, pan, zoom, click to open).
+- **Tags**: `#tag` or `#parent/child`, filter from the sidebar.
+- **Full-text search** with snippets, and a **quick switcher**. The sidebar search understands `"exact phrase"`, `tag:idea`, `path:work/`, `file:plan`, `-excluded`, and `/regex/`; **save** a search as a chip.
+- **Smarter links**: `[[Note#Heading]]` and `[[Note^block]]` (end a line with ` ^id`) jump to the spot, frontmatter `aliases:` resolve to the note, `[[Note#` autocompletes headings, hovering a link previews the note, and each note lists the notes it links to as well as its backlinks.
+- **Preview** with tables, images (remote or from your folder), task lists and syntax-highlighted code blocks.
+- **Live syntax highlighting while you edit** (headings, bold, links, wikilinks, tags, code blocks with per-language colours).
+- **Slash menu**: type `/` at the start of a line for headings, tasks, tables, code blocks, dividers, links and today's date.
+- **Writing tools**: note templates (`templates/` folder, `{{date}}` `{{title}}`), find and replace (Ctrl/Cmd+F), focus mode (Ctrl/Cmd+Shift+F).
+- **Knowledge tools**: `> [!tip]` callouts, `==highlights==`, footnotes, `![[Note]]` / `![[Note#Heading]]` embeds, YAML frontmatter (`tags:` count as tags), unlinked mentions with one-click linking, and an all-notes open-tasks view (command palette).
+- **Editor niceties**: list continuation, Tab/Shift+Tab indent, Cmd/Ctrl+B and +I, paste or drop images (saved to `attachments/`).
+- **Safe by default**: autosave, deletes go to `.trash/` (restore from the Trash button), and if a note changes on disk underneath you (sync, another window) your version is saved as a "conflict" copy instead of overwriting.
+- **Git sync**, manual or every 2 minutes.
+- Light, dark or follow-the-system theme (toggle at the top of the sidebar, remembered), and a narrow-screen layout.
+
+## Shortcuts
+
+| Key | Action |
+|---|---|
+| Ctrl/Cmd+K | Quick switcher (jump or create) |
+| Ctrl/Cmd+Shift+P | Command palette (every action, searchable) |
+| Ctrl/Cmd+N | New note |
+| Ctrl/Cmd+, | Settings |
+| Ctrl/Cmd+T / W | New tab / close tab |
+| Ctrl/Cmd+Shift+[ / ] | Previous / next tab |
+| Ctrl/Cmd+Alt+\\ | Open this note in a split pane to the right |
+| Ctrl/Cmd+E | Toggle edit / preview |
+| Ctrl/Cmd+G | Toggle graph view |
+| Ctrl/Cmd+S | Save now |
+| Ctrl/Cmd + / - / 0 | Larger / smaller / reset text size |
+| Ctrl/Cmd+[ / ] | Back / forward through opened notes |
+| Ctrl/Cmd+Shift+T | Open today's daily note (`daily/YYYY-MM-DD`) |
+| Ctrl/Cmd+Shift+L | Cycle theme (auto / light / dark) |
+| Ctrl/Cmd+F | Find and replace in the note |
+| Ctrl/Cmd+Shift+F | Focus mode |
+| Ctrl/Cmd+B / I | Bold / italic |
+| Tab / Shift+Tab | Indent / outdent |
+
+## Sync
+
+The notes folder is just files, so sync uses git:
+
+1. Create an empty **private** repo on your git host.
+2. Click **Sync** (bottom of the sidebar) and enter the remote URL (`https://…`, `ssh://…` or `git@host:user/repo.git`).
+3. Each sync commits changes, pulls with rebase, and pushes. On a conflict the rebase is aborted and an error is shown; nothing is lost locally.
+4. Tick **Auto** to sync every 2 minutes while the tab is visible.
+
+Authentication is whatever git already uses on your machine (SSH keys, credential helper). Prefer iCloud, Dropbox or Syncthing? Point the app at a folder inside one and ignore the Sync button.
+
+## Security
+
+- Listens on `127.0.0.1` only and rejects requests whose `Host` isn't localhost (DNS-rebinding) or whose `Origin` is another site.
+- Note paths are confined to the notes folder; only image files are served from it, SVGs sandboxed.
+- Sync remotes are limited to `https://`, `ssh://` and `git@host:path` URLs.
+- There is no authentication: anyone with access to your local machine's port can read your notes. Don't expose the port.
+
+## Development
+
+```sh
+npm test        # node --test: markdown/editor unit tests, server API tests, and a headless-Chrome UI test
+```
+
+The UI test drives the real app through the Chrome DevTools protocol (no dependencies) and is skipped if Chrome isn't installed. `UI_SHOTS=dir npm test` saves screenshots.
+
+```
+server.js          zero-dependency HTTP server + file/git API
+public/index.html  the page shell; public/app.css and public/app.js hold the UI (plus manifest.webmanifest, sw.js and icons for the web app)
+ios/               the iPhone/iPad app (Swift sources, XCTests, build.sh)
+public/md.js       Markdown renderer and editor helpers (shared with the tests)
+desktop/           macOS wrapper (Plainnote.swift, build.sh), cross-platform launcher.js, Linux .desktop
+scripts/build-sea.js  builds the single-file executable
+tests/             unit, API and browser tests
+docs/              the website (GitHub Pages) and its screenshots
+```
+
+## Limits
+
+The editor is a plain textarea, not a full code editor. The graph layout is O(n²): fine for a few hundred notes. The Windows/Linux builds are produced by CI and haven't been tested by hand on those systems; the macOS wrapper needs Node installed. No encryption at rest and no built-in auth (it relies on being local-only).
+
+## Contributing
+
+Please contact sales@zyvor.dev before sending a contribution; contributions are accepted only under the terms of the Zyvor Production License v1.0. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately ([SECURITY.md](SECURITY.md)).
+
+## Support
+
+Plainnote: Evaluation is free for 30 days per organization under the Zyvor Production License v1.0; production use requires a commercial license (sales@zyvor.dev). If it helps you, you can give any amount you like, from INR 1 up: by UPI, card or netbanking at <https://rzp.io/rzp/utwdYh3> (Razorpay; international cards work too). Suggested: INR 999 (about US$10), INR 2,999 (about US$30) or INR 9,999 (about US$100). A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or licence, and it is not tax-deductible (Zyvor AI Labs Private Limited is a company, not a charity).
+
+## License
+
+Plainnote is source-available under the **[Zyvor Production License v1.0](LICENSE)** (SPDX `LicenseRef-Zyvor-Production-1.0`, also in [LICENSES/](LICENSES/LicenseRef-Zyvor-Production-1.0.txt); see [NOTICE](NOTICE), which also records the earlier MIT-licensed history).
+
+- **Free for 30 days** per organization, for evaluation, development, testing, proofs of concept, research and education. After that a commercial license is required.
+- **Production use needs a commercial license** from Zyvor AI Labs. A 30-day trial key is available for production evaluation. Buy / get a quote: [zyvor.dev/buy](https://zyvor.dev/buy) · [sales@zyvor.dev](mailto:sales@zyvor.dev).

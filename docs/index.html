@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>Plainnote · Notes that feel instant. Files you own.</title>
+<meta name="description" content="Plainnote is a local-first notes app. Plain Markdown files, wikilinks, a live graph, dark mode. Zero dependencies. Source-available under the Zyvor Production License; free for non-production use; production use requires a commercial license.">
+<link rel="canonical" href="https://zyvorai.github.io/note/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Plainnote">
+<meta property="og:title" content="Plainnote · Notes that feel instant. Files you own.">
+<meta property="og:description" content="Local-first notes. Plain Markdown, wikilinks and a live graph. Zyvor Production License.">
+<meta property="og:url" content="https://zyvorai.github.io/note/">
+<meta property="og:image" content="https://zyvorai.github.io/note/social/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Plainnote: Notes that feel instant. Files you own. The window shows a note in the Plainnote app.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Plainnote · Notes that feel instant. Files you own.">
+<meta name="twitter:description" content="Local-first notes. Plain Markdown, wikilinks and a live graph. Zyvor Production License.">
+<meta name="twitter:image" content="https://zyvorai.github.io/note/social/og.png">
+<meta name="twitter:image:alt" content="Plainnote: Notes that feel instant. Files you own. The window shows a note in the Plainnote app.">
+<link rel="stylesheet" href="assets/landing.css">
+<style>:root{--accent-btn:#5b5bd6;--accent-ink:#5b5bd6;--accent-grad-a:#5b5bd6;--accent-grad-b:#bf4fc0}@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--accent-ink:#9d9dff}}:root[data-theme="dark"]{--accent-ink:#9d9dff}</style>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Plainnote","applicationCategory":"ProductivityApplication","operatingSystem":"macOS, Windows, Linux, iOS","softwareVersion":"0.13.1","downloadUrl":"https://github.com/zyvorai/note/releases/latest","url":"https://zyvorai.github.io/note/","description":"Plainnote is a local-first notes app. Plain Markdown files, wikilinks, a live graph, dark mode. Zero dependencies. Source-available under the Zyvor Production License; a commercial license is required to run it.","image":"https://zyvorai.github.io/note/social/og.png","publisher":{"@type":"Organization","name":"Zyvor AI Labs Private Limited","url":"https://zyvor.dev"}}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <a class="brand" href="./" aria-label="Plainnote home"><img src="favicon.svg" width="26" height="26" alt=""><span>Plainnote</span></a>
+  <nav aria-label="Primary"><ul><li><a href="#features">Features</a></li><li><a href="#specs">Specs</a></li><li><a href="#start">Get started</a></li><li><a href="#faq">FAQ</a></li><li><a href="privacy.html">Privacy</a></li></ul></nav>
+  <a class="btn small primary" href="https://github.com/zyvorai/note/releases/latest">Download</a>
+</header>
+<main id="main">
+<section class="hero" aria-labelledby="top">
+  <img class="icon" src="favicon.svg" width="96" height="96" alt="Plainnote app icon">
+  <p class="eyebrow">Zyvor · source-available</p>
+  <h1 id="top">Plainnote</h1>
+  <p class="tagline">Notes that feel instant. Files you own.</p>
+  <p class="promise"><strong>Plain Markdown in a folder you choose.</strong> A local-first notes app. Every note is a Markdown file in a folder you choose, with wikilinks, a live graph and dark mode. No account, no cloud, no telemetry, no dependencies: just Node.js.</p>
+  <p class="cta"><a class="btn primary" href="#start">Download Plainnote</a><a class="textlink" href="https://github.com/zyvorai/note">View on GitHub</a></p>
+  <p class="fine">Zyvor Production License · commercial license required · macOS, Windows, Linux · no account</p>
+  <figure class="shot hero-shot"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/img/hero-img-dark-1200.webp 1200w, assets/img/hero-img-dark-1800.webp 1800w" sizes="(min-width:1080px) 1040px, 100vw"><img src="assets/img/hero-img-light-1200.webp" srcset="assets/img/hero-img-light-1200.webp 1200w, assets/img/hero-img-light-1800.webp 1800w" sizes="(min-width:1080px) 1040px, 100vw" width="2880" height="1800" alt="Plainnote showing a note with a table, tasks and code beside the note list." fetchpriority="high" decoding="async"></picture><figcaption>The Plainnote desktop app. Sample notes.</figcaption></figure>
+</section>
+
+<section class="band" aria-label="Overview">
+  <h2>Your notes are just files. Keep it that way.</h2>
+  <p>Plainnote reads and writes plain Markdown in a folder you choose. Point it at an existing Obsidian vault or any folder of .md files, and anything that reads Markdown can open your notes.</p>
+</section>
+
+<div id="features">
+<h2 class="sr">Features</h2>
+<section class="feature" id="graph" aria-labelledby="h-graph"><div class="grid"><div class="copy"><p class="eyebrow">Graph view</p><h3 id="h-graph">See how your ideas connect.</h3><p>Type [[ to link any note. Backlinks appear under every note, and the graph lets you drag, pan, zoom and click through your notes. Renaming a note updates the links to it.</p><a class="textlink" href="https://github.com/zyvorai/note#features">Features in the README</a></div><figure class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/img/graph-dark-1200.webp 1200w, assets/img/graph-dark-1800.webp 1800w" sizes="(min-width:960px) 62vw, 100vw"><img src="assets/img/graph-light-1200.webp" srcset="assets/img/graph-light-1200.webp 1200w, assets/img/graph-light-1800.webp 1800w" sizes="(min-width:960px) 62vw, 100vw" width="2880" height="1800" alt="Plainnote graph view: linked notes drawn as a network you can drag, pan and zoom." loading="lazy" decoding="async"></picture><figcaption>Graph view. Sample notes.</figcaption></figure></div></section>
+<section class="feature flip" id="writing" aria-labelledby="h-writing"><div class="grid"><div class="copy"><p class="eyebrow">Writing</p><h3 id="h-writing">A calm place to think.</h3><p>Live syntax highlighting while you edit, a slash menu for headings, tasks, tables and code, a command palette and autosave. If a note changes on disk underneath you, your version is saved as a conflict copy instead of overwriting.</p><a class="textlink" href="https://github.com/zyvorai/note#shortcuts">Shortcuts</a></div><figure class="shot"><picture><img src="assets/img/writing-light-1200.webp" srcset="assets/img/writing-light-1200.webp 1200w, assets/img/writing-light-1800.webp 1800w" sizes="(min-width:960px) 62vw, 100vw" width="2880" height="1800" alt="Editing a Markdown note in Plainnote with live syntax highlighting." loading="lazy" decoding="async"></picture><figcaption>The editor. Sample note.</figcaption></figure></div></section>
+</div>
+
+<section class="more" aria-labelledby="more-h">
+  <h2 id="more-h">And the rest of the toolbox.</h2>
+  <div class="cards"><div class="card"><h3>Wikilinks and tags</h3><p>[[Note]], [[Note|alias]], [[Note#Heading]] and [[Note^block]] links with autocomplete, plus #tag and #parent/child tags.</p></div><div class="card"><h3>Search</h3><p>Full-text search with snippets, a quick switcher, and sidebar queries such as tag:idea, path:work/ and /regex/.</p></div><div class="card"><h3>Tabs and split pane</h3><p>Open notes in tabs, or keep a second note beside the one you are editing as a live read-only preview.</p></div><div class="card"><h3>Properties and templates</h3><p>Edit a note's frontmatter without touching the rest of the file, and start notes from templates with {{date}} and {{title}}.</p></div><div class="card"><h3>Git sync</h3><p>Sync with your own git remote, manually or every 2 minutes. Prefer iCloud, Dropbox or Syncthing? Point Plainnote at a folder inside one.</p></div><div class="card"><h3>Light, dark and your own CSS</h3><p>Follow the system or pick a theme, set an accent colour, and drop CSS snippets into your notes folder.</p></div></div>
+</section>
+
+<section class="privacy" aria-labelledby="privacy-h">
+  <h2 id="privacy-h">Local by design.</h2>
+  <div class="cards"><div class="card"><h3>No account, no telemetry</h3><p>Notes stay in your folder. The app has no accounts and sends no telemetry.</p></div><div class="card"><h3>Local-only server</h3><p>It listens on 127.0.0.1 only, rejects other Host and Origin values, and confines note paths to your notes folder.</p></div><div class="card"><h3>Safe by default</h3><p>Deletes go to .trash/ and can be restored. Remote mode, for phones, needs a secret token on every request.</p></div></div>
+</section>
+
+<section class="specs" id="specs" aria-labelledby="specs-h">
+  <h2 id="specs-h">Specs and requirements.</h2>
+  <dl class="specs-grid"><div class="spec"><dt>Licence</dt><dd>Zyvor Production 1.0<small>Free for non-production use; production use requires a commercial license (sales@zyvor.dev).</small></dd></div><div class="spec"><dt>Dependencies</dt><dd>None<small>No npm install and no build step.</small></dd></div><div class="spec"><dt>Runtime</dt><dd>Node.js 20 or later<small>Needed to run from source. The macOS app needs Node.js installed; the Windows and Linux executables do not.</small></dd></div><div class="spec"><dt>macOS</dt><dd>Signed and notarized DMG<small>The release DMG is signed with Developer ID, notarized and stapled.</small></dd></div><div class="spec"><dt>Windows and Linux</dt><dd>Single executables<small>Built by CI; not tested by hand on those systems. The Windows executable is unsigned, so SmartScreen may warn.</small></dd></div><div class="spec"><dt>iPhone and iPad</dt><dd>Source build<small>A native app in the repository, built with Xcode. App Store submission is not included.</small></dd></div></dl>
+  <div class="limit" role="note"><h3>Honest limits</h3><p>The editor is a plain textarea, not a full code editor. The graph layout is O(n²), fine for a few hundred notes. There is no encryption at rest and no built-in authentication outside remote mode: it relies on being local-only. Live Preview is a beta.</p></div>
+</section>
+
+<section class="steps" id="start" aria-labelledby="steps-h">
+  <h2 id="steps-h">Get started in three steps.</h2>
+  <ol><li><h3>Download</h3><p>Get the macOS <code>.dmg</code>, the Windows <code>.exe</code> or the Linux binary from the latest release, or clone the repository.</p></li><li><h3>Pick a folder</h3><p>Point Plainnote at an existing folder of Markdown files or an Obsidian vault. The default is <code>~/Notes</code>.</p></li><li><h3>Write</h3><p>Press <b>Cmd/Ctrl+K</b> to jump or create a note, <b>Cmd/Ctrl+Shift+P</b> for every command.</p></li></ol>
+  <div class="sha"><p>Run from source (Node.js 20+)</p><pre><code>git clone https://github.com/zyvorai/note
+cd note
+node server.js ~/Notes     # then open http://localhost:4777</code></pre></div>
+<p class="cta" style="margin-top:28px"><a class="btn primary" href="https://github.com/zyvorai/note/releases/latest">Download the latest release</a><a class="textlink" href="https://github.com/zyvorai/note#run">Run guide</a><a class="textlink" href="https://github.com/zyvorai/note/releases">All releases</a></p>
+</section>
+
+
+
+<section class="support" id="support" aria-labelledby="support-h">
+  <div class="inner">
+  <h2 id="support-h" style="text-align:left">Support the project</h2>
+  <p class="lead">Plainnote is source-available under the Zyvor Production License v1.0; non-production use is free and production use requires a commercial license (<a href="https://zyvor.dev/pricing">pricing</a>, sales@zyvor.dev). If it helps you, you can give any amount you like, from INR 1 up. Suggested: INR 999 (about US$10), INR 2,999 (about US$30) or <b>INR 9,999 (about US$100)</b>, by UPI, card or netbanking. Razorpay accepts international cards.</p>
+<p class="cta"><a class="btn primary" href="https://rzp.io/rzp/utwdYh3" rel="noopener">Donate any amount (Razorpay)</a></p>
+<p class="fine">A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or licence.</p>
+  </div>
+</section>
+
+<section class="faq" id="faq" aria-labelledby="faq-h">
+  <h2 id="faq-h">Questions, answered.</h2>
+  <details><summary>Do I need a license?</summary><p>For production use, yes. Plainnote is source-available under the Zyvor Production License v1.0: evaluation, development, testing, research, education and other non-production use is free, and production use requires a paid commercial license (<a href="https://zyvor.dev/pricing">pricing</a>, sales@zyvor.dev). You can also give any amount you like, but nothing is required and a donation buys nothing.</p></details>
+<details><summary>Where are my notes stored?</summary><p>As plain <code>.md</code> files in a folder you choose, with subfolders as folders. Anything that reads Markdown can open them.</p></details>
+<details><summary>Can I use my Obsidian vault?</summary><p>Yes. Point Plainnote at an existing vault or any folder of Markdown files.</p></details>
+<details><summary>How do I sync between devices?</summary><p>With git (a built-in Sync button, manual or every 2 minutes), or by putting your notes folder in iCloud Drive, Dropbox or Syncthing. For a phone browser, run the server in remote mode behind HTTPS.</p></details>
+<details><summary>Does it need an account or send data anywhere?</summary><p>No account and no telemetry. The server listens on localhost only unless you start remote mode.</p></details>
+<details><summary>Which platforms are supported?</summary><p>macOS (signed, notarized DMG), Windows and Linux (single executables built by CI, not tested by hand), and a native iPhone and iPad app built from the repository.</p></details>
+</section>
+</main>
+<footer class="footer">
+  <p><strong>Plainnote</strong> · Source-available under the Zyvor Production License v1.0.</p>
+  <p class="links"><a href="https://github.com/zyvorai/note">GitHub</a><a href="https://github.com/zyvorai/note/releases">Releases</a><a href="privacy.html">Privacy</a><a href="https://github.com/zyvorai/note/blob/main/LICENSE">LICENSE</a><a href="https://github.com/zyvorai/note/blob/main/SECURITY.md">SECURITY</a><a href="https://github.com/zyvorai/note/blob/main/CONTRIBUTING.md">Contributing</a></p>
+  <p>© 2026 Plainnote contributors · a <a href="https://zyvor.dev">Zyvor</a> project · Zyvor Production License v1.0</p>
+</footer>
+</body>
+</html>

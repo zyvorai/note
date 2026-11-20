@@ -1,0 +1,12 @@
+{
+  "name": "plainnote",
+  "version": "0.13.1",
+  "description": "Free, lightweight, local-first Markdown notes",
+  "private": true,
+  "license": "LicenseRef-Zyvor-Production-1.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/md.test.js tests/server.test.js tests/launcher.test.js tests/bundle.test.js tests/ui.test.js"
+  }
+}
