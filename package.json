@@ -3,7 +3,7 @@
   "version": "0.13.1",
   "description": "Free, lightweight, local-first Markdown notes",
   "private": true,
-  "license": "MIT",
+  "license": "LicenseRef-Zyvor-Production-1.0",
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node server.js",
