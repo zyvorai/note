@@ -181,7 +181,7 @@ Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and
 
 ## Support
 
-Plainnote is free and MIT licensed. If it helps you, you can give any amount you like, from ₹1 up: by UPI, card or netbanking at <https://rzp.io/rzp/utwdYh3> (Razorpay; international cards work too). Suggested: ₹999 (about $10), ₹2,999 (about $30) or ₹9,999 (about $100). A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or licence, and it is not tax-deductible (Zyvor AI Labs Private Limited is a company, not a charity).
+Plainnote is free and MIT licensed. If it helps you, you can give any amount you like, from INR 1 up: by UPI, card or netbanking at <https://rzp.io/rzp/utwdYh3> (Razorpay; international cards work too). Suggested: INR 999 (about US$10), INR 2,999 (about US$30) or INR 9,999 (about US$100). A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or licence, and it is not tax-deductible (Zyvor AI Labs Private Limited is a company, not a charity).
 
 ## License
 
