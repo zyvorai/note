@@ -1,6 +1,8 @@
 # Contributing to Plainnote
 
-Thanks for helping! Plainnote is a small, fast, local-first notes app and we want to keep it that way.
+Plainnote is under the [Zyvor Production License v1.0](LICENSE). Please contact sales@zyvor.dev before sending a contribution; contributions are accepted only under the terms of that license.
+
+Plainnote is a small, fast, local-first notes app and we want to keep it that way.
 
 ## Ground rules
 

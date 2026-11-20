@@ -175,7 +175,7 @@ The editor is a plain textarea, not a full code editor. The graph layout is O(nÂ
 
 ## Contributing
 
-Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately ([SECURITY.md](SECURITY.md)).
+Please contact sales@zyvor.dev before sending a contribution; contributions are accepted only under the terms of the Zyvor Production License v1.0. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately ([SECURITY.md](SECURITY.md)).
 
 ## Support
 

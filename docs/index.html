@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <title>Plainnote · Notes that feel instant. Files you own.</title>
-<meta name="description" content="Plainnote is a local-first notes app. Plain Markdown files, wikilinks, a live graph, dark mode. Zero dependencies. Source-available under the Zyvor Production License; a commercial license is required to run it.">
+<meta name="description" content="Plainnote is a local-first notes app. Plain Markdown files, wikilinks, a live graph, dark mode. Zero dependencies. Source-available under the Zyvor Production License; free for non-production use; production use requires a commercial license.">
 <link rel="canonical" href="https://zyvorai.github.io/note/">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -73,7 +73,7 @@
 
 <section class="specs" id="specs" aria-labelledby="specs-h">
   <h2 id="specs-h">Specs and requirements.</h2>
-  <dl class="specs-grid"><div class="spec"><dt>Licence</dt><dd>Zyvor Production 1.0<small>A commercial license is required to run Plainnote (sales@zyvor.dev).</small></dd></div><div class="spec"><dt>Dependencies</dt><dd>None<small>No npm install and no build step.</small></dd></div><div class="spec"><dt>Runtime</dt><dd>Node.js 20 or later<small>Needed to run from source. The macOS app needs Node.js installed; the Windows and Linux executables do not.</small></dd></div><div class="spec"><dt>macOS</dt><dd>Signed and notarized DMG<small>The release DMG is signed with Developer ID, notarized and stapled.</small></dd></div><div class="spec"><dt>Windows and Linux</dt><dd>Single executables<small>Built by CI; not tested by hand on those systems. The Windows executable is unsigned, so SmartScreen may warn.</small></dd></div><div class="spec"><dt>iPhone and iPad</dt><dd>Source build<small>A native app in the repository, built with Xcode. App Store submission is not included.</small></dd></div></dl>
+  <dl class="specs-grid"><div class="spec"><dt>Licence</dt><dd>Zyvor Production 1.0<small>Free for non-production use; production use requires a commercial license (sales@zyvor.dev).</small></dd></div><div class="spec"><dt>Dependencies</dt><dd>None<small>No npm install and no build step.</small></dd></div><div class="spec"><dt>Runtime</dt><dd>Node.js 20 or later<small>Needed to run from source. The macOS app needs Node.js installed; the Windows and Linux executables do not.</small></dd></div><div class="spec"><dt>macOS</dt><dd>Signed and notarized DMG<small>The release DMG is signed with Developer ID, notarized and stapled.</small></dd></div><div class="spec"><dt>Windows and Linux</dt><dd>Single executables<small>Built by CI; not tested by hand on those systems. The Windows executable is unsigned, so SmartScreen may warn.</small></dd></div><div class="spec"><dt>iPhone and iPad</dt><dd>Source build<small>A native app in the repository, built with Xcode. App Store submission is not included.</small></dd></div></dl>
   <div class="limit" role="note"><h3>Honest limits</h3><p>The editor is a plain textarea, not a full code editor. The graph layout is O(n²), fine for a few hundred notes. There is no encryption at rest and no built-in authentication outside remote mode: it relies on being local-only. Live Preview is a beta.</p></div>
 </section>
 
@@ -91,7 +91,7 @@ node server.js ~/Notes     # then open http://localhost:4777</code></pre></div>
 <section class="support" id="support" aria-labelledby="support-h">
   <div class="inner">
   <h2 id="support-h" style="text-align:left">Support the project</h2>
-  <p class="lead">Plainnote is source-available under the Zyvor Production License v1.0; running it requires a commercial license (sales@zyvor.dev). If it helps you, you can give any amount you like, from INR 1 up. Suggested: INR 999 (about US$10), INR 2,999 (about US$30) or <b>INR 9,999 (about US$100)</b>, by UPI, card or netbanking. Razorpay accepts international cards.</p>
+  <p class="lead">Plainnote is source-available under the Zyvor Production License v1.0; non-production use is free and production use requires a commercial license (<a href="https://zyvor.dev/pricing">pricing</a>, sales@zyvor.dev). If it helps you, you can give any amount you like, from INR 1 up. Suggested: INR 999 (about US$10), INR 2,999 (about US$30) or <b>INR 9,999 (about US$100)</b>, by UPI, card or netbanking. Razorpay accepts international cards.</p>
 <p class="cta"><a class="btn primary" href="https://rzp.io/rzp/utwdYh3" rel="noopener">Donate any amount (Razorpay)</a></p>
 <p class="fine">A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or licence.</p>
   </div>
@@ -99,7 +99,7 @@ node server.js ~/Notes     # then open http://localhost:4777</code></pre></div>
 
 <section class="faq" id="faq" aria-labelledby="faq-h">
   <h2 id="faq-h">Questions, answered.</h2>
-  <details><summary>Do I need a license?</summary><p>Yes. Plainnote is source-available under the Zyvor Production License v1.0 and running it requires a commercial license (sales@zyvor.dev). You can also give any amount you like, but nothing is required and a donation buys nothing.</p></details>
+  <details><summary>Do I need a license?</summary><p>For production use, yes. Plainnote is source-available under the Zyvor Production License v1.0: evaluation, development, testing, research, education and other non-production use is free, and production use requires a paid commercial license (<a href="https://zyvor.dev/pricing">pricing</a>, sales@zyvor.dev). You can also give any amount you like, but nothing is required and a donation buys nothing.</p></details>
 <details><summary>Where are my notes stored?</summary><p>As plain <code>.md</code> files in a folder you choose, with subfolders as folders. Anything that reads Markdown can open them.</p></details>
 <details><summary>Can I use my Obsidian vault?</summary><p>Yes. Point Plainnote at an existing vault or any folder of Markdown files.</p></details>
 <details><summary>How do I sync between devices?</summary><p>With git (a built-in Sync button, manual or every 2 minutes), or by putting your notes folder in iCloud Drive, Dropbox or Syncthing. For a phone browser, run the server in remote mode behind HTTPS.</p></details>
