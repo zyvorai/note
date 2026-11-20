@@ -4,7 +4,7 @@
 
 [![test](https://github.com/zyvorai/note/actions/workflows/test.yml/badge.svg)](https://github.com/zyvorai/note/actions/workflows/test.yml)
 [![release](https://img.shields.io/github/v/release/zyvorai/note?color=5b5bd6)](https://github.com/zyvorai/note/releases/latest)
-[![license: MIT](https://img.shields.io/badge/license-MIT-5b5bd6)](LICENSE)
+[![license: Zyvor Production](https://img.shields.io/badge/license-Zyvor%20Production%201.0-5b5bd6)](LICENSE)
 ![dependencies: 0](https://img.shields.io/badge/dependencies-0-5b5bd6)
 
 **[Website](https://zyvorai.github.io/note/) · [Download](https://github.com/zyvorai/note/releases/latest) · [Contributing](CONTRIBUTING.md)**
@@ -181,8 +181,11 @@ Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and
 
 ## Support
 
-Plainnote is free and MIT licensed. If it helps you, you can give any amount you like, from INR 1 up: by UPI, card or netbanking at <https://rzp.io/rzp/utwdYh3> (Razorpay; international cards work too). Suggested: INR 999 (about US$10), INR 2,999 (about US$30) or INR 9,999 (about US$100). A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or licence, and it is not tax-deductible (Zyvor AI Labs Private Limited is a company, not a charity).
+Plainnote: Non-production use is free under the Zyvor Production License v1.0; production use requires a commercial license (sales@zyvor.dev). If it helps you, you can give any amount you like, from INR 1 up: by UPI, card or netbanking at <https://rzp.io/rzp/utwdYh3> (Razorpay; international cards work too). Suggested: INR 999 (about US$10), INR 2,999 (about US$30) or INR 9,999 (about US$100). A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or licence, and it is not tax-deductible (Zyvor AI Labs Private Limited is a company, not a charity).
 
 ## License
 
-MIT
+Plainnote is source-available under the **[Zyvor Production License v1.0](LICENSE)** (SPDX `LicenseRef-Zyvor-Production-1.0`, also in [LICENSES/](LICENSES/LicenseRef-Zyvor-Production-1.0.txt); see [NOTICE](NOTICE), which also records the earlier MIT-licensed history).
+
+- **Free** for evaluation, development, testing, proofs of concept, research, education and all other non-production use.
+- **Production use needs a commercial license** from Zyvor AI Labs. A 30-day trial key is available for production evaluation. Buy / get a quote: [zyvor.dev/buy](https://zyvor.dev/buy) · [sales@zyvor.dev](mailto:sales@zyvor.dev).

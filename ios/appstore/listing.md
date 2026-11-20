@@ -1,6 +1,6 @@
 # App Store listing (iPhone)
 
-**Name:** Zyvor Note   ("Plainnote" was already taken in the App Store; the open-source project and desktop apps keep the name Plainnote)
+**Name:** Zyvor Note   ("Plainnote" was already taken in the App Store; the source-available project and desktop apps keep the name Plainnote)
 **Subtitle (30):** Markdown notes you own
 **Category:** Productivity (secondary: Utilities)
 **Price:** Free
@@ -41,7 +41,7 @@ MADE FOR YOUR PHONE
 
 PRIVATE BY DESIGN
 • Works fully offline; nothing leaves your device unless you pick a cloud folder
-• Open source, with desktop apps for Mac, Windows and Linux
+• Source-available, with desktop apps for Mac, Windows and Linux
 
 ## Keywords (100)
 markdown,notes,wikilinks,obsidian,zettelkasten,journal,daily,backlinks,graph,outliner,local,files

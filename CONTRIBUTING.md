@@ -43,4 +43,4 @@ The browser test needs Chrome, Edge or Chromium and is skipped if none is found.
 
 Please don't file security problems as public issues. See [SECURITY.md](SECURITY.md).
 
-By contributing you agree your work is released under the [MIT License](LICENSE).
+By contributing you agree your work is licensed under the [Zyvor Production License v1.0](LICENSE).
