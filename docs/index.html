@@ -71,6 +71,13 @@
   <div class="cards"><div class="card"><h3>No account, no telemetry</h3><p>Notes stay in your folder. The app has no accounts and sends no telemetry.</p></div><div class="card"><h3>Local-only server</h3><p>It listens on 127.0.0.1 only, rejects other Host and Origin values, and confines note paths to your notes folder.</p></div><div class="card"><h3>Safe by default</h3><p>Deletes go to .trash/ and can be restored. Remote mode, for phones, needs a secret token on every request.</p></div></div>
 </section>
 
+<section class="specs" id="pricing" aria-labelledby="pricing-h">
+  <h2 id="pricing-h">Pricing.</h2>
+  <dl class="specs-grid"><div class="spec"><dt>Plainnote</dt><dd>₹999<small>per Mac, one-time, incl. 1 year of updates (incl. 18% GST in India; about US$10 excl. tax outside India).</small></dd></div><div class="spec"><dt>Teams</dt><dd>₹849<small>per unit, 5 or more, by invoice.</small></dd></div><div class="spec"><dt>Trial</dt><dd>30 days<small>Free evaluation. Production use needs a licence.</small></dd></div></dl>
+  <p class="cta"><a class="btn primary" href="https://zyvor.dev/buy#plainnote" rel="noopener">Buy Plainnote</a><a class="textlink" href="https://zyvor.dev/pricing">All prices</a></p>
+  <p class="fine">Orders of US$5,000 or more are invoiced in US dollars and paid through Skydo. Prices are set on zyvor.dev.</p>
+</section>
+
 <section class="specs" id="specs" aria-labelledby="specs-h">
   <h2 id="specs-h">Specs and requirements.</h2>
   <dl class="specs-grid"><div class="spec"><dt>Licence</dt><dd>Zyvor Production 1.0<small>Free for non-production use; production use requires a commercial license (sales@zyvor.dev).</small></dd></div><div class="spec"><dt>Dependencies</dt><dd>None<small>No npm install and no build step.</small></dd></div><div class="spec"><dt>Runtime</dt><dd>Node.js 20 or later<small>Needed to run from source. The macOS app needs Node.js installed; the Windows and Linux executables do not.</small></dd></div><div class="spec"><dt>macOS</dt><dd>Signed and notarized DMG<small>The release DMG is signed with Developer ID, notarized and stapled.</small></dd></div><div class="spec"><dt>Windows and Linux</dt><dd>Single executables<small>Built by CI; not tested by hand on those systems. The Windows executable is unsigned, so SmartScreen may warn.</small></dd></div><div class="spec"><dt>iPhone and iPad</dt><dd>Source build<small>A native app in the repository, built with Xcode. App Store submission is not included.</small></dd></div></dl>
