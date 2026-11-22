@@ -35,6 +35,19 @@ node server.js ~/Notes          # http://localhost:4777
   Server -> Git: sync
   ```
   ````
+- **Math**: `$e^{i\pi}+1=0$` inline and `$$ … $$` blocks (one line or several). A LaTeX subset (fractions, roots, sub/superscripts, sums and integrals with limits, Greek letters, common symbols, matrices and `cases`) is drawn as MathML, which browsers render natively, so there is nothing to download. Prices like "$5 and $10" and anything inside code are left alone; an unknown command shows in red instead of breaking the note.
+- **Charts**: a `chart` fence draws a bar, line or pie chart as SVG:
+
+  ````
+  ```chart
+  bar
+  title: Sales
+  series: 2025, 2026
+  Jan: 12, 15
+  Feb: 18, 21
+  ```
+  ````
+  The first line is `bar`, `line` or `pie` (default `bar`); `title:` and `series:` are optional, and each row is `label: value` (or several values for several series).
 - **Markdown to PDF from the terminal**: `node server.js export note.md [out.pdf]` uses the app's own renderer and an installed Chrome, Edge or Chromium (set `CHROME=/path` to choose). In the app, use *Export this note as PDF*.
 - **Edit PDFs** (optional add-on; run `npm install pdf-lib --no-save` once, the app itself stays dependency-free):
 
