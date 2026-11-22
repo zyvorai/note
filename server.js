@@ -411,8 +411,9 @@ return http.createServer(async (req, res) => {
       if (req.method === 'DELETE') {                     // move to .trash instead of destroying
         const name = url.searchParams.get('name').replace(/\.md$/i, '');
         await fs.mkdir(TRASH, { recursive: true });
-        await fs.rename(p, path.join(TRASH, `${Date.now()}__${encodeURIComponent(name)}.md`));
-        return send(res, 200, { ok: true });
+        const trashId = `${Date.now()}__${encodeURIComponent(name)}.md`;
+        await fs.rename(p, path.join(TRASH, trashId));
+        return send(res, 200, { ok: true, id: trashId });                 // the id lets the app offer Undo (POST /api/restore)
       }
     }
     if (url.pathname === '/api/history' && req.method === 'GET') {          // versions of one note, newest first; ?id=<timestamp> returns that version's text

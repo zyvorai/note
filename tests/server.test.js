@@ -354,3 +354,14 @@ test('publish and PDF export refuse encrypted notes', async () => {
   assert.ok(!fsx.existsSync(pth.join(out, 'Vault.html'))); assert.ok(!fsx.readFileSync(pth.join(out, 'index.html'), 'utf8').includes('Vault'));
   await assert.rejects(pdf.run([pth.join(src, 'Vault.md')]), /encrypted/);
 });
+
+test('deleting a note returns its trash id, and that id restores it', async () => {
+  const s = await start();
+  try {
+    await s.put('Plan', 'precious');
+    const del = await s.j('/api/note?name=Plan', { method: 'DELETE' });
+    assert.equal(del.status, 200); assert.match(del.body.id, /^\d+__Plan\.md$/); assert.ok(!fs.existsSync(path.join(s.dir, 'Plan.md')));
+    const back = await s.j('/api/restore', { method: 'POST', body: JSON.stringify({ id: del.body.id }) });
+    assert.equal(back.status, 200); assert.equal(back.body.name, 'Plan'); assert.equal(fs.readFileSync(path.join(s.dir, 'Plan.md'), 'utf8'), 'precious');
+  } finally { s.stop(); }
+});

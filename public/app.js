@@ -1105,21 +1105,32 @@ async function gfApply() {
   const q = $('#gfq').value, r = $('#gfr').value;
   const chosen = [...document.querySelectorAll('#gfl [data-gf]')].filter((c) => c.checked).map((c) => gfHits[+c.dataset.gf]);
   if (!chosen.length) return;
-  await flush(); let done = 0, failed = 0;
+  await flush(); let done = 0, failed = 0; const changes = [];
   for (const h of chosen) {
     const n = notes.get(h.name); if (!n) continue;
-    const { text } = MD.replaceAll(n.text, q, r);
-    try { const res = await putNote(n, text, n.base ?? 0); n.text = text; n.base = res.mtime; done++; }
+    const before = n.text, { text } = MD.replaceAll(n.text, q, r);
+    try { const res = await putNote(n, text, n.base ?? 0); n.text = text; n.base = res.mtime; done++; changes.push({ name: h.name, before, after: text }); }
     catch { failed++; }
   }
   if (cur && notes.get(cur)) { const ed = $('#ed'); if (ed) { ed.value = notes.get(cur).text; syncEditor(); } else renderPane(); }
   renderList(); renderBack(); closeGlobalFind();
-  say(`Replaced in ${done} note${done === 1 ? '' : 's'}` + (failed ? `, ${failed} failed (changed elsewhere)` : ''));
+  const undo = async () => {                                         // put the old text back, but never over a note that was edited since
+    let ok = 0, skipped = 0;
+    for (const c of changes) {
+      const n = notes.get(c.name);
+      if (!n || isLocked(n) || n.text !== c.after) { skipped++; continue; }
+      try { const res = await putNote(n, c.before, n.base ?? 0); n.text = c.before; n.base = res.mtime; ok++; } catch { skipped++; }
+    }
+    if (cur && notes.get(cur)) { const ed = $('#ed'); if (ed) { ed.value = notes.get(cur).text; syncEditor(); } else renderPane(); }
+    renderList(); renderBack();
+    say(`Undid the replace in ${ok} note${ok === 1 ? '' : 's'}` + (skipped ? `; ${skipped} changed since and ${skipped === 1 ? 'was' : 'were'} left alone` : ''));
+  };
+  say(`Replaced in ${done} note${done === 1 ? '' : 's'}` + (failed ? `, ${failed} failed (changed elsewhere)` : ''), done ? { action: { label: 'Undo', run: undo } } : {});
 }
 $('#gfq').oninput = gfRender;
 $('#gfx').onclick = closeGlobalFind;
 $('#gfa').onclick = gfApply;
-$('#gf').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeGlobalFind(); else if (e.key === 'Enter' && !$('#gfa').disabled) gfApply(); });
+$('#gf').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeGlobalFind(); });          // Enter in the fields does not apply a replace; use the button
 $('#gf').addEventListener('mousedown', (e) => { if (e.target.id === 'gf') closeGlobalFind(); });
 /* PDF: print the rendered note (the print stylesheet hides the app chrome); the Mac app prints natively */
 async function exportPdf() {
@@ -1504,13 +1515,24 @@ $('#pin').onclick = () => { if (!cur) return; pins.has(cur) ? pins.delete(cur) :
 $('#gr').onclick = async () => { await flush(); graphOn = !graphOn; renderPane(); };
 $('#tog').onclick = () => { if (!cur) return; graphOn = false; preview = !preview; flush(); renderPane(); };
 $('#del').onclick = async () => {
-  if (!cur || !(await PNUI.askConfirm({ title: 'Move to the trash?', message: `“${cur}” can be restored from the trash.`, ok: 'Move to trash' }))) return;
-  keyring.delete(cur);
-  await api('/api/note?name=' + encodeURIComponent(cur), { method: 'DELETE' });
+  if (!cur) return;
+  await flush();                                                       // the trash copy should hold the latest text
+  const name = cur, sess = keyring.get(name), short = name.split('/').pop();
+  let res;
+  try { res = await api('/api/note?name=' + encodeURIComponent(name), { method: 'DELETE' }); } catch (e) { say('Could not move to the trash: ' + e.message); return; }
+  keyring.delete(name);
   const gone = cur, keep = tabs[ti]; tabs = tabs.filter((t) => t === keep || t.name !== gone); keep.name = null; ti = tabs.indexOf(keep); renderTabs(); saveTabs();
   notes.delete(cur); cur = null; dirty = false; if (split === gone) closeSplit(); saveState(''); $('#title').value = ''; $('#title').disabled = true;
   location.hash = ''; renderList(); renderPane(); renderBack();
+  say(`Moved “${short}” to the trash`, { action: res.id ? { label: 'Undo', run: () => undoDelete(res.id, short, sess) } : undefined });
 };
+async function undoDelete(id, short, sess) {
+  try {
+    const r = await api('/api/restore', { method: 'POST', body: JSON.stringify({ id }) });
+    if (sess) keyring.set(r.name, sess);                               // an encrypted note that was unlocked comes back unlocked
+    await load(); renderList(); await open(r.name, false); say(`Restored “${short}”`);
+  } catch (e) { say('Could not restore: ' + e.message); }
+}
 let trashMode = false;
 async function showTrash() {
   trashMode = !trashMode; trashIcon(trashMode);
@@ -1632,9 +1654,9 @@ async function openHistory() {
   box.onkeydown = (e) => { if (e.key === 'Enter' && e.target.matches('li[data-id]')) pick(e.target); };
   $('#hr').onclick = () => {
     if (sel === null || !notes.get(name)) return;
-    notes.get(name).text = sel; close();
+    const n = notes.get(name), before = n.text; n.text = sel; close();
     if (cur === name) { renderPane(); afterTextChange(); }          // saved like any edit; the version it replaced is kept in history
-    say('Restored an earlier version');
+    say('Restored an earlier version', { action: { label: 'Undo', run: () => { const m = notes.get(name); if (!m || isLocked(m)) return; m.text = before; if (cur === name) { renderPane(); afterTextChange(); } else { m.mtime = Date.now(); putNote(m, before, m.base ?? 0).then((r) => { m.base = r.mtime; }, () => {}); } say('Undid the restore'); } } });
   };
 }
 

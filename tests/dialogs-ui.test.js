@@ -72,9 +72,10 @@ test('dialogs: overlays trap focus and restore it, prompts validate, folder pick
     await ctx('Projects/Deep/Gamma', 'Move to folder…'); await typeInto('#pfq', 'Fresh/Box'); await key('Enter'); await until("notes.has('Fresh/Box/Gamma')", 'moved into a new folder'); assert.ok(fs.existsSync(path.join(vault, 'Fresh', 'Box', 'Gamma.md')));
     await ctx('Fresh/Box/Gamma', 'Move to folder…'); await typeInto('#pfq', 'bad:name'); await key('Enter'); await sleep(150); assert.match(await ev("document.querySelector('.dlg-err').textContent"), /cannot be empty/); await key('Escape');
 
-    // delete: Esc on the confirmation keeps the note; the confirm button has focus
-    await ev("open('Alpha', false)"); await until("cur === 'Alpha'", 'alpha'); await ev("document.querySelector('#del').click()"); await until("!!document.querySelector('#dlg-ok')", 'confirm');
-    await key('Escape'); await sleep(150); assert.equal(await ev("!!document.querySelector('.dlg')"), false); assert.ok(fs.existsSync(path.join(vault, 'Alpha.md'))); assert.equal(await ev('cur'), 'Alpha');
+    // delete is instant and undoable: the toast's Undo brings the note back where it was
+    await ev("open('Alpha', false)"); await until("cur === 'Alpha'", 'alpha'); await ev("document.querySelector('#del').click()"); await until("!notes.has('Alpha')", 'deleted');
+    assert.equal(await ev("!!document.querySelector('.dlg')"), false, 'no confirmation dialog'); assert.ok(!fs.existsSync(path.join(vault, 'Alpha.md')));
+    await ev("document.querySelector('.toast button').click()"); await until("notes.has('Alpha') && cur === 'Alpha'", 'undo restores and reopens'); assert.ok(fs.existsSync(path.join(vault, 'Alpha.md')));
 
     // lightbox: a labelled modal; Esc closes and returns focus
     await ev("preview = true; renderPane()"); await until("!!document.querySelector('#pv img')", 'image'); await sleep(300);

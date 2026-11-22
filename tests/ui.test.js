@@ -530,10 +530,9 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
 
     // delete -> trash -> restore
     await ev(`document.querySelector('#del').click()`);
-    await until(`!!document.querySelector('#dlg-ok')`, 'trash confirmation');
-    assert.equal(await ev(`document.querySelector('.dlg h3').textContent`), 'Move to the trash?');
-    assert.equal(await ev(`document.activeElement.id`), 'dlg-ok', 'the confirm button has focus, so Enter confirms');
-    await ev(`document.querySelector('#dlg-ok').click()`);
+    const movedToast = `[...document.querySelectorAll('.toast')].find((t) => /^Moved “.*” to the trash/.test(t.textContent))`;    // the earlier conflict left its own sticky error toast
+    await until(`!!(${movedToast})`, 'deleting is instant and offers Undo');
+    assert.equal(await ev(`(${movedToast}).querySelector('button').textContent`), 'Undo');
     await until(`document.querySelectorAll('#list .item').length >= 2 && !document.querySelector('[data-note="${untitled.slice(0, -3)}"]')`, 'note removed');
     await ev(`document.querySelector('#trash').click()`);
     await until(`document.querySelector('[data-restore]')`, 'trash lists note');
