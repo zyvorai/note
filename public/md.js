@@ -182,12 +182,162 @@
     return `<svg class="diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${wTot} ${hTot}" width="${wTot}" role="img" aria-label="Diagram: ${esc(ids.join(', '))}" style="max-width:100%;height:auto"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>${g}</svg>`;
   }
 
+  // Math: a LaTeX subset ($x^2$ inline, $$ ... $$ blocks) rendered as MathML, which every current browser draws natively. Never throws.
+  const GREEK = { alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ', upsilon: 'υ', phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω' };
+  const SYMS = { infty: '∞', pm: '±', mp: '∓', times: '×', cdot: '⋅', div: '÷', le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠', approx: '≈', equiv: '≡', sim: '∼', propto: '∝', to: '→', rightarrow: '→', leftarrow: '←', leftrightarrow: '↔', Rightarrow: '⇒', Leftarrow: '⇐', Leftrightarrow: '⇔', implies: '⟹', iff: '⟺', partial: '∂', nabla: '∇', in: '∈', notin: '∉', subset: '⊂', subseteq: '⊆', supset: '⊃', cup: '∪', cap: '∩', emptyset: '∅', forall: '∀', exists: '∃', neg: '¬', land: '∧', lor: '∨', cdots: '⋯', ldots: '…', dots: '…', vdots: '⋮', ddots: '⋱', degree: '°', angle: '∠', perp: '⊥', parallel: '∥', hbar: 'ℏ', ell: 'ℓ', prime: '′', star: '⋆', circ: '∘', oplus: '⊕', otimes: '⊗', ll: '≪', gg: '≫', langle: '⟨', rangle: '⟩', lbrace: '{', rbrace: '}', lfloor: '⌊', rfloor: '⌋', lceil: '⌈', rceil: '⌉' };
+  const FUNCS = new Set(['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'log', 'ln', 'exp', 'lim', 'max', 'min', 'sup', 'inf', 'det', 'gcd', 'deg', 'dim', 'ker', 'arg', 'mod']);
+  const BIGOPS = { sum: '∑', prod: '∏', int: '∫', iint: '∬', oint: '∮', bigcup: '⋃', bigcap: '⋂' };
+  const SPACES = { ',': '0.17em', ':': '0.22em', ';': '0.28em', quad: '1em', qquad: '2em', '!': '-0.17em', ' ': '0.28em' };
+  const ENVS = { pmatrix: ['(', ')'], bmatrix: ['[', ']'], vmatrix: ['|', '|'], matrix: ['', ''], cases: ['{', ''] };
+
+  function mathml(tex, display) {
+    const src = String(tex).slice(0, 4000), T = [];
+    for (let i = 0; i < src.length;) {
+      const c = src[i];
+      if (/\s/.test(c)) { i++; continue; }
+      if (c === '\\') { const m = /^\\([A-Za-z]+|.)/.exec(src.slice(i)); T.push('\\' + m[1]); i += m[0].length; }
+      else if (/[0-9.]/.test(c)) { const m = /^\d*\.?\d+|^\d+\.?|^\./.exec(src.slice(i)); T.push(m[0]); i += m[0].length; }
+      else { T.push(c); i++; }
+    }
+    let p = 0, budget = 4000;
+    const peek = () => T[p], tag = (t, x, a = '') => `<${t}${a}>${x}</${t}>`;
+    const atomOp = (c) => tag('mo', esc(c));
+    function group() {            // { … } or a single token → a row of nodes
+      if (peek() === '{') { p++; const r = seq('}'); if (peek() === '}') p++; return r; }
+      if (p >= T.length) return '';
+      return atom();
+    }
+    function seq(end) {
+      let out = '';
+      while (p < T.length && peek() !== end && budget-- > 0) {
+        if (peek() === '\\right' || peek() === '\\end') break;
+        out += scripts(atom());
+      }
+      return out;
+    }
+    function scripts(base) {
+      let sub = '', sup = '';
+      while (peek() === '^' || peek() === '_') { const k = T[p++]; const g = tag('mrow', group()); if (k === '^') sup = g; else sub = g; }
+      if (!sub && !sup) return base;
+      const lim = /^<mo[^>]*>(∑|∏|⋃|⋂)<\/mo>$|^<mi>lim<\/mi>$|^<mi[^>]*>(?:max|min|sup|inf)<\/mi>$/.test(base);
+      const [a, b, c] = lim ? ['munder', 'mover', 'munderover'] : ['msub', 'msup', 'msubsup'];
+      return sub && sup ? tag(c, base + sub + sup) : sub ? tag(a, base + sub) : tag(b, base + sup);
+    }
+    function atom() {
+      const t = T[p++];
+      if (t === undefined) return '';
+      if (t === '{') { p--; return tag('mrow', group()); }
+      if (/^[0-9.]/.test(t)) return tag('mn', esc(t));
+      if (/^[A-Za-z]$/.test(t)) return tag('mi', t);
+      if (t[0] !== '\\') return t === '^' || t === '_' ? '' : atomOp(t === '-' ? '−' : t === "'" ? '′' : t);
+      const n = t.slice(1);
+      if (GREEK[n]) return tag('mi', GREEK[n]);
+      if (SYMS[n]) return atomOp(SYMS[n]);
+      if (BIGOPS[n]) return tag('mo', BIGOPS[n], ' largeop="true"' + (n === 'int' || n === 'iint' || n === 'oint' ? ' stretchy="false"' : ''));
+      if (FUNCS.has(n)) return tag('mi', n, ' mathvariant="normal"') + (n === 'lim' || n === 'max' || n === 'min' ? '' : '<mo>&#x2061;</mo>');
+      if (n in SPACES) return `<mspace width="${SPACES[n]}"/>`;
+      switch (n) {
+        case 'frac': case 'dfrac': case 'tfrac': { const a = group(), b = group(); return tag('mfrac', tag('mrow', a) + tag('mrow', b)); }
+        case 'binom': { const a = group(), b = group(); return tag('mrow', '<mo>(</mo>' + tag('mfrac', tag('mrow', a) + tag('mrow', b), ' linethickness="0"') + '<mo>)</mo>'); }
+        case 'sqrt': {
+          let idx = ''; if (peek() === '[') { p++; const s = p; while (p < T.length && T[p] !== ']') p++; idx = T.slice(s, p).join(''); p++; }
+          const b = group(); return idx ? tag('mroot', tag('mrow', b) + tag('mn', esc(idx))) : tag('msqrt', b);
+        }
+        case 'text': case 'mathrm': case 'operatorname': case 'textbf': { const g = rawGroup(); return tag('mtext', esc(g)); }
+        case 'mathbb': { const g = rawGroup(); return tag('mi', g.replace(/[A-Z]/g, (ch) => ({ R: 'ℝ', N: 'ℕ', Z: 'ℤ', Q: 'ℚ', C: 'ℂ', P: 'ℙ' }[ch] || ch)), ' mathvariant="normal"'); }
+        case 'mathbf': case 'boldsymbol': case 'bm': return tag('mstyle', tag('mrow', group()), ' mathvariant="bold"');
+        case 'mathcal': case 'mathscr': return tag('mstyle', tag('mrow', group()), ' mathvariant="script"');
+        case 'hat': case 'bar': case 'vec': case 'tilde': case 'dot': case 'overline': { const m = { hat: '^', bar: '‾', overline: '‾', vec: '→', tilde: '~', dot: '˙' }[n]; return tag('mover', tag('mrow', group()) + `<mo stretchy="${n === 'overline'}">${m}</mo>`, ' accent="true"'); }
+        case 'underline': return tag('munder', tag('mrow', group()) + '<mo>_</mo>');
+        case 'left': { const d = T[p++] || ''; const inner = seq('\\right'); let cl = ''; if (peek() === '\\right') { p++; cl = T[p++] || ''; } const f = (x) => (x === '.' || !x ? '' : atomOp(x[0] === '\\' ? (SYMS[x.slice(1)] || x.slice(1)) : x)); return tag('mrow', f(d) + inner + f(cl)); }
+        case 'begin': {
+          const env = rawGroup(), [o, c] = ENVS[env] || ['', ''], rows = [[]]; let cell = '';
+          const flush = () => { rows[rows.length - 1].push(cell); cell = ''; };
+          while (p < T.length && peek() !== '\\end' && budget-- > 0) {
+            if (peek() === '&') { p++; flush(); } else if (peek() === '\\\\') { p++; flush(); rows.push([]); } else cell += scripts(atom());
+          }
+          flush(); if (peek() === '\\end') { p++; rawGroup(); }
+          const body = tag('mtable', rows.filter((r) => r.some(Boolean) || r.length > 1).map((r) => tag('mtr', r.map((x) => tag('mtd', tag('mrow', x))).join(''))).join(''), env === 'cases' ? ' columnalign="left"' : '');
+          return tag('mrow', (o ? atomOp(o) : '') + body + (c ? atomOp(c) : ''));
+        }
+        case '\\': return '';
+        default: return tag('mtext', esc(t), ' class="mathbad"');
+      }
+    }
+    function rawGroup() {          // the literal text of {…}
+      if (peek() !== '{') return T[p++] || '';
+      p++; let depth = 1, s = '';
+      while (p < T.length) { const t = T[p++]; if (t === '{') depth++; else if (t === '}' && --depth === 0) break; s += (t[0] === '\\' && t.length > 1 ? (SYMS[t.slice(1)] || GREEK[t.slice(1)] || t.slice(1)) : t) + (/^[A-Za-z0-9]/.test(t) && /^[A-Za-z0-9]/.test(T[p] || '') ? ' ' : ''); }
+      return s;
+    }
+    let body = '';
+    try { while (p < T.length && budget > 0) { const before = p; body += scripts(atom()); if (p === before) p++; } } catch { return `<code class="mathbad">${esc(String(tex))}</code>`; }
+    return `<math xmlns="http://www.w3.org/1998/Math/MathML"${display ? ' display="block"' : ''}><semantics><mrow>${body}</mrow><annotation encoding="application/x-tex">${esc(String(tex))}</annotation></semantics></math>`;
+  }
+
+  // Charts: ```chart with `bar` | `line` | `pie`, optional `title: …`, optional `series: A, B`, then rows `label: 12` (or `label: 12, 15` for several series).
+  const PALETTE = ['#5b5bd6', '#2f8f5b', '#c2570c', '#d6409f', '#0e8fb0', '#8a6d00'];
+  function chartSvg(src) {
+    const lines = src.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+    let type = 'bar', title = '', series = [];
+    if (lines[0] && /^(bar|line|pie)$/i.test(lines[0])) type = lines.shift().toLowerCase();
+    const rows = [];
+    for (const l of lines) {
+      const kv = l.match(/^(title|series):\s*(.*)$/i);
+      if (kv) { if (kv[1].toLowerCase() === 'title') title = kv[2]; else series = kv[2].split(',').map((x) => x.trim()).filter(Boolean); continue; }
+      const m = l.match(/^(.*?)\s*[:|]\s*(-?[\d.,\s-]+)$/); if (!m) continue;
+      const vals = m[2].split(/[,\s]+/).filter(Boolean).map(Number).filter(Number.isFinite);
+      if (vals.length) rows.push({ label: m[1], vals });
+    }
+    if (!rows.length) return '';
+    const k = Math.max(...rows.map((r) => r.vals.length)), W = 560, H = 300, col = (i) => PALETTE[i % PALETTE.length];
+    const t = (x, y, s, a = '') => `<text x="${x}" y="${y}" font-size="12" fill="currentColor"${a}>${esc(String(s))}</text>`;
+    let g = title ? t(W / 2, 20, title, ' text-anchor="middle" font-weight="600" font-size="14"') : '';
+    const legend = (names, x0) => names.map((n, i) => `<rect x="${x0}" y="${44 + i * 18}" width="10" height="10" rx="2" fill="${col(i)}"/>` + t(x0 + 16, 54 + i * 18, n)).join('');
+    const names = series.length ? series : Array.from({ length: k }, (_, i) => 'Series ' + (i + 1));
+    if (type === 'pie') {
+      const vals = rows.map((r) => Math.max(0, r.vals[0])), tot = vals.reduce((a, b) => a + b, 0) || 1, cx = 150, cy = 165, R = 105; let a0 = -Math.PI / 2;
+      vals.forEach((v, i) => {
+        const a1 = a0 + (v / tot) * 2 * Math.PI, big = a1 - a0 > Math.PI ? 1 : 0;
+        if (v / tot > 0.9999) g += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="${col(i)}"/>`;
+        else if (v > 0) g += `<path d="M${cx} ${cy}L${cx + R * Math.cos(a0)} ${cy + R * Math.sin(a0)}A${R} ${R} 0 ${big} 1 ${cx + R * Math.cos(a1)} ${cy + R * Math.sin(a1)}Z" fill="${col(i)}" stroke="var(--bg,#fff)" stroke-width="1.5"/>`;
+        a0 = a1;
+      });
+      g += rows.map((r, i) => `<rect x="300" y="${54 + i * 20}" width="10" height="10" rx="2" fill="${col(i)}"/>` + t(316, 64 + i * 20, `${r.label} (${Math.round(vals[i] / tot * 100)}%)`)).join('');
+      return `<svg class="chart" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${Math.max(H, 70 + rows.length * 20)}" width="${W}" role="img" aria-label="Pie chart${title ? ': ' + esc(title) : ''}" style="max-width:100%;height:auto">${g}</svg>`;
+    }
+    const L = 48, Rm = k > 1 ? 130 : 16, Tm = title ? 36 : 16, B = 44, pw = W - L - Rm, ph = H - Tm - B;
+    const all = rows.flatMap((r) => r.vals), lo = Math.min(0, ...all), hi = Math.max(0, ...all) || 1, span = hi - lo;
+    const raw = span / 4, mag = 10 ** Math.floor(Math.log10(raw)), step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw), top = Math.ceil(hi / step) * step, bot = Math.floor(lo / step) * step;
+    const y = (v) => Tm + ph - ((v - bot) / (top - bot)) * ph, fmt = (v) => (Math.abs(v) >= 1e4 ? v.toExponential(0) : String(+v.toFixed(2)));
+    for (let v = bot; v <= top + step / 1000; v += step) g += `<line x1="${L}" x2="${L + pw}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity=".15"/>` + t(L - 6, y(v) + 4, fmt(v), ' text-anchor="end"');
+    const slot = pw / rows.length;
+    rows.forEach((r, i) => { g += t(L + slot * (i + 0.5), H - B + 18, r.label.length > 12 ? r.label.slice(0, 11) + '…' : r.label, ' text-anchor="middle"'); });
+    if (type === 'bar') {
+      const bw = Math.min(40, (slot * 0.8) / k);
+      rows.forEach((r, i) => r.vals.forEach((v, j) => {
+        const x = L + slot * (i + 0.5) - (bw * k) / 2 + bw * j, y0 = y(Math.max(0, bot)), y1 = y(v);
+        g += `<rect x="${x}" y="${Math.min(y0, y1)}" width="${bw - 1}" height="${Math.abs(y0 - y1)}" rx="2" fill="${col(j)}"><title>${esc(r.label)}: ${v}</title></rect>`;
+      }));
+    } else {
+      for (let j = 0; j < k; j++) {
+        const pts = rows.map((r, i) => (r.vals[j] === undefined ? null : [L + slot * (i + 0.5), y(r.vals[j]), r.vals[j], r.label])).filter(Boolean);
+        g += `<polyline points="${pts.map((p) => p[0] + ',' + p[1]).join(' ')}" fill="none" stroke="${col(j)}" stroke-width="2"/>` + pts.map((p) => `<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="${col(j)}"><title>${esc(p[3])}: ${p[2]}</title></circle>`).join('');
+      }
+    }
+    g += `<line x1="${L}" x2="${L + pw}" y1="${y(0)}" y2="${y(0)}" stroke="currentColor" opacity=".5"/>`;
+    if (k > 1) g += legend(names, W - Rm + 14);
+    return `<svg class="chart" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" role="img" aria-label="${type === 'bar' ? 'Bar' : 'Line'} chart${title ? ': ' + esc(title) : ''}" style="max-width:100%;height:auto">${g}</svg>`;
+  }
+
   function create({ resolve, embed }) {
     let depth = 0;
     function inline(s) {
       s = esc(s);
       const codes = [];
       s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+      const maths = [];
+      s = s.replace(/(^|[^\\$])\$(?![\s$])((?:[^$\\\n]|\\.)+?)(?<![\s\\])\$(?!\d)/g, (_, pre, tex) => { maths.push(mathml(tex.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&'), false)); return `${pre}\u0001${maths.length - 1}\u0001`; });
       s = s.replace(/(^|\s)\^([A-Za-z0-9-]+)[ \t]*$/gm, '$1<span class="blk" data-blk="$2"></span>');      // block id ^abc at the end of a line
       s = s.replace(linkRe, (_, t, a) => {
         let r = resolve(t), anchor = '', block = '';
@@ -213,7 +363,7 @@
         .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|\W)\*(?!\s)(.+?)\*(?=\W|$)/g, '$1<i>$2</i>')
         .replace(/~~(.+?)~~/g, '<s>$1</s>').replace(/==(?!\s)(.+?)==/g, '<mark>$1</mark>')
         .replace(/\[\^([^\]\s]+)\]/g, (_, k) => `<sup class="fn"><a href="#fn-${k}" id="fnr-${k}">${k}</a></sup>`);
-      return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
+      return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`).replace(/\u0001(\d+)\u0001/g, (_, i) => maths[i]);
     }
 
     function md(src) {
@@ -232,9 +382,20 @@
       for (let i = 0; i < L.length; i++) {
         const l = L[i], m = l.match(/^(#{1,6})\s+(.*)/);
         const fence = l.match(/^```\s*([\w+-]*)/);
+        if (!fence && /^\s*\$\$/.test(l)) {                                   // $$ … $$ display math (one line or several)
+          const one = l.match(/^\s*\$\$(.+?)\$\$\s*$/);
+          let tex = one ? one[1] : null, j = i;
+          if (tex === null) {
+            const first = l.replace(/^\s*\$\$/, ''), b = [first]; j = i;
+            if (/\$\$\s*$/.test(first)) { b[0] = first.replace(/\$\$\s*$/, ''); tex = b.join('\n'); }
+            else { while (++j < L.length && !/\$\$\s*$/.test(L[j])) b.push(L[j]); if (j < L.length) { b.push(L[j].replace(/\$\$\s*$/, '')); tex = b.join('\n'); } }
+          }
+          if (tex !== null && tex.trim()) { flushP(); flushL(); out.push(`<div class="math-block">${mathml(tex.trim(), true)}</div>`); i = j; continue; }
+        }
         if (fence) {
           flushP(); flushL(); const b = [];
           while (++i < L.length && !/^```/.test(L[i])) b.push(L[i]);
+          if (/^chart$/i.test(fence[1])) { const svg = chartSvg(b.join('\n')); if (svg) { out.push(`<div class="diagram-wrap">${svg}</div>`); continue; } }
           if (/^(diagram|flow)$/i.test(fence[1])) { const svg = diagramSvg(b.join('\n')); if (svg) { out.push(`<div class="diagram-wrap">${svg}</div>`); continue; } }
           out.push(`<pre><code>${highlight(b.join('\n'), fence[1])}</code></pre>`); continue;
         }
@@ -656,7 +817,7 @@
     return { text: out + text.slice(last), count: hits.length };
   }
 
-  const api = { diagramSvg, toggleBullet, toggleHeading, autoPair, backspacePair, pasteLink, toggleTask, lpClassify, lpRender, lpColumn, normalizeSettings, comboOf, comboValid, comboLabel, buildTree, properties, setProperty, removeProperty, splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
+  const api = { mathml, chartSvg, diagramSvg, toggleBullet, toggleHeading, autoPair, backspacePair, pasteLink, toggleTask, lpClassify, lpRender, lpColumn, normalizeSettings, comboOf, comboValid, comboLabel, buildTree, properties, setProperty, removeProperty, splitTarget, aliasesOf, parseQuery, emptyQuery, searchMatch, searchSnippetAt, replaceAll, frontmatter, section, tasksOf, unlinkedMentions, highlightMarkdown, esc, linkRe, tagRe, tagsOf, highlight, splitRow, create, listEnter, indentLines, wrap, wikiContext, slashContext, slashItems, fillTemplate, findAll };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MD = api;
 })(typeof window !== 'undefined' ? window : globalThis);

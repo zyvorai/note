@@ -413,3 +413,30 @@ test('pdf embeds and links, and diagram fences', () => {
   assert.match(md('```diagram\n```'), /<pre>/);                     // empty diagram falls back to a code block
   assert.doesNotMatch(MD.diagramSvg('<img onerror=x> -> B'), /<img/);   // node names are escaped
 });
+
+test('math: inline and display LaTeX become MathML; prices and code are left alone', () => {
+  const { md } = MD.create({ resolve: () => null, embed: () => '' });
+  const a = md('Euler $e^{i\\pi}+1=0$ here');
+  assert.match(a, /<msup><mi>e<\/mi><mrow><mi>i<\/mi><mi>π<\/mi><\/mrow><\/msup>/); assert.match(a, /<annotation encoding="application\/x-tex">e\^\{i\\pi\}\+1=0<\/annotation>/);
+  assert.doesNotMatch(md('It costs $5 and $10 today'), /<math/);
+  assert.doesNotMatch(md('use `$x$` in code'), /<math/);
+  assert.match(md('$$\\frac{a}{b}$$'), /<div class="math-block"><math[^>]*display="block"[\s\S]*<mfrac>/);
+  assert.match(md('$$\n\\sum_{i=1}^{n} i\n$$'), /<munderover><mo[^>]*>∑<\/mo>/);
+  assert.match(MD.mathml('\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}'), /<mtable>(<mtr>(<mtd>.*?<\/mtd>){2}<\/mtr>){2}<\/mtable>/);
+  assert.match(MD.mathml('\\sqrt[3]{x}'), /<mroot>/);
+  assert.match(MD.mathml('\\bogus'), /class="mathbad"/);                         // unknown commands degrade, never throw
+  assert.doesNotMatch(MD.mathml('<img src=x onerror=1> \\text{<b>}'), /<img|<b>/); // everything is escaped
+  assert.doesNotThrow(() => MD.mathml('{{{{ \\frac \\left( ^ _ \\begin{'));
+});
+
+test('charts: bar, line and pie fences become SVG; bad data falls back to code', () => {
+  const { md } = MD.create({ resolve: () => null, embed: () => '' });
+  const bar = md('```chart\nbar\ntitle: Sales\nseries: A, B\nJan: 12, 15\nFeb: 18, 21\n```');
+  assert.match(bar, /<svg class="chart"/); assert.equal((bar.match(/<rect /g) || []).length, 4 + 2);   // 4 bars + 2 legend swatches
+  assert.match(bar, />Sales</); assert.match(bar, /aria-label="Bar chart: Sales"/);
+  assert.match(md('```chart\nline\nMon: 3\nTue: 5\n```'), /<polyline/);
+  const pie = md('```chart\npie\nA: 50\nB: 50\n```'); assert.match(pie, /50%/); assert.equal((pie.match(/<path /g) || []).length, 2);
+  assert.match(md('```chart\nnothing here\n```'), /<pre>/);
+  assert.doesNotMatch(MD.chartSvg('bar\ntitle: <img onerror=x>\n<b>: 3'), /<img|<b>/);
+  assert.doesNotThrow(() => MD.chartSvg('bar\nA: -5\nB: 0\nC: 0'));
+});

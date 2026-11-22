@@ -12,7 +12,7 @@ const BROWSERS = [
 const CSS = `body{font:13px/1.55 -apple-system,Helvetica,Arial,sans-serif;max-width:780px;margin:0 auto;color:#1f2328}
 h1,h2{border-bottom:1px solid #d8dee4;padding-bottom:.3em}code{background:#f3f4f6;padding:.15em .35em;border-radius:4px}
 pre{background:#f6f8fa;padding:12px;border-radius:6px;white-space:pre-wrap}table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:5px 10px}
-blockquote{border-left:4px solid #d0d7de;margin:0;padding:0 1em;color:#59636e}img{max-width:100%}.pdfembed{display:none}`;
+blockquote{border-left:4px solid #d0d7de;margin:0;padding:0 1em;color:#59636e}img{max-width:100%}.pdfembed{display:none}.math-block{margin:1em 0;text-align:center}`;
 
 function toHtml(file, text, root) {
   const { md } = MD.create({ resolve: () => null, embed: () => '' });
