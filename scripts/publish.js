@@ -15,6 +15,7 @@ a{color:var(--acc)}a.new{color:var(--mute)}img,svg{max-width:100%;height:auto}.p
 pre,code{background:var(--code);border-radius:6px}code{padding:.1em .35em}pre{padding:12px;overflow:auto}pre code{padding:0}
 blockquote{border-left:3px solid var(--line);margin:0;padding:0 1em;color:var(--mute)}table{border-collapse:collapse}td,th{border:1px solid var(--line);padding:4px 10px}
 h1,h2{border-bottom:1px solid var(--line);padding-bottom:.25em}.tag{color:var(--mute);text-decoration:none}li.nt{list-style:none}
+math{font-size:1.08em}.math-block{margin:1em 0;overflow-x:auto;text-align:center}.mathbad{color:#c0392b}
 footer{margin-top:3rem;color:var(--mute);font-size:13px}`;
 
 function* walk(dir, base = '') {
