@@ -290,7 +290,7 @@ test('setProperty and removeProperty change only the frontmatter', () => {
 
 test('settings are validated and cleaned', () => {
   const d = MD.normalizeSettings(null);
-  assert.deepEqual(d, { font: 'system', width: 'normal', accent: '', dailyFolder: 'daily', dailyTemplate: 'templates/Daily', newFolder: '', livePreview: false, spellcheck: false, autoPair: true, hotkeys: {}, snippets: [] });
+  assert.deepEqual(d, { font: 'system', width: 'normal', accent: '', dailyFolder: 'daily', dailyTemplate: 'templates/Daily', newFolder: '', livePreview: false, spellcheck: false, autoPair: true, sort: 'modified', listPreview: true, lineHeight: 'normal', autosave: 600, hotkeys: {}, snippets: [] });
   const s = MD.normalizeSettings({ font: 'comic', width: 'wide', accent: '#FF9F0A', dailyFolder: '../x/.hidden/Journal/', newFolder: ' Inbox ', dailyTemplate: '/templates/My.md',
     hotkeys: { new: 'mod+shift+x', bad: '  ', 'we ird': 'mod+k', q: 'mod+alt+[', plain: 'mod+' }, snippets: ['a.css', '../b.css', 'a.css', 'x/y.css', 'ok name.css', 'no.txt'] });
   assert.equal(s.font, 'system', 'unknown font falls back');
@@ -465,4 +465,11 @@ test('headings get stable ids in the note itself, not in embeds', () => {
   assert.match(h, /<h3 id="link-and-code" data-h="Link and `code`">/); assert.match(h, /<h2 id="日本語-heading"/, 'non-Latin letters are kept');
   assert.doesNotMatch(md('![[Other]]'), /id="embedded-heading"/);
   assert.doesNotMatch(md('# <script>x</script>'), /<script>/);
+});
+
+test('settings: list order, preview, line spacing and autosave delay are validated', () => {
+  const s = MD.normalizeSettings({ sort: 'name', listPreview: false, lineHeight: 'relaxed', autosave: '1500' });
+  assert.deepEqual([s.sort, s.listPreview, s.lineHeight, s.autosave], ['name', false, 'relaxed', 1500]);
+  const bad = MD.normalizeSettings({ sort: 'size', listPreview: 'no', lineHeight: 'huge', autosave: 5 });
+  assert.deepEqual([bad.sort, bad.listPreview, bad.lineHeight, bad.autosave], ['modified', true, 'normal', 600], 'anything unknown falls back to the default');
 });

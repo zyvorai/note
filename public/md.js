@@ -670,6 +670,10 @@
       livePreview: o.livePreview === true,
       spellcheck: o.spellcheck === true,
       autoPair: o.autoPair !== false,
+      sort: o.sort === 'name' ? 'name' : 'modified',                                   // note list order
+      listPreview: o.listPreview !== false,                                            // a line of each note's text under its name
+      lineHeight: ['compact', 'normal', 'relaxed'].includes(o.lineHeight) ? o.lineHeight : 'normal',
+      autosave: [300, 600, 1500].includes(Number(o.autosave)) ? Number(o.autosave) : 600,     // ms of quiet before a note is saved
       hotkeys,
       snippets: Array.isArray(o.snippets) ? [...new Set(o.snippets.filter((n) => typeof n === 'string' && /^\w[\w .-]*\.css$/.test(n)))] : [],
     };

@@ -91,6 +91,7 @@ let folders = [];
 // Reloads run one after another: overlapping ones (a window-focus reload plus an explicit one) could finish out of order and let an older, staler result overwrite a newer one.
 let loadChain = Promise.resolve();
 function load() { const p = loadChain.then(loadNow, loadNow); loadChain = p.catch(() => {}); return p; }
+let lastSyncAt = 0;                                                  // when this window last synced, for the footer
 let metaOK = true;                                                   // false once we learn the server only has the full /api/notes (e.g. the iPhone app's built-in one)
 async function loadNow() {
   const foldersP = api('/api/folders').catch(() => folders);
@@ -177,20 +178,22 @@ function renderList() {
   if (activeTag) rows = rows.filter((n) => tagsCached(n).has(activeTag));
   if (q) rows = rows.filter((n) => MD.searchMatch(pq, n.name, n.text, lowerOf(n)));
   if (view === 'files' && !q && !activeTag) { $('#list').innerHTML = treeHtml(MD.buildTree([...notes.keys()], folders), 0) || '<div class="empty">No notes</div>'; return; }
-  rows.sort((a, b) => pins.has(b.name) - pins.has(a.name) || b.mtime - a.mtime);   // pinned first, then newest
+  rows.sort((a, b) => pins.has(b.name) - pins.has(a.name) || (settings.sort === 'name' ? a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }) : b.mtime - a.mtime));   // pinned first, then by your chosen order
   const listKey = $('#q').value + '|' + activeTag + '|' + view; if (listKey !== renderList.key) { renderList.key = listKey; listLimit = LIST_PAGE; }      // a new search or filter starts from the first page again
   const total = rows.length; if (total > listLimit) rows = rows.slice(0, listLimit);                                                                   // thousands of rows cost real time: show a page, then more on request
   $('#list').innerHTML = rows.map((n) => {
     let snip = '';
     if (q) { const i = MD.searchSnippetAt(pq, n.text);
       if (i >= 0) snip = `<span class="snip">${esc(n.text.slice(Math.max(0, i - 20), i + 50).replace(/\n/g, ' '))}</span>`; }
+    if (!isTouch() && !snip && settings.listPreview && !n.cipher) { const pv = notePreview(n.text, n.name); if (pv) snip = `<span class="snip">${esc(pv)}</span>`; }
     if (isTouch() && !snip) snip = `<span class="snip">${n.cipher && !n.enc ? 'Encrypted' : esc(notePreview(n.text, n.name))}</span>`;
     const inner = isTouch() ? `<div class="r1"><span class="nm">${pins.has(n.name) ? '📌 ' : ''}${n.cipher ? '🔒 ' : ''}${esc(n.name.split('/').pop())}</span><span class="tm">${esc(relTime(n.mtime))}</span></div>` : `${pins.has(n.name) ? '📌 ' : ''}${n.cipher ? '🔒 ' : ''}${esc(n.name)}`;
     return `<div class="item${n.name === cur ? ' on' : ''}" data-note="${esc(n.name)}">${inner}${snip}</div>`;
-  }).join('') + (total > rows.length ? `<div class="item more" id="moreRows" role="button">Show ${Math.min(MORE_STEP, total - rows.length)} more · ${total - rows.length} not shown</div>` : '') || '<div class="empty">No notes</div>';
+  }).join('') + (!total && q && !/[:"\/-]/.test($('#q').value.trim()) ? `<div class="empty">No notes match “${esc($('#q').value.trim())}”<button id="createFromQuery" class="pri">Create “${esc($('#q').value.trim())}”</button></div>` : '') + (total > rows.length ? `<div class="item more" id="moreRows" role="button">Show ${Math.min(MORE_STEP, total - rows.length)} more · ${total - rows.length} not shown</div>` : '') || '<div class="empty">No notes</div>';
 }
 const LIST_PAGE = 200, MORE_STEP = 400; let listLimit = LIST_PAGE;
 $('#list').addEventListener('click', (e) => {
+  if (e.target.closest('#createFromQuery')) { const name = $('#q').value.trim(); $('#q').value = ''; renderList(); open(name, true); return; }
   if (!e.target.closest('#moreRows')) return;
   const shown = $('#list').querySelectorAll('.item:not(.more)').length; listLimit += MORE_STEP; renderList();
   const next = $('#list').querySelectorAll('.item')[shown]; if (next) { next.tabIndex = 0; next.focus(); }          // keyboard users land on the first new row (tabindex first: the a11y layer adds it a moment later)
@@ -265,7 +268,9 @@ function renderPane() {
   stopGraph(); setIcon('#gr', 'graph', 'Graph view'); $('#gr').title = 'Graph view (Ctrl/Cmd+G)';
   if (!cur) {
     $('#pane').innerHTML = isTouch() ? '<div class="empty">Your notes are in the sidebar.<div class="es-actions"><button id="es-notes">Browse notes</button><button id="es-new">New note</button></div></div>'
-      : '<div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div>';
+      : '';
+    if (!isTouch()) PNUI.emptyState($('#pane'), { title: notes.size ? 'Pick a note, or start one' : 'Write your first note', body: `${hintLabel('Ctrl/Cmd+K')} jumps to or creates any note, ${hintLabel('Ctrl/Cmd+N')} starts a new one, ${hintLabel('Ctrl/Cmd+Shift+P')} lists every command.`,
+      actions: [{ label: 'New note', primary: true, run: () => newNote() }, { label: 'Today’s note', run: () => plainnote.run('today') }, { label: 'Keyboard shortcuts', run: () => showShortcuts() }, ...(typeof PNTour !== 'undefined' && !PNTour.seen() ? [{ label: 'Take the tour', run: () => PNTour.start() }] : [])] });
     return;
   }
   if (isLocked(notes.get(cur))) return renderLocked();
@@ -306,6 +311,7 @@ function applySettings() {
   const st = document.documentElement.style;
   st.setProperty('--measure', { normal: '760px', wide: '1040px', full: 'none' }[settings.width]);
   if (READ_FONTS[settings.font]) st.setProperty('--read-font', READ_FONTS[settings.font]); else st.removeProperty('--read-font');
+  st.setProperty('--lh', { compact: '1.5', normal: '1.7', relaxed: '1.95' }[settings.lineHeight] || '1.7');
   applyAccent(settings.accent || nativeAccent);
   document.querySelectorAll('#ed,#lp').forEach((el) => { el.spellcheck = settings.spellcheck; });
   hkMap = new Map(Object.entries(settings.hotkeys).map(([id, c]) => [c, id]));
@@ -345,8 +351,14 @@ function renderSettings() {
     <div class="strow"><label for="st-lp">Live Preview editor <small>(beta: no find, [[ completion or slash menu yet)</small></label><input id="st-lp" type="checkbox"${S.livePreview ? ' checked' : ''}></div>
     <div class="strow"><label for="st-pair">Auto-pair brackets and quotes</label><input id="st-pair" type="checkbox"${S.autoPair ? ' checked' : ''}></div>
     <div class="strow"><label for="st-spell">Check spelling while typing</label><input id="st-spell" type="checkbox"${S.spellcheck ? ' checked' : ''}></div>
+    <div class="strow"><label for="st-lh">Line spacing</label>${sel('st-lh', S.lineHeight, [['compact', 'Compact'], ['normal', 'Comfortable'], ['relaxed', 'Relaxed']])}</div>
     <div class="strow"><label for="st-fs">Text size</label><input id="st-fs" type="number" min="10" max="28" value="${fontSize}" style="width:70px"></div>
     <div class="strow"><label for="st-accent">Accent colour</label><input id="st-accent" type="color" value="${S.accent || nativeAccent || '#5b5bd6'}"><button id="st-accent-reset"${S.accent ? '' : ' disabled'}>${nativeAccent ? 'Use system colour' : 'Reset'}</button></div>
+    <h4>Note list</h4>
+    <div class="strow"><label for="st-sort">Order</label>${sel('st-sort', S.sort, [['modified', 'Most recently changed first'], ['name', 'By name']])}</div>
+    <div class="strow"><label for="st-prev">Show a line of each note's text</label><input id="st-prev" type="checkbox"${S.listPreview ? ' checked' : ''}></div>
+    <h4>Saving</h4>
+    <div class="strow"><label for="st-save">Save after I stop typing for</label>${sel('st-save', String(S.autosave), [['300', '0.3 seconds'], ['600', '0.6 seconds'], ['1500', '1.5 seconds']])}</div>
     <h4>Notes</h4>
     ${document.documentElement.classList.contains('ios') ? '<div class="strow"><span class="l">Notes folder</span><button id="st-folder">Choose folder…</button></div><div class="hint">Pick a folder in iCloud Drive or any Files location to keep your notes in sync across devices.</div>' : ''}
     <div class="strow"><label for="st-daily">Daily notes folder</label><input id="st-daily" type="text" value="${esc(S.dailyFolder)}" placeholder="(top level)"></div>
@@ -371,6 +383,10 @@ $('#st').addEventListener('change', (e) => {
   if (id === 'st-theme') applyTheme(t.value, true);
   else if (id === 'st-font') setSetting({ font: t.value });
   else if (id === 'st-width') setSetting({ width: t.value });
+  else if (id === 'st-lh') setSetting({ lineHeight: t.value });
+  else if (id === 'st-sort') { setSetting({ sort: t.value }); renderList(); }
+  else if (id === 'st-prev') { setSetting({ listPreview: t.checked }); renderList(); }
+  else if (id === 'st-save') setSetting({ autosave: Number(t.value) });
   else if (id === 'st-lp') setLivePreview(t.checked);
   else if (id === 'st-pair') setSetting({ autoPair: t.checked });
   else if (id === 'st-spell') setSetting({ spellcheck: t.checked });
@@ -803,7 +819,7 @@ function onInput() {
 function afterTextChange() {                                       // the open note's text changed (from the textarea, the Live Preview editor or a panel)
   const n = notes.get(cur); if (!n) return;
   n.mtime = Date.now(); aliasMap = null; dirty = true; unsaved.add(cur); updateWC(); renderOutline(); renderProps(); if (split && split === cur) renderSplitSoon();
-  saveState('Editing…'); clearTimeout(timer); timer = setTimeout(flush, 600);
+  saveState('Editing…'); clearTimeout(timer); timer = setTimeout(flush, settings.autosave || 600);
 }
 /* Saving. Unsaved notes are tracked by name, so switching notes after a failed save cannot orphan the first note's edits; saves are serialised;
    a failure keeps the note unsaved, shows "Not saved" with a Retry button and retries with backoff; closing the page makes a last-chance save. */
@@ -1546,7 +1562,7 @@ function setNoteText(t) {
   n.text = t; n.mtime = Date.now(); aliasMap = null; dirty = true; unsaved.add(cur);
   const ed = $('#ed'); if (ed) { ed.value = t; syncEditor(); } else if ($('#lp')) { lp.lines = t.split('\n'); lpPaint(); } else if ($('#pv')) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   updateWC(); renderOutline(); renderList(); renderProps(true); if (split && split === cur) renderSplitSoon();
-  saveState('Editing…'); clearTimeout(timer); timer = setTimeout(flush, 600);
+  saveState('Editing…'); clearTimeout(timer); timer = setTimeout(flush, settings.autosave || 600);
 }
 $('#props').addEventListener('change', (e) => {
   const i = e.target.dataset.prop; if (i == null || !curProps[+i]) return;
@@ -1591,7 +1607,7 @@ document.addEventListener('mousedown', hpHide); document.addEventListener('scrol
 /* sync */
 async function syncStatus() {
   try { const s = await api('/api/sync/status');
-    $('#ss').textContent = !s.isRepo || !s.remote ? 'Not set up' : s.dirty ? `${s.dirty} unsynced` : 'Up to date';
+    $('#ss').textContent = !s.isRepo || !s.remote ? 'Not set up' : s.dirty ? `${s.dirty} unsynced` : 'Up to date' + (lastSyncAt ? ' · synced ' + relTime(lastSyncAt) : '');
     return s; } catch { return null; }
 }
 let syncing = false;
@@ -1610,7 +1626,7 @@ async function doSync(auto) {
     }
     $('#ss').textContent = 'Syncing…';
     const before = cur && notes.get(cur)?.text;
-    const r = await api('/api/sync', { method: 'POST' });
+    const r = await api('/api/sync', { method: 'POST' }); lastSyncAt = Date.now();
     if (dirty) { $('#ss').textContent = r.message; return; }   // user typed meanwhile; don't clobber
     await load();
     if (cur && !notes.has(cur)) { cur = null; renderPane(); renderBack(); }
@@ -1770,6 +1786,10 @@ window.addEventListener('hashchange', () => {
 });
 applySettings(); loadSnippets(); buildTabbar();
 setView(view);
+function showLoadError(e) {
+  PNUI.emptyState($('#list'), { title: 'Could not load your notes', body: `${reachable(e.message)}. Your files are untouched.`, actions: [{ label: 'Try again', primary: true, run: () => load().then(() => { $('#status').textContent = ''; renderPane(); }, showLoadError) }] });
+  say('Could not load your notes: ' + reachable(e.message), { kind: 'error' });
+}
 plainnote.ready = load().then(async () => {
   let h = decodeURIComponent(location.hash.slice(1));
   try {                                                              // restore the tabs from last time
@@ -1784,7 +1804,7 @@ plainnote.ready = load().then(async () => {
   if (/[?&]graph\b/.test(location.search)) { graphOn = true; renderPane(); }   // ?graph opens the graph view (used for screenshots)
   if (/[?&]preview\b/.test(location.search) && cur) { preview = true; renderPane(); }
   PNTour.maybeStart();
-});
+}).catch(showLoadError);
 
 /* Image lightbox: click an image in the reading view to see it full size (click or Esc closes) */
 document.addEventListener('click', (e) => {
@@ -2195,3 +2215,5 @@ document.addEventListener('click', (e) => {
   };
   new MutationObserver(decorate).observe($('#pane'), { childList: true, subtree: true }); decorate();
 })();
+
+$('#ss').addEventListener('click', () => $('#sync').click());
