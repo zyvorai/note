@@ -391,3 +391,7 @@ button.danger{color:var(--danger)}button.pri.danger{background:var(--danger);col
 #pfl,.pf-list{list-style:none;margin:8px 0 0;padding:0;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px}
 .pf-list li{padding:7px 10px;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;gap:8px}.pf-list li.on{background:var(--acc);color:var(--on-acc)}.pf-list li.none{cursor:default;color:var(--mute)}.pf-list li small{opacity:.75}
 .pf-list mark,.dlg mark{background:none;color:inherit;font-weight:700;text-decoration:underline}
+
+/* feedback: the status text never reflows the toolbar, errors are red, and #sr is for screen readers only */
+#status{min-width:0;max-width:38vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#status.err{color:var(--danger)}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;padding:0}

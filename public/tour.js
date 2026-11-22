@@ -33,7 +33,7 @@
     }
     await load();
     if (made && openAfter) await open('Welcome', false);
-    $('#status').textContent = made ? `Added ${made} sample note${made === 1 ? '' : 's'}` : 'The sample notes are already there';
+    say(made ? `Added ${made} sample note${made === 1 ? '' : 's'}` : 'The sample notes are already there');
     return made;
   }
 

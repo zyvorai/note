@@ -2,6 +2,25 @@
 // SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 const $ = (s) => document.querySelector(s);
+/* ---------- feedback ----------
+   saveState(): the persistent state in #status ("Editing…", "Saved", "Not saved"), which is not announced on every keystroke.
+   say(): one-off messages. They show in #status for a few seconds then give way to the save state, are announced to screen readers through #sr,
+   and failures also raise a toast that stays until dismissed (optionally with an action, e.g. Undo). */
+const SAVE = { text: '', title: '' };
+let sayTimer = 0, SAY_MS = 6000;
+const isErrorMessage = (m) => /^(Could not|Save failed|Upload failed|Rename failed|Backup failed|History failed|Stopped)|\bfailed\b|^Changed elsewhere/i.test(m);
+function saveState(text, title = '') {
+  SAVE.text = text; SAVE.title = title; clearTimeout(sayTimer);
+  const st = $('#status'); if (!st) return; st.textContent = text; st.title = title || text; st.classList.remove('err');
+}
+function say(msg, opts = {}) {
+  const st = $('#status'); if (!st) return; msg = String(msg);
+  const kind = opts.kind || (isErrorMessage(msg) ? 'error' : 'info');
+  clearTimeout(sayTimer); st.textContent = msg; st.title = msg; st.classList.toggle('err', kind === 'error');
+  const sr = $('#sr'); if (sr && msg) sr.textContent = msg;
+  if (msg && (kind === 'error' || opts.toast || opts.action)) PNUI.toast(msg, { kind, action: opts.action });
+  if (msg && kind !== 'error') sayTimer = setTimeout(() => { if (st.textContent === msg) { st.textContent = SAVE.text; st.title = SAVE.title || SAVE.text; } }, SAY_MS);
+}
 let notes = new Map();   // name -> {text, mtime}
 /* Encrypted notes: the file on disk holds an armored envelope (n.cipher). While locked, n.text is '' so search, the graph, backlinks and
    find-and-replace see nothing; while unlocked n.text is the plaintext and n.enc the in-memory key (see crypto.js). */
@@ -142,8 +161,8 @@ async function linkMention(from) {
   const link = n.text.slice(0, um.index) + (cur === orig ? `[[${cur}]]` : `[[${cur}|${orig}]]`) + n.text.slice(um.index + short.length);
   try {
     const r = await putNote(n, link, n.base ?? 0);
-    n.text = link; n.base = r.mtime; $('#status').textContent = `Linked in ${from}`; renderBack();
-  } catch (e) { $('#status').textContent = 'Could not link: ' + e.message; }
+    n.text = link; n.base = r.mtime; say(`Linked in ${from}`); renderBack();
+  } catch (e) { say('Could not link: ' + e.message); }
 }
 /* outline: headings of the open note (ignoring fenced code); click to jump */
 function headingsOf(text) {
@@ -539,7 +558,7 @@ $('#list').addEventListener('touchstart', (e) => {                   // long-pre
 $('#list').addEventListener('touchmove', (e) => { const t = e.touches[0]; if (pressAt && Math.hypot(t.clientX - pressAt.x, t.clientY - pressAt.y) > 10) clearTimeout(pressTimer); }, { passive: true });
 $('#list').addEventListener('touchend', async (e) => {
   clearTimeout(pressTimer); const p = pull; pull = null;
-  if (p && !pressed && e.changedTouches[0].clientY - p.y > 90) { haptic('light'); await load(); $('#status').textContent = 'Refreshed'; }
+  if (p && !pressed && e.changedTouches[0].clientY - p.y > 90) { haptic('light'); await load(); say('Refreshed'); }
 }, { passive: true });
 $('#list').addEventListener('touchcancel', () => clearTimeout(pressTimer), { passive: true });
 $('#list').addEventListener('click', (e) => { if (pressed) { e.stopPropagation(); e.preventDefault(); pressed = false; } }, true);   // the tap that ends a long-press must not open the note
@@ -572,7 +591,7 @@ function renderTabs() {
     + '<button id="newtab" title="New tab (Ctrl/Cmd+T)" aria-label="New tab">+</button>';
 }
 function showEmpty() {
-  cur = null; dirty = false; preview = false; $('#status').textContent = ''; $('#title').value = ''; $('#title').disabled = true;
+  cur = null; dirty = false; preview = false; saveState(''); $('#title').value = ''; $('#title').disabled = true;
   location.hash = ''; renderList(); renderPane(); renderBack();
 }
 async function openInNewTab(name, create) {
@@ -614,7 +633,7 @@ async function open(name, create) {
   addingProp = false; cur = name; preview = pendingPreview || (isTouch() && !!notes.get(name).text); pendingPreview = false; graphOn = false; tabs[ti].name = name; renderTabs(); location.hash = encodeURIComponent(name);
   try { localStorage.setItem('last', name); } catch {}
   const t = $('#title'); t.disabled = false; t.value = name.split('/').pop();
-  renderPane(); renderList(); renderBack(); $('#status').textContent = '';
+  renderPane(); renderList(); renderBack(); saveState('');
   if (!notes.get(name).text) ($('#ed') || $('#lp'))?.focus();
 }
 /* ---------- editor helpers ---------- */
@@ -685,7 +704,7 @@ async function attach(files) {
       const r = await api('/api/upload?name=' + encodeURIComponent(f.name || 'image.' + (f.type.split('/')[1] || 'png').replace('svg+xml', 'svg')), { method: 'POST', body: f });
       const md = `![${(f.name || '').replace(/\.\w+$/, '').replace(/[\[\]]/g, '')}](${r.path})\n`;
       const a = ed.selectionStart; ed.setRangeText(md, a, ed.selectionEnd, 'end');
-    } catch (e) { $('#status').textContent = 'Upload failed: ' + e.message; }
+    } catch (e) { say('Upload failed: ' + e.message); }
   }
   onInput(); return true;
 }
@@ -726,7 +745,7 @@ function onInput() {
 function afterTextChange() {                                       // the open note's text changed (from the textarea, the Live Preview editor or a panel)
   const n = notes.get(cur); if (!n) return;
   n.mtime = Date.now(); aliasMap = null; dirty = true; updateWC(); renderOutline(); renderProps(); if (split && split === cur) renderSplitSoon();
-  $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
+  saveState('Editing…'); clearTimeout(timer); timer = setTimeout(flush, 600);
 }
 async function flush() {
   clearTimeout(timer);
@@ -735,15 +754,15 @@ async function flush() {
   const name = cur, n = notes.get(name), text = n.text;
   try {
     const r = await putNote(n, text, n.base ?? 0);
-    n.base = r.mtime; $('#status').textContent = 'Saved'; renderList();
+    n.base = r.mtime; saveState('Saved', 'Saved at ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); renderList();
   } catch (e) {
-    if (e.message !== 'conflict') { dirty = true; $('#status').textContent = 'Save failed: ' + e.message; return; }
+    if (e.message !== 'conflict') { dirty = true; saveState('Not saved'); say('Save failed: ' + e.message); return; }
     // The file changed on disk (sync, another window…). Keep both versions: ours as a conflict copy.
     const copy = `${name} (conflict ${new Date().toTimeString().slice(0, 8).replace(/:/g, '-')})`;
     try { await api('/api/note?name=' + encodeURIComponent(copy), { method: 'PUT', body: await noteBody(n, text) }); } catch {}     // an encrypted note's conflict copy is encrypted too
     const was = cur; await load();
     if (was === name && notes.has(name)) { cur = name; renderPane(); renderBack(); }
-    $('#status').textContent = `Changed elsewhere — your version saved as “${copy}”`;
+    say(`Changed elsewhere — your version saved as “${copy}”`);
   }
 }
 async function newNote() {
@@ -765,7 +784,7 @@ async function addStarterTemplates() {
   const T = { 'templates/Daily': '# {{date}}\n\n## Plan\n- [ ] \n\n## Notes\n\n', 'templates/Meeting': '# {{title}}\n{{date}}\n\n**Attendees:** \n\n## Agenda\n- \n\n## Decisions\n\n## Action items\n- [ ] \n',
     'templates/Project': '# {{title}}\nCreated {{date}} #project\n\n## Goal\n\n## Milestones\n- [ ] \n\n## Notes\n' };
   for (const [name, text] of Object.entries(T)) if (!notes.has(name)) await api('/api/note?name=' + encodeURIComponent(name), { method: 'PUT', body: text, headers: { 'x-base-mtime': '0' } }).catch(() => {});
-  await load(); renderList(); $('#status').textContent = 'Templates added: use “New note from template” in the palette (Daily is used for new daily notes)';
+  await load(); renderList(); say('Templates added: use “New note from template” in the palette (Daily is used for new daily notes)');
 }
 
 /* focus mode */
@@ -801,7 +820,7 @@ function frUpdate(scroll) {
 }
 function frStep(dir) { const ms = frUpdate(); if (!ms.length) return; frIdx = (frIdx + dir + ms.length) % ms.length; frUpdate(true); }
 function openFind() {
-  if ($('#lp')) { $('#status').textContent = 'Find in note is not available in Live Preview yet'; return; }
+  if ($('#lp')) { say('Find in note is not available in Live Preview yet'); return; }
   if (!$('#ed')) { if (cur && preview) { preview = false; renderPane(); } if (!$('#ed')) return; }
   const ed = $('#ed'), sel = ed.value.slice(ed.selectionStart, ed.selectionEnd);
   $('#fr').classList.add('on'); if (sel && !sel.includes('\n')) $('#frq').value = sel;
@@ -859,7 +878,7 @@ function exportHtml() {
 async function renameNote(from, to) {
   await flush();
   try { await api('/api/rename', { method: 'POST', body: JSON.stringify({ from, to }) }); }
-  catch (e) { $('#status').textContent = 'Rename failed: ' + (e.message === 'exists' ? 'a note with that name already exists' : e.message); return false; }
+  catch (e) { say('Rename failed: ' + (e.message === 'exists' ? 'a note with that name already exists' : e.message)); return false; }
   const n = notes.get(from); notes.delete(from); n.name = to; notes.set(to, n); aliasMap = null;
   if (keyring.has(from)) { keyring.set(to, keyring.get(from)); keyring.delete(from); }
   tabs.forEach((t) => { if (t.name === from) t.name = to; }); renderTabs(); saveTabs();
@@ -1095,7 +1114,7 @@ async function gfApply() {
   }
   if (cur && notes.get(cur)) { const ed = $('#ed'); if (ed) { ed.value = notes.get(cur).text; syncEditor(); } else renderPane(); }
   renderList(); renderBack(); closeGlobalFind();
-  $('#status').textContent = `Replaced in ${done} note${done === 1 ? '' : 's'}` + (failed ? `, ${failed} failed (changed elsewhere)` : '');
+  say(`Replaced in ${done} note${done === 1 ? '' : 's'}` + (failed ? `, ${failed} failed (changed elsewhere)` : ''));
 }
 $('#gfq').oninput = gfRender;
 $('#gfx').onclick = closeGlobalFind;
@@ -1148,8 +1167,8 @@ async function toggleTask(t) {
     const r = await putNote(n, text, n.base ?? 0);
     n.text = text; n.base = r.mtime;
     if (cur === t.name) { const ed = $('#ed'); if (ed) { ed.value = text; syncEditor(); } else renderPane(); }
-    $('#status').textContent = 'Task done';
-  } catch (e) { $('#status').textContent = 'Could not update task: ' + e.message; }
+    say('Task done');
+  } catch (e) { say('Could not update task: ' + e.message); }
   swRender();
 }
 function swPick(i) { const r = swRows[i]; swClose(); if (!r) return; if (swMode === 'tasks') { open(r.name, false); return; } if (r.run) setTimeout(r.run, 0); else open(r.create || r, !!r.create); }
@@ -1229,7 +1248,7 @@ $('#list').addEventListener('drop', async (e) => {
   const name = dragName(e); if (!name || view !== 'files') return;
   e.preventDefault(); const to = dropTarget(e);
   if (to) { openFolders.add(to); saveOpenFolders(); }
-  if (await moveNote(name, to)) $('#status').textContent = `Moved to ${to || 'the top level'}`;
+  if (await moveNote(name, to)) say(`Moved to ${to || 'the top level'}`);
 });
 /* right-click menu */
 function showCtx(items, x, y) {
@@ -1284,13 +1303,13 @@ async function newFolder(parent) {
   const typed = await PNUI.askText({ title: parent ? `New folder in “${parent}”` : 'New folder', label: 'Folder name', ok: 'Create', validate: nameCheck });
   const sub = typed === null ? '' : typed.trim(); if (!sub) return;
   const name = parent ? parent + '/' + sub : sub;
-  try { await api('/api/folder', { method: 'POST', body: JSON.stringify({ name }) }); } catch (e) { $('#status').textContent = 'Could not create folder: ' + e.message; return; }
+  try { await api('/api/folder', { method: 'POST', body: JSON.stringify({ name }) }); } catch (e) { say('Could not create folder: ' + e.message); return; }
   openFolders.add(parent || name); openFolders.add(name); saveOpenFolders(); folders = await api('/api/folders').catch(() => folders); setView('files');
 }
 async function deleteFolder(path) {
   if (!(await PNUI.askConfirm({ title: 'Delete this folder?', message: `The empty folder “${path}” will be removed.`, ok: 'Delete folder', danger: true }))) return;
   try { await api('/api/folder?name=' + encodeURIComponent(path), { method: 'DELETE' }); }
-  catch (e) { $('#status').textContent = e.message === 'not empty' ? 'Folder is not empty' : 'Could not delete: ' + e.message; return; }
+  catch (e) { say(e.message === 'not empty' ? 'Folder is not empty' : 'Could not delete: ' + e.message); return; }
   folders = await api('/api/folders').catch(() => folders); renderList();
 }
 async function duplicateNote(name) {
@@ -1351,7 +1370,7 @@ function setNoteText(t) {
   n.text = t; n.mtime = Date.now(); aliasMap = null; dirty = true;
   const ed = $('#ed'); if (ed) { ed.value = t; syncEditor(); } else if ($('#lp')) { lp.lines = t.split('\n'); lpPaint(); } else if ($('#pv')) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   updateWC(); renderOutline(); renderList(); renderProps(true); if (split && split === cur) renderSplitSoon();
-  $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
+  saveState('Editing…'); clearTimeout(timer); timer = setTimeout(flush, 600);
 }
 $('#props').addEventListener('change', (e) => {
   const i = e.target.dataset.prop; if (i == null || !curProps[+i]) return;
@@ -1361,7 +1380,7 @@ $('#props').addEventListener('change', (e) => {
 });
 function addProperty() {
   const k = ($('#pnew')?.value || '').trim().replace(/\s+/g, '-');
-  if (!/^[\w-]+$/.test(k)) { $('#status').textContent = 'Property names use letters, numbers, - and _'; return; }
+  if (!/^[\w-]+$/.test(k)) { say('Property names use letters, numbers, - and _'); return; }
   addingProp = false; setNoteText(MD.setProperty(notes.get(cur).text, k, '')); setTimeout(() => $('#props input[data-prop]:last-of-type')?.focus(), 0);
 }
 $('#props').addEventListener('click', (e) => {
@@ -1489,7 +1508,7 @@ $('#del').onclick = async () => {
   keyring.delete(cur);
   await api('/api/note?name=' + encodeURIComponent(cur), { method: 'DELETE' });
   const gone = cur, keep = tabs[ti]; tabs = tabs.filter((t) => t === keep || t.name !== gone); keep.name = null; ti = tabs.indexOf(keep); renderTabs(); saveTabs();
-  notes.delete(cur); cur = null; dirty = false; if (split === gone) closeSplit(); $('#status').textContent = ''; $('#title').value = ''; $('#title').disabled = true;
+  notes.delete(cur); cur = null; dirty = false; if (split === gone) closeSplit(); saveState(''); $('#title').value = ''; $('#title').disabled = true;
   location.hash = ''; renderList(); renderPane(); renderBack();
 };
 let trashMode = false;
@@ -1553,8 +1572,8 @@ window.addEventListener('focus', async () => {
 
 /* installable web app: keep the shell available offline when served over HTTPS or from another machine (never on the local desktop server) */
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) navigator.serviceWorker.register('/sw.js').catch(() => {});
-window.addEventListener('offline', () => { $('#status').textContent = 'Offline: showing what is on screen'; });
-window.addEventListener('online', () => { $('#status').textContent = 'Back online'; load(); });
+window.addEventListener('offline', () => { say('Offline: showing what is on screen'); });
+window.addEventListener('online', () => { say('Back online'); load(); });
 setInterval(() => fetch('/api/ping').catch(() => {}), 10000);   // lets the desktop launcher notice when the window is closed
 /* back / forward: every opened note is a history entry, so the browser buttons, Alt+Arrows and Ctrl/Cmd+[ ] walk through them */
 window.addEventListener('hashchange', () => {
@@ -1591,9 +1610,9 @@ document.addEventListener('click', (e) => {
 /* Version history: the server keeps earlier versions of each note (every 2 minutes at most); pick one to preview, then restore it */
 async function openHistory() {
   if (!cur) return; await flush();
-  if (isLocked(notes.get(cur))) { $('#status').textContent = 'Unlock this note to see its history'; return; }
+  if (isLocked(notes.get(cur))) { say('Unlock this note to see its history'); return; }
   const name = cur; let list = [];
-  try { list = await api('/api/history?name=' + encodeURIComponent(name)); } catch (e) { $('#status').textContent = 'History failed: ' + e.message; return; }
+  try { list = await api('/api/history?name=' + encodeURIComponent(name)); } catch (e) { say('History failed: ' + e.message); return; }
   const when = (t) => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const d = PNUI.openDialog({ id: 'hist', className: 'dlg-hist', width: '760px', title: `History: ${name.split('/').pop()}`, body: `<div class="hbody"><ul>${list.map((v) => `<li data-id="${v.id}" tabindex="0">${esc(when(v.id))}<small>${v.size} B</small></li>`).join('') || '<li class="none">No earlier versions yet. They appear after you edit this note.</li>'}</ul><pre id="hpre">Pick a version to preview it.</pre></div>`,
     actions: [{ label: 'Restore this version', id: 'hr', primary: true, disabled: true, onClick: () => {} }] });
@@ -1615,7 +1634,7 @@ async function openHistory() {
     if (sel === null || !notes.get(name)) return;
     notes.get(name).text = sel; close();
     if (cur === name) { renderPane(); afterTextChange(); }          // saved like any edit; the version it replaced is kept in history
-    $('#status').textContent = 'Restored an earlier version';
+    say('Restored an earlier version');
   };
 }
 
@@ -1692,7 +1711,6 @@ function openImport() {
 /* Diagrams and charts: hover to copy them as SVG or PNG, or save a PNG (added here, so exports and published pages stay clean) */
 (function () {
   const bgOf = () => { for (const el of [$('#pv'), document.body]) { const c = el && getComputedStyle(el).backgroundColor; if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) return c; } return '#ffffff'; };
-  const say = (s) => { $('#status').textContent = s; };
   async function act(kind, wrap) {
     const svg = wrap.querySelector('svg'); if (!svg) return;
     const color = getComputedStyle(wrap).color, bg = bgOf();
@@ -1735,7 +1753,6 @@ function askPass({ title, message, confirm: twice, ok = 'OK', warn }) {
     };
   });
 }
-const say = (s) => { $('#status').textContent = s; };
 
 const NO_CRYPTO = 'Encryption needs a secure connection: open Plainnote on localhost or over https (for example with Tailscale Serve).';
 function renderLocked() {
@@ -1814,7 +1831,7 @@ setInterval(idleCheck, 15000);
 /* ---------- Backup and restore ---------- */
 // A backup is one .zip of your notes, attachments, CSS snippets and version history. A restore only ever adds files.
 async function downloadBackup() {
-  const st = (t) => { $('#status').textContent = t; };
+  const st = (t) => say(t);
   if (document.documentElement.classList.contains('ios')) { st('Backup is not built into the iPhone app: your notes are plain files in Files / iCloud Drive, which back up with your phone'); return; }
   await flush();
   if (window.webkit && webkit.messageHandlers && webkit.messageHandlers.mac) {      // the Mac app's window can't download links: the server writes the zip to your Downloads folder
