@@ -292,3 +292,42 @@ test('export renders a note to HTML with local images resolved', () => {
   const h = toHtml('/n/a.md', '# T\n\n![x](attachments/p.png)', '/n');
   assert.match(h, /<title>a<\/title>/); assert.match(h, /src="file:\/\/\/n\/attachments\/p\.png"/);
 });
+
+test('version history keeps earlier versions of a note, throttled, and serves them back', async () => {
+  const s = await start();
+  try {
+    await s.put('h', 'one'); await s.put('h', 'two');                    // first overwrite snapshots "one"
+    await s.put('h', 'three');                                           // within 2 minutes: no second snapshot
+    const list = (await s.j('/api/history?name=h')).body;
+    assert.equal(list.length, 1);
+    const v = (await s.j('/api/history?name=h&id=' + list[0].id)).body; assert.equal(v.text, 'one');
+    assert.equal((await s.j('/api/history?name=h&id=../x')).status, 400);
+    assert.deepEqual((await s.j('/api/history?name=none')).body, []);
+    assert.equal((await s.j('/api/history?name=' + encodeURIComponent('../x'))).status, 400);
+    assert.ok(!(await s.j('/api/notes')).body.some((n) => n.name.includes('history')));   // snapshots never show up as notes
+  } finally { s.stop(); }
+});
+
+test('publish builds a static site: links, attachments, privacy and safe output folders', () => {
+  const fsx = require('fs'), os = require('os'), pth = require('path');
+  const { build } = require('../scripts/publish');
+  const src = fsx.mkdtempSync(pth.join(os.tmpdir(), 'pn-src-')), out = pth.join(fsx.mkdtempSync(pth.join(os.tmpdir(), 'pn-out-')), 'site');
+  fsx.mkdirSync(pth.join(src, 'sub')); fsx.mkdirSync(pth.join(src, 'attachments'));
+  fsx.writeFileSync(pth.join(src, 'Home.md'), '# Home\n\n[[Deep]] [[Secret]]\n\n![p](attachments/a.png)\n');
+  fsx.writeFileSync(pth.join(src, 'sub', 'Deep.md'), 'back [[Home]]');
+  fsx.writeFileSync(pth.join(src, 'Secret.md'), '---\npublish: false\n---\ntop secret');
+  fsx.writeFileSync(pth.join(src, 'attachments', 'a.png'), 'png');
+  const r = build(src, out, { title: 'T' });
+  assert.equal(r.pages, 2); assert.deepEqual(r.skipped, ['Secret']); assert.equal(r.attachments, 1);
+  const home = fsx.readFileSync(pth.join(out, 'Home.html'), 'utf8');
+  assert.match(home, /href="sub\/Deep\.html"/); assert.match(home, /src="attachments\/a\.png"/);
+  assert.doesNotMatch(home, /Secret\.html/);
+  assert.match(fsx.readFileSync(pth.join(out, 'sub', 'Deep.html'), 'utf8'), /href="\.\.\/Home\.html"/);
+  assert.ok(fsx.existsSync(pth.join(out, 'attachments', 'a.png')));
+  for (const f of ['Home.html', 'index.html', 'sub/Deep.html']) assert.doesNotMatch(fsx.readFileSync(pth.join(out, f), 'utf8'), /top secret/);
+  build(src, out);                                                           // rebuilding our own output is fine
+  assert.throws(() => build(src, src), /must not contain or equal/);
+  assert.throws(() => build(src, pth.join(src, 'sub')), /dot-folder/);
+  const other = fsx.mkdtempSync(pth.join(os.tmpdir(), 'pn-other-')); fsx.writeFileSync(pth.join(other, 'keep.txt'), 'x');
+  assert.throws(() => build(src, other), /not empty/); assert.ok(fsx.existsSync(pth.join(other, 'keep.txt')));
+});

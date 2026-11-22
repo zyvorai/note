@@ -336,3 +336,11 @@ html.touch #outline{display:none!important}
 #lb img{max-width:94vw;max-height:94vh;border-radius:6px;cursor:zoom-out}
 @media print{#lb{display:none!important}#pv .pdfembed{display:none}}
 #pv .diagram-wrap{margin:1em 0;overflow-x:auto}
+#hist{position:fixed;inset:0;z-index:98;background:#0006;display:flex;align-items:center;justify-content:center}
+#hist>div{background:var(--bg);border:1px solid var(--line);border-radius:10px;width:min(760px,94vw);height:min(70vh,520px);display:flex;flex-direction:column;overflow:hidden}
+#hist header,#hist footer{padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px}#hist footer{justify-content:flex-end;border-top:1px solid var(--line)}
+#hist .hbody{flex:1;display:flex;min-height:0;border-top:1px solid var(--line)}
+#hist ul{list-style:none;margin:0;padding:4px;width:210px;overflow:auto;border-right:1px solid var(--line)}
+#hist li{padding:6px 8px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;gap:6px;font-size:13px}#hist li:hover,#hist li.on{background:var(--line)}#hist li small{opacity:.6}#hist li.none{cursor:default;opacity:.7}
+#hist pre{flex:1;margin:0;padding:12px;overflow:auto;white-space:pre-wrap;font-size:13px}
+@media print{#hist{display:none!important}}
