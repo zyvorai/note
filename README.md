@@ -23,6 +23,8 @@ node server.js ~/Notes          # http://localhost:4777
 
 `notesDir` defaults to `./notes` and `port` to `4777` (or `$PORT`). Requires Node.js 20+. You can point it at an existing Obsidian vault or any folder of `.md` files.
 
+**First run**: open Plainnote on an empty notes folder and a 60-second tour starts by itself, offering to add a small set of sample notes (a welcome page, Markdown basics, links and the graph, diagrams, your files). Existing notes are never touched and never overwritten, and the tour never starts for a folder that already has notes. Retake it any time from the command palette (*Take the Plainnote tour*, *Add the sample notes*).
+
 ### Attachments, diagrams and PDFs
 
 - **Images and PDFs**: paste or drop a `.png`, `.jpg`, `.gif`, `.webp`, `.svg` or `.pdf` into the editor. It is saved under `attachments/` and linked as `![name](attachments/…)`. In the reading view, PDFs show in an inline viewer and images open full size when clicked (Esc closes).

@@ -362,3 +362,11 @@ html.touch #outline{display:none!important}
 #pv .dtb button{font-size:11px;padding:2px 7px}
 @media (hover:none){#pv .dtb{opacity:1}}
 @media print{#pv .dtb{display:none!important}}
+#tour{position:fixed;inset:0;z-index:100}
+#tour .thl{position:fixed;display:none;border-radius:10px;box-shadow:0 0 0 9999px #0007;outline:2px solid var(--acc);pointer-events:none;transition:all .18s}
+#tour .tcard{position:fixed;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:12px;box-shadow:var(--elev);padding:16px 18px;box-sizing:border-box;outline:none}
+#tour.center{background:#0007}
+#tour h3{margin:0 0 6px;font-size:16px}#tour p{margin:0 0 14px;line-height:1.5;color:var(--mute);font-size:14px}
+#tour .tact{display:flex;gap:8px;justify-content:flex-end}#tour .tskip{margin-right:auto;border:0;background:none;color:var(--mute)}
+#tour .tdots{display:flex;gap:5px;justify-content:center;margin-top:12px}#tour .tdots span{width:6px;height:6px;border-radius:50%;background:var(--line)}#tour .tdots .on{background:var(--acc)}
+@media print{#tour{display:none!important}}
