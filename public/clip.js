@@ -5,10 +5,11 @@
   const SKIP = /^(script|style|noscript|template|svg|canvas|iframe|form|nav|footer|aside|button|select|input|textarea|dialog|head|audio|video|object|embed)$/;
   const NOISE = new Set(['nav', 'navbar', 'menu', 'sidebar', 'cookie', 'cookies', 'banner', 'advert', 'ads', 'ad', 'promo', 'share', 'sharing', 'social', 'comments', 'related', 'newsletter', 'subscribe', 'popup', 'modal', 'breadcrumb', 'breadcrumbs', 'skip']);
   const noisy = (n) => `${n.getAttribute('class') || ''} ${n.getAttribute('id') || ''}`.toLowerCase().split(/[\s_-]+/).some((t) => NOISE.has(t));
-  const abs = (u, base) => { try { const x = new URL(u, base); return /^(https?:|mailto:)$/.test(x.protocol) ? x.href : ''; } catch { return ''; } };
+  // `enres:` links (Evernote attachments) are only let through when the importer asks for them.
+  const abs = (u, base, enres) => { try { const x = new URL(u, base); return /^(https?:|mailto:)$/.test(x.protocol) || (enres && x.protocol === 'enres:') ? x.href : ''; } catch { return ''; } };
 
-  function htmlToMd(root, base, keep) {
-    const pres = [];
+  function htmlToMd(root, base, keep, opts) {
+    const pres = [], enres = !!(opts && opts.enres);
     const wrap = (s, m) => { const lead = /^\s*/.exec(s)[0], trail = /\s*$/.exec(s)[0], core = s.trim(); return core ? `${lead}${m}${core}${m}${trail}` : s; };
     function conv(n, ctx) {
       if (n.nodeType === 3) return n.nodeValue.replace(/[ \t\r\n\f]+/g, ' ');
@@ -33,10 +34,10 @@
           pres.push('```' + lang + '\n' + code + '\n```'); return `\n\n\u0002${pres.length - 1}\u0002\n\n`;
         }
         case 'a': {
-          const href = abs(n.getAttribute('href') || '', base), inner = kids().trim().replace(/\s+/g, ' ');
+          const href = abs(n.getAttribute('href') || '', base, enres), inner = kids().trim().replace(/\s+/g, ' ');
           return href && inner ? `[${inner.replace(/\]/g, '\\]')}](${href.replace(/\)/g, '%29')})` : inner;
         }
-        case 'img': { const src = abs(n.getAttribute('src') || n.getAttribute('data-src') || '', base); return src ? `![${(n.getAttribute('alt') || '').replace(/[\[\]\n]/g, ' ').trim()}](${src.replace(/\)/g, '%29')})` : ''; }
+        case 'img': { const src = abs(n.getAttribute('src') || n.getAttribute('data-src') || '', base, enres); return src ? `![${(n.getAttribute('alt') || '').replace(/[\[\]\n]/g, ' ').trim()}](${src.replace(/\)/g, '%29')})` : ''; }
         case 'ul': case 'ol': {
           const items = [...n.children].filter((c) => c.nodeName.toLowerCase() === 'li'); let i = +(n.getAttribute('start') || 1);
           const body = items.map((li) => `${t === 'ol' ? i++ + '.' : '-'} ${conv(li, ctx).trim().replace(/\n/g, '\n    ')}`).join('\n');
@@ -61,10 +62,10 @@
   }
 
   // Pick the part of a page worth keeping: a selection as-is, otherwise <article>/<main>, otherwise the body.
-  function clip(html, base, wholePageHint) {
+  function clip(html, base, wholePageHint, opts) {
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const root = wholePageHint ? (doc.querySelector('article') || doc.querySelector('main, [role=main]') || doc.body) : doc.body;
-    return htmlToMd(root, base, !wholePageHint);
+    return htmlToMd(root, base, !wholePageHint, opts);
   }
   const safeName = (s) => (s || 'Untitled clip').replace(/[\\/:*?"<>|#^\[\]\n\r\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Untitled clip';
   const today = () => new Date().toISOString().slice(0, 10);

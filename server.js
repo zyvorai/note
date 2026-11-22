@@ -327,6 +327,8 @@ module.exports = { createServer, listen };
 if (require.main === module && process.argv[2] === 'export') {
   // node server.js export <note.md> [out.pdf]  — render a note to PDF with an installed Chrome/Edge/Chromium (no npm deps)
   require('./scripts/export-pdf').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
+} else if (require.main === module && process.argv[2] === 'import') {
+  require('./scripts/import').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
 } else if (require.main === module && process.argv[2] === 'pdf') {
   require('./scripts/pdf-tools').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
 } else if (require.main === module) {

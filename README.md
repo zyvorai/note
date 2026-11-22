@@ -48,6 +48,19 @@ node server.js ~/Notes          # http://localhost:4777
   node server.js pdf stamp in.pdf "DRAFT" out.pdf [pages]
   ```
 
+### Importing your notes
+
+Run *Import notes from another app…* from the command palette (or `node server.js import <folder-or-zip> [notesDir]` for Markdown, from the terminal). Pick what you exported and Plainnote turns it into plain Markdown files, keeping folders, links, images, tags and dates:
+
+| From | Export | Choose |
+|---|---|---|
+| **Obsidian** | nothing to export | the vault folder (or a .zip of it) |
+| **Notion** | Settings → Export → *Markdown & CSV* (or *HTML*) | the .zip |
+| **Evernote** | File → Export Notes… → `.enex` | the file (images and attachments come along; checklists become tasks) |
+| **Bear** and others | Export as Markdown or TextBundle | the folder or .zip |
+
+Notion's long id suffixes are removed from names, links between pages become `[[wikilinks]]`, database CSVs become tables, and images are saved into `attachments/`. Imported notes go into an `Imported` folder by default (leave the name empty to merge into your notes). **Nothing is ever overwritten**: a name that is taken gets a number, and the preview tells you what was found and what was skipped (for example `.docx` or audio files, which Plainnote does not keep). Zips are checked before they are read: unsafe paths, hidden files, password-protected and oversized archives are refused or skipped. Evernote and HTML need the in-app importer; the terminal command handles Markdown, CSV and images.
+
 ## Desktop app (macOS)
 
 ```sh

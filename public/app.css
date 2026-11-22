@@ -340,3 +340,10 @@ html.touch #outline{display:none!important}
 #clipdlg>div{background:var(--bg);border:1px solid var(--line);border-radius:10px;width:min(560px,94vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
 #clipdlg header{padding:10px 14px;display:flex;justify-content:space-between;align-items:center}#clipdlg .cbody{padding:6px 16px 16px;line-height:1.6;overflow:auto}
 @media print{#clipdlg{display:none!important}}
+#impdlg{position:fixed;inset:0;z-index:98;background:#0006;display:flex;align-items:center;justify-content:center}
+#impdlg>div{background:var(--bg);border:1px solid var(--line);border-radius:10px;width:min(580px,94vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+#impdlg header{padding:10px 14px;display:flex;justify-content:space-between;align-items:center}#impdlg .cbody{padding:4px 16px 16px;line-height:1.55;overflow:auto}
+#impdlg .impl{margin:6px 0 12px;padding-left:18px;color:var(--mute);font-size:13.5px}#impdlg .improw{display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap}
+#impdlg #impsum{margin:10px 0}#impdlg .impw{margin:6px 0;padding-left:18px;color:var(--mute);font-size:13px}#impdlg .bad{color:#c0392b}
+#impdlg #impgo label{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14px}#impdlg #impto{flex:1;min-width:10em;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+@media print{#impdlg{display:none!important}}

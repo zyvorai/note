@@ -967,6 +967,7 @@ const COMMANDS = [
   { id: 'localgraph', name: 'Graph of this note and its links', run: async () => { if (!cur) return; await flush(); graphScope = 1; graphOn = true; renderPane(); } },
   { id: 'pin', name: 'Pin / unpin this note', run: () => $('#pin').click() },
   { id: 'clipper', name: 'Web clipper: get the Clip bookmark…', run: () => openClipper() },
+  { id: 'import', name: 'Import notes from another app…', run: () => openImport() },
   { id: 'pdf', name: 'Export this note as PDF / Print…', run: () => exportPdf() },
   { id: 'gfind', name: 'Find and replace in all notes', hint: 'Ctrl/Cmd+Shift+H', run: () => openGlobalFind() },
   { id: 'export', name: 'Export this note as HTML', run: () => exportHtml() },
@@ -1523,4 +1524,70 @@ function openClipper() {
   const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
   document.addEventListener('keydown', onKey, true);
   box.onclick = (e) => { if (e.target.id === 'clipdlg' || e.target.id === 'hx') close(); };
+}
+
+/* Import: bring notes in from Obsidian, Notion, Evernote, Bear or any folder/zip of Markdown. Nothing is overwritten. */
+function openImport() {
+  const box = document.createElement('div'); box.id = 'impdlg';
+  box.innerHTML = `<div role="dialog" aria-label="Import notes"><header><b>Import notes</b><button id="impx" aria-label="Close">×</button></header><div class="cbody">
+<p>Choose what you exported. Everything becomes plain Markdown files, with links, images and folders kept.</p>
+<ul class="impl"><li><b>Obsidian, Bear or a Markdown folder</b>: choose the folder (or a .zip of it).</li><li><b>Notion</b>: Export as <i>Markdown &amp; CSV</i> (or HTML), then choose the .zip.</li><li><b>Evernote</b>: File → Export Notes… as .enex, then choose the file.</li></ul>
+<div class="improw"><button id="impf" class="pri">Choose files or a .zip…</button><button id="impd">Choose a folder…</button></div>
+<input id="impfi" type="file" multiple hidden accept=".zip,.md,.markdown,.txt,.html,.htm,.enex,.csv,.png,.jpg,.jpeg,.gif,.webp,.svg,.pdf"><input id="impdi" type="file" webkitdirectory multiple hidden>
+<div id="impsum" aria-live="polite"></div>
+<div id="impgo" hidden><label>Put the imported notes in the folder <input id="impto" value="Imported" placeholder="(leave empty to merge into your notes)" spellcheck="false"></label>
+<div class="improw"><button id="impgo2" class="pri">Import</button><span id="impst" role="status"></span></div></div></div></div>`;
+  document.body.appendChild(box);
+  let prepared = null, busy = false;
+  const close = () => { if (busy) return; box.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  box.onclick = (e) => { if (e.target.id === 'impdlg' || e.target.id === 'impx') close(); };
+  const sum = (html) => { $('#impsum').innerHTML = html; };
+  const prefix = () => $('#impto').value.trim().replace(/^\/+|\/+$/g, '');
+  const planNow = () => PNImport.plan(prepared.files, { existing: new Set(notes.keys()), prefix: prefix(), html2md: PNClip.clip });
+  async function chosen(list) {
+    list = [...list]; if (!list.length) return;
+    sum('Reading…'); $('#impgo').hidden = true;
+    try {
+      const raw = []; for (const f of list) raw.push({ path: f.webkitRelativePath || f.name, data: new Uint8Array(await f.arrayBuffer()) });
+      prepared = await PNImport.prepare(raw);
+      const p = planNow(), s = p.stats, parts = [`<b>${s.notes}</b> note${s.notes === 1 ? '' : 's'}`, `<b>${s.attachments}</b> image/PDF file${s.attachments === 1 ? '' : 's'}`];
+      const kinds = [s.csv && `${s.csv} database table${s.csv === 1 ? '' : 's'}`, s.html && `${s.html} HTML page${s.html === 1 ? '' : 's'}`, s.enex && `${s.enex} Evernote file${s.enex === 1 ? '' : 's'}`].filter(Boolean);
+      const warns = [...prepared.warnings, ...p.warnings];
+      sum(`Found ${parts.join(' and ')}${kinds.length ? ' (including ' + kinds.join(', ') + ')' : ''}.` + (warns.length ? `<ul class="impw">${warns.slice(0, 6).map((w) => `<li>${esc(w)}</li>`).join('')}${warns.length > 6 ? `<li>…and ${warns.length - 6} more</li>` : ''}</ul>` : ''));
+      $('#impgo').hidden = !s.notes && !s.attachments; $('#impgo2').disabled = !s.notes;
+      if (!s.notes) sum($('#impsum').innerHTML + '<p>No notes were found in that selection.</p>');
+    } catch (e) { sum(`<span class="bad">Could not read that: ${esc(e.message)}</span>`); }
+  }
+  $('#impf').onclick = () => $('#impfi').click(); $('#impd').onclick = () => $('#impdi').click();
+  $('#impfi').onchange = (e) => chosen(e.target.files); $('#impdi').onchange = (e) => chosen(e.target.files);
+  box.addEventListener('dragover', (e) => e.preventDefault()); box.addEventListener('drop', (e) => { e.preventDefault(); chosen(e.dataTransfer.files); });
+  $('#impgo2').onclick = async () => {
+    if (busy || !prepared) return; busy = true; $('#impgo2').disabled = true;
+    const st = (s) => { $('#impst').textContent = s; };
+    try {
+      const p = planNow(), uploaded = new Map(); let failed = 0, i = 0;
+      for (const a of p.attachments) {
+        st(`Attachments ${++i}/${p.attachments.length}…`);
+        try { uploaded.set(a.from, (await api('/api/upload?name=' + encodeURIComponent(a.name), { method: 'POST', body: a.data })).path); } catch { failed++; }
+      }
+      const out = PNImport.finalize(p, uploaded); let done = 0, first = null, renamed = 0;
+      for (const n of out) {
+        st(`Notes ${++done}/${out.length}…`);
+        let name = n.name;
+        for (let k = 2; ; k++) {                                       // x-base-mtime: 0 makes the server answer 409 for an existing note, so nothing is overwritten
+          try { await api('/api/note?name=' + encodeURIComponent(name), { method: 'PUT', headers: { 'x-base-mtime': '0' }, body: n.text }); break; }
+          catch (e) { if (e.message !== 'conflict' || k > 50) throw e; name = `${n.name} ${k}`; renamed++; }
+        }
+        first = first || name;
+      }
+      await load(); renderList();
+      busy = false;
+      sum(`<b>Imported ${out.length} note${out.length === 1 ? '' : 's'}</b>${p.attachments.length - failed ? `, ${p.attachments.length - failed} file${p.attachments.length - failed === 1 ? '' : 's'}` : ''}, and fixed ${p.stats.links} link${p.stats.links === 1 ? '' : 's'}.` + (failed ? `<p class="bad">${failed} attachment${failed === 1 ? '' : 's'} could not be uploaded (over 20 MB?); those links were left as they were.</p>` : '') + (renamed ? `<p>${renamed} note${renamed === 1 ? ' was' : 's were'} renamed because the name was taken.</p>` : ''));
+      $('#impgo').hidden = true; prepared = null;
+      const b = document.createElement('button'); b.className = 'pri'; b.textContent = 'Open the first note'; b.onclick = () => { close(); open(first, false); }; $('#impsum').appendChild(b);
+    } catch (e) { busy = false; $('#impgo2').disabled = false; st('Stopped: ' + e.message + '. Notes already imported are kept.'); await load().catch(() => {}); renderList(); }
+  };
+  $('#impf').focus();
 }
