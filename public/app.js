@@ -9,17 +9,20 @@ const $ = (s) => document.querySelector(s);
 const SAVE = { text: '', title: '' };
 let sayTimer = 0, SAY_MS = 6000;
 const isErrorMessage = (m) => /^(Could not|Save failed|Upload failed|Rename failed|Backup failed|History failed|Stopped)|\bfailed\b|^Changed elsewhere/i.test(m);
-function saveState(text, title = '') {
-  SAVE.text = text; SAVE.title = title; clearTimeout(sayTimer);
+let sayShown = '';                                                     // the one-off message currently in #status, if any
+function saveState(text, title = '', quiet = false) {                  // quiet: a background update (e.g. "Saved") must not replace a message nobody has read yet
+  SAVE.text = text; SAVE.title = title;
+  if (quiet && sayShown) return;
+  clearTimeout(sayTimer); sayShown = '';
   const st = $('#status'); if (!st) return; st.textContent = text; st.title = title || text; st.classList.remove('err');
 }
 function say(msg, opts = {}) {
   const st = $('#status'); if (!st) return; msg = String(msg);
   const kind = opts.kind || (isErrorMessage(msg) ? 'error' : 'info');
-  clearTimeout(sayTimer); st.textContent = msg; st.title = msg; st.classList.toggle('err', kind === 'error');
+  clearTimeout(sayTimer); sayShown = msg; st.textContent = msg; st.title = msg; st.classList.toggle('err', kind === 'error');
   const sr = $('#sr'); if (sr && msg) sr.textContent = msg;
   if (msg && (kind === 'error' || opts.toast || opts.action)) PNUI.toast(msg, { kind, action: opts.action });
-  if (msg && kind !== 'error') sayTimer = setTimeout(() => { if (st.textContent === msg) { st.textContent = SAVE.text; st.title = SAVE.title || SAVE.text; } }, SAY_MS);
+  if (msg && kind !== 'error') sayTimer = setTimeout(() => { if (st.textContent === msg) { sayShown = ''; st.textContent = SAVE.text; st.title = SAVE.title || SAVE.text; } }, SAY_MS);
 }
 let notes = new Map();   // name -> {text, mtime}
 /* Encrypted notes: the file on disk holds an armored envelope (n.cipher). While locked, n.text is '' so search, the graph, backlinks and
@@ -41,6 +44,7 @@ async function putNote(n, text, base) {
 let activeTag = null;
 let graphOn = false, gRaf = 0, graphScope = 0;   // graphScope: 0 = all notes, 1/2 = neighbourhood of the open note
 let cur = null, preview = false, timer = null, dirty = false;
+const unsaved = new Set();                   // names of notes with edits that are not on disk yet (dirty is true while this is non-empty)
 
 const api = async (url, opt) => {
   const r = await fetch(url, opt);
@@ -65,7 +69,7 @@ let folders = [];
 async function load() {
   const [fresh, fl] = await Promise.all([api('/api/notes'), api('/api/folders').catch(() => folders)]);
   folders = fl;
-  const keep = dirty && cur ? notes.get(cur) : null;      // never replace text the user typed but hasn't saved yet
+  const keep = [...unsaved].map((nm) => notes.get(nm)).filter(Boolean);      // never replace text the user typed but hasn't saved yet (in any note)
   aliasMap = null;
   notes = new Map(fresh.map((n) => [n.name, { ...n, base: n.mtime }]));
   for (const n of notes.values()) {
@@ -74,7 +78,7 @@ async function load() {
     const sess = keyring.get(n.name);
     if (sess) { try { n.text = (await PNCrypto.decrypt(n.cipher, sess)).text; n.enc = sess; } catch { keyring.delete(n.name); } }   // changed elsewhere with another passphrase: lock it
   }
-  if (keep) notes.set(keep.name, keep);
+  for (const k of keep) notes.set(k.name, k);
   renderList();
 }
 
@@ -744,27 +748,71 @@ function onInput() {
 }
 function afterTextChange() {                                       // the open note's text changed (from the textarea, the Live Preview editor or a panel)
   const n = notes.get(cur); if (!n) return;
-  n.mtime = Date.now(); aliasMap = null; dirty = true; updateWC(); renderOutline(); renderProps(); if (split && split === cur) renderSplitSoon();
+  n.mtime = Date.now(); aliasMap = null; dirty = true; unsaved.add(cur); updateWC(); renderOutline(); renderProps(); if (split && split === cur) renderSplitSoon();
   saveState('Editing…'); clearTimeout(timer); timer = setTimeout(flush, 600);
 }
-async function flush() {
-  clearTimeout(timer);
-  if (!dirty || !cur) return;
-  dirty = false;
-  const name = cur, n = notes.get(name), text = n.text;
+/* Saving. Unsaved notes are tracked by name, so switching notes after a failed save cannot orphan the first note's edits; saves are serialised;
+   a failure keeps the note unsaved, shows "Not saved" with a Retry button and retries with backoff; closing the page makes a last-chance save. */
+const retry = { delay: 0, timer: 0, toast: null }, flushLock = { p: Promise.resolve() };
+const reachable = (m) => (/Failed to fetch|NetworkError|Load failed/i.test(m) ? 'the notes server is not reachable' : m);
+function saveFailed(e) {
+  saveState('Not saved'); $('#status').classList.add('err'); $('#status').title = 'Click to retry saving';
+  retry.delay = retry.delay ? Math.min(retry.delay * 2, 30000) : 2000; clearTimeout(retry.timer); retry.timer = setTimeout(flush, retry.delay);
+  const msg = `Could not save: ${reachable(e.message)}. Your text is safe in this window and will be retried.`;
+  const sr = $('#sr'); if (sr) sr.textContent = msg;
+  if (!retry.toast || !retry.toast.el.isConnected) retry.toast = PNUI.toast(msg, { kind: 'error', action: { label: 'Retry now', run: () => flush() } });
+}
+function saveSucceeded() {
+  retry.delay = 0; clearTimeout(retry.timer); if (retry.toast) { retry.toast.close(); retry.toast = null; }
+  if (!unsaved.size) saveState('Saved', 'Saved at ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), true);
+}
+async function saveNote(name) {
+  const n = notes.get(name);
+  if (!n || isLocked(n)) { unsaved.delete(name); return true; }
+  const text = n.text;
   try {
     const r = await putNote(n, text, n.base ?? 0);
-    n.base = r.mtime; saveState('Saved', 'Saved at ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); renderList();
+    n.base = r.mtime; if (n.text === text) unsaved.delete(name);                       // typed more while it was saving: stays unsaved, the timer saves again
+    return true;
   } catch (e) {
-    if (e.message !== 'conflict') { dirty = true; saveState('Not saved'); say('Save failed: ' + e.message); return; }
+    if (e.message !== 'conflict') { saveNote.lastError = e; return false; }
     // The file changed on disk (sync, another window…). Keep both versions: ours as a conflict copy.
     const copy = `${name} (conflict ${new Date().toTimeString().slice(0, 8).replace(/:/g, '-')})`;
     try { await api('/api/note?name=' + encodeURIComponent(copy), { method: 'PUT', body: await noteBody(n, text) }); } catch {}     // an encrypted note's conflict copy is encrypted too
+    unsaved.delete(name);
     const was = cur; await load();
     if (was === name && notes.has(name)) { cur = name; renderPane(); renderBack(); }
     say(`Changed elsewhere — your version saved as “${copy}”`);
+    return true;
   }
 }
+function flush() {
+  clearTimeout(timer);
+  flushLock.p = flushLock.p.then(async () => {
+    if (!unsaved.size) { dirty = false; return; }
+    let ok = true;
+    for (const name of [...unsaved]) if (!(await saveNote(name))) ok = false;
+    dirty = unsaved.size > 0;
+    if (ok) { saveSucceeded(); renderList(); } else saveFailed(saveNote.lastError || new Error('unknown error'));
+  });
+  return flushLock.p;
+}
+$('#status').addEventListener('click', () => { if (SAVE.text === 'Not saved') flush(); });
+window.addEventListener('online', () => { if (unsaved.size) flush(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && unsaved.size) flush(); });
+// Closing the page: browsers cut async work short, so plain-text notes get a keepalive request (it outlives the page); encrypted notes can't be
+// encrypted synchronously, and anything still unsaved makes the browser ask before closing.
+window.addEventListener('pagehide', () => {
+  for (const name of unsaved) {
+    const n = notes.get(name); if (!n || n.cipher || n.text.length > 60000) continue;
+    const sent = n.text;                                                               // if the page survives (back/forward cache), record that this version is on disk so the next save is not seen as a conflict
+    try { fetch('/api/note?name=' + encodeURIComponent(name), { method: 'PUT', body: sent, keepalive: true, headers: { 'x-base-mtime': String(n.base ?? 0) } }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && notes.get(name) === n) { n.base = j.mtime; if (n.text === sent) { unsaved.delete(name); dirty = unsaved.size > 0; } } }).catch(() => {}); } catch {}
+  }
+});
+// Ask before closing only when the close-time save cannot be guaranteed: an encrypted note (it cannot be encrypted synchronously), a note too big for a
+// keepalive request, or a server that is already failing. An ordinary pending autosave is simply sent as the page goes away, with no nagging.
+const closeRisk = () => retry.delay > 0 || [...unsaved].some((name) => { const n = notes.get(name); return !n || n.cipher || n.text.length > 60000; });
+window.addEventListener('beforeunload', (e) => { if (unsaved.size) flush(); if (unsaved.size && closeRisk()) { e.preventDefault(); e.returnValue = ''; } });
 async function newNote() {
   const pre = settings.newFolder ? settings.newFolder + '/' : '';
   let i = 0, n; do { n = pre + (i ? `Untitled ${i}` : 'Untitled'); i++; } while (notes.has(n));
@@ -1378,7 +1426,7 @@ function renderProps(force) {
 }
 function setNoteText(t) {
   const n = notes.get(cur); if (!n || n.text === t) return;
-  n.text = t; n.mtime = Date.now(); aliasMap = null; dirty = true;
+  n.text = t; n.mtime = Date.now(); aliasMap = null; dirty = true; unsaved.add(cur);
   const ed = $('#ed'); if (ed) { ed.value = t; syncEditor(); } else if ($('#lp')) { lp.lines = t.split('\n'); lpPaint(); } else if ($('#pv')) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   updateWC(); renderOutline(); renderList(); renderProps(true); if (split && split === cur) renderSplitSoon();
   saveState('Editing…'); clearTimeout(timer); timer = setTimeout(flush, 600);
@@ -1522,7 +1570,7 @@ $('#del').onclick = async () => {
   try { res = await api('/api/note?name=' + encodeURIComponent(name), { method: 'DELETE' }); } catch (e) { say('Could not move to the trash: ' + e.message); return; }
   keyring.delete(name);
   const gone = cur, keep = tabs[ti]; tabs = tabs.filter((t) => t === keep || t.name !== gone); keep.name = null; ti = tabs.indexOf(keep); renderTabs(); saveTabs();
-  notes.delete(cur); cur = null; dirty = false; if (split === gone) closeSplit(); saveState(''); $('#title').value = ''; $('#title').disabled = true;
+  unsaved.delete(gone); notes.delete(cur); cur = null; dirty = unsaved.size > 0; if (split === gone) closeSplit(); saveState(''); $('#title').value = ''; $('#title').disabled = true;
   location.hash = ''; renderList(); renderPane(); renderBack();
   say(`Moved “${short}” to the trash`, { action: res.id ? { label: 'Undo', run: () => undoDelete(res.id, short, sess) } : undefined });
 };
@@ -1800,7 +1848,7 @@ async function unlockNote(name, pass) {
 }
 async function lockNote(name) {
   const n = notes.get(name); if (!n || !n.enc) return true;
-  if (cur === name) { await flush(); if (dirty) { say('Could not save, so the note was not locked'); return false; } }
+  if (cur === name) { await flush(); if (unsaved.has(name)) { say('Could not save, so the note was not locked'); return false; } }
   n.enc = null; n.text = ''; keyring.delete(name); aliasMap = null;
   if (cur === name) { renderPane(); renderOutline(); renderProps(true); updateWC(); }
   if (split === name) renderSplit();

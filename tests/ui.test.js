@@ -35,6 +35,7 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     let id = 0; const pending = new Map(), errors = [];
     ws.onmessage = (m) => {
       const d = JSON.parse(m.data);
+      if (d.method === 'Page.javascriptDialogOpening') { ws.send(JSON.stringify({ id: 99999 + (id++), method: 'Page.handleJavaScriptDialog', params: { accept: true } })); return; }
       if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); }
       else if (d.method === 'Runtime.exceptionThrown') errors.push(d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text);
       else if (d.method === 'Runtime.consoleAPICalled' && d.params.type === 'error') errors.push(d.params.args.map((a) => a.value ?? a.description).join(' '));
