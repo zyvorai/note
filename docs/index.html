@@ -28,6 +28,7 @@
 <meta name="twitter:image" content="https://zyvorai.github.io/note/social/og.png">
 <meta name="twitter:image:alt" content="Plainnote: Notes that feel instant. Files you own. The window shows a note in the Plainnote app.">
 <link rel="stylesheet" href="assets/landing.css">
+<link rel="stylesheet" href="assets/zyvor-buyer.css">
 <style>:root{--accent-btn:#5b5bd6;--accent-ink:#5b5bd6;--accent-grad-a:#5b5bd6;--accent-grad-b:#bf4fc0}@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--accent-ink:#9d9dff}}:root[data-theme="dark"]{--accent-ink:#9d9dff}</style>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Plainnote","applicationCategory":"ProductivityApplication","operatingSystem":"macOS, Windows, Linux, iOS","softwareVersion":"0.13.1","downloadUrl":"https://github.com/zyvorai/note/releases/latest","url":"https://zyvorai.github.io/note/","description":"Plainnote is a local-first notes app. Plain Markdown files, wikilinks, a live graph, dark mode. Zero dependencies. Source-available under the Zyvor Production License; a commercial license is required to run it.","image":"https://zyvorai.github.io/note/social/og.png","publisher":{"@type":"Organization","name":"Zyvor AI Labs Private Limited","url":"https://zyvor.dev"}}</script>
 </head>
@@ -45,9 +46,22 @@
   <h1 id="top">Plainnote</h1>
   <p class="tagline">Notes that feel instant. Files you own.</p>
   <p class="promise"><strong>Plain Markdown in a folder you choose.</strong> A local-first notes app. Every note is a Markdown file in a folder you choose, with wikilinks, a live graph and dark mode. No account, no cloud, no telemetry, no dependencies: just Node.js.</p>
-  <p class="cta"><a class="btn primary" href="#start">Download Plainnote</a><a class="textlink" href="https://github.com/zyvorai/note">View on GitHub</a></p>
-  <p class="fine">Zyvor Production License · commercial license required · macOS, Windows, Linux · no account</p>
+  <div class="buyer" role="group" aria-label="Get Plainnote">
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/zyvorai/note/releases/download/v0.13.1/Plainnote-0.13.1-universal.dmg">Download Plainnote 0.13.1</a>
+      <a class="btn ghost" href="https://zyvor.dev/contact?intent=trial&amp;product=plainnote" rel="noopener">Ask for a 30-day trial</a>
+      <a class="btn ghost" href="https://zyvor.dev/buy" rel="noopener">Buy a license</a>
+    </div>
+    <p class="sub">Plainnote-0.13.1-universal.dmg · macOS · <a href="https://zyvor.dev/pricing" rel="noopener">See current prices</a> · <a href="https://github.com/zyvorai/note/releases/latest">All downloads</a></p>
+    <p class="trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span><strong>Verified by Apple:</strong> Developer ID signed and notarized. This applies to the macOS DMG. The Windows and Linux executables are not notarized.</span></p>
+    <ul class="reqs"><li>macOS app needs Node.js 20 or later installed. Windows and Linux executables are on the <a href="https://github.com/zyvorai/note/releases/latest">release page</a>.</li></ul>
+  </div>
   <figure class="shot hero-shot"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/img/hero-img-dark-1200.webp 1200w, assets/img/hero-img-dark-1800.webp 1800w" sizes="(min-width:1080px) 1040px, 100vw"><img src="assets/img/hero-img-light-1200.webp" srcset="assets/img/hero-img-light-1200.webp 1200w, assets/img/hero-img-light-1800.webp 1800w" sizes="(min-width:1080px) 1040px, 100vw" width="2880" height="1800" alt="Plainnote showing a note with a table, tasks and code beside the note list." fetchpriority="high" decoding="async"></picture><figcaption>The Plainnote desktop app. Sample notes.</figcaption></figure>
+</section>
+
+<section class="outcomes" aria-labelledby="outcomes-h">
+  <h2 id="outcomes-h">Notes you own, in plain files you can open anywhere.</h2>
+  <ul class="tiles"><li class="tile"><h3>Keep your notes in your own files</h3><p>Every note is a Markdown file in a folder you choose. Use an existing Obsidian vault or any folder of .md files.</p></li><li class="tile"><h3>See how your ideas connect</h3><p>Type [[ to link a note. Backlinks appear under every note, and a live graph lets you click through them.</p></li><li class="tile"><h3>Keep your notes private</h3><p>No account, no telemetry. The local server accepts only local connections, and deletes go to a trash folder you can restore from.</p></li></ul>
 </section>
 
 <section class="band" aria-label="Overview">
@@ -71,11 +85,10 @@
   <div class="cards"><div class="card"><h3>No account, no telemetry</h3><p>Notes stay in your folder. The app has no accounts and sends no telemetry.</p></div><div class="card"><h3>Local-only server</h3><p>It listens on 127.0.0.1 only, rejects other Host and Origin values, and confines note paths to your notes folder.</p></div><div class="card"><h3>Safe by default</h3><p>Deletes go to .trash/ and can be restored. Remote mode, for phones, needs a secret token on every request.</p></div></div>
 </section>
 
-<section class="specs" id="pricing" aria-labelledby="pricing-h">
-  <h2 id="pricing-h">Pricing.</h2>
-  <dl class="specs-grid"><div class="spec"><dt>Plainnote</dt><dd>₹999<small>per Mac, one-time, incl. 1 year of updates (incl. 18% GST in India; about US$10 excl. tax outside India).</small></dd></div><div class="spec"><dt>Teams</dt><dd>₹849<small>per unit, 5 or more, by invoice.</small></dd></div><div class="spec"><dt>Trial</dt><dd>30 days<small>Free evaluation. Production use needs a licence.</small></dd></div></dl>
-  <p class="cta"><a class="btn primary" href="https://zyvor.dev/buy#plainnote" rel="noopener">Buy Plainnote</a><a class="textlink" href="https://zyvor.dev/pricing">All prices</a></p>
-  <p class="fine">Orders of US$5,000 or more are invoiced in US dollars and paid through Skydo. Prices are set on zyvor.dev.</p>
+<section class="buy-pointer" id="pricing" aria-labelledby="pricing-h">
+  <h2 id="pricing-h">Prices and licenses</h2>
+  <p>Current prices are on zyvor.dev. You can ask for a 30-day trial before you decide.</p>
+  <p class="cta"><a class="btn primary" href="https://zyvor.dev/buy" rel="noopener">Buy a license</a><a class="btn ghost" href="https://zyvor.dev/contact?intent=trial&amp;product=plainnote" rel="noopener">Ask for a 30-day trial</a><a class="textlink" href="https://zyvor.dev/pricing" rel="noopener">See current prices</a></p>
 </section>
 
 <section class="specs" id="specs" aria-labelledby="specs-h">
@@ -116,7 +129,7 @@ node server.js ~/Notes     # then open http://localhost:4777</code></pre></div>
 </main>
 <footer class="footer">
   <p><strong>Plainnote</strong> · Source-available under the Zyvor Production License v1.0.</p>
-  <p class="links"><a href="https://github.com/zyvorai/note">GitHub</a><a href="https://github.com/zyvorai/note/releases">Releases</a><a href="privacy.html">Privacy</a><a href="https://github.com/zyvorai/note/blob/main/LICENSE">LICENSE</a><a href="https://github.com/zyvorai/note/blob/main/SECURITY.md">SECURITY</a><a href="https://github.com/zyvorai/note/blob/main/CONTRIBUTING.md">Contributing</a></p>
+  <p class="links"><a href="https://github.com/zyvorai/note">GitHub</a><a href="https://github.com/zyvorai/note/releases">Releases</a><a href="privacy.html">Privacy</a><a href="https://github.com/zyvorai/note/blob/main/LICENSE">LICENSE</a><a href="https://github.com/zyvorai/note/blob/main/SECURITY.md">SECURITY</a><a href="https://github.com/zyvorai/note/blob/main/CONTRIBUTING.md">Contributing</a><a href="https://zyvor.dev">zyvor.dev</a><a href="mailto:sales@zyvor.dev">Support: sales@zyvor.dev</a></p>
   <p>© 2026 Plainnote contributors · a <a href="https://zyvor.dev">Zyvor</a> project · Zyvor Production License v1.0</p>
 </footer>
 </body>
