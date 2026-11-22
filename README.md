@@ -65,6 +65,18 @@ node server.js ~/Notes          # http://localhost:4777
 
 - **Version history**: Plainnote keeps earlier versions of each note in `.plainnote/history/` (at most one every 2 minutes, newest 60 kept; plain files, no git needed). Run *Version history of this note…* from the command palette to preview a version and restore it. Restoring is an ordinary edit, so you can undo it from history too. Not in the iPhone app yet.
 - **Publish a website**: `node server.js publish ~/Notes ./site --title "My notes"` writes one HTML page per note plus an index and the attachments you used. `[[links]]` become real links, light/dark follow the visitor's system, and `diagram` blocks and PDFs come along. Put `publish: false` in a note's frontmatter to keep it out (links to it become plain text). The output folder must be empty or a previous publish, and inside your notes it must be a dot-folder, so nothing of yours is overwritten. Push the folder to GitHub Pages or any static host.
+### Importing your notes
+
+Run *Import notes from another app…* from the command palette (or `node server.js import <folder-or-zip> [notesDir]` for Markdown, from the terminal). Pick what you exported and Plainnote turns it into plain Markdown files, keeping folders, links, images, tags and dates:
+
+| From | Export | Choose |
+|---|---|---|
+| **Obsidian** | nothing to export | the vault folder (or a .zip of it) |
+| **Notion** | Settings → Export → *Markdown & CSV* (or *HTML*) | the .zip |
+| **Evernote** | File → Export Notes… → `.enex` | the file (images and attachments come along; checklists become tasks) |
+| **Bear** and others | Export as Markdown or TextBundle | the folder or .zip |
+
+Notion's long id suffixes are removed from names, links between pages become `[[wikilinks]]`, database CSVs become tables, and images are saved into `attachments/`. Imported notes go into an `Imported` folder by default (leave the name empty to merge into your notes). **Nothing is ever overwritten**: a name that is taken gets a number, and the preview tells you what was found and what was skipped (for example `.docx` or audio files, which Plainnote does not keep). Zips are checked before they are read: unsafe paths, hidden files, password-protected and oversized archives are refused or skipped. Evernote and HTML need the in-app importer; the terminal command handles Markdown, CSV and images.
 
 ## Desktop app (macOS)
 
