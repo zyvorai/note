@@ -357,6 +357,8 @@ if (require.main === module && process.argv[2] === 'export') {
   require('./scripts/export-pdf').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
 } else if (require.main === module && process.argv[2] === 'publish') {
   require('./scripts/publish').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
+} else if (require.main === module && process.argv[2] === 'import') {
+  require('./scripts/import').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
 } else if (require.main === module && process.argv[2] === 'pdf') {
   require('./scripts/pdf-tools').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
 } else if (require.main === module) {

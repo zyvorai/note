@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clip to Plainnote</title><link rel="stylesheet" href="/app.css">
+<style>body{padding:16px;display:block;height:auto;overflow:auto}main{max-width:44rem;margin:0 auto}h1{font-size:18px;margin:0 0 12px}
+label{display:block;font-size:13px;color:var(--mute);margin:10px 0 4px}input,textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:14px ui-monospace,Menlo,monospace}
+textarea{height:55vh;resize:vertical}.row{display:flex;gap:8px;align-items:center;margin-top:12px}#st.bad{color:#c0392b}</style></head>
+<body><main><h1>Clip to Plainnote</h1><p id="waiting">Waiting for the page…</p>
+<form id="clip-form" hidden><label for="nm">Note name</label><input id="nm" required><label for="md">Markdown (edit before saving)</label><textarea id="md" spellcheck="false"></textarea>
+<div class="row"><button id="go" type="submit">Save note</button><span id="st" role="status"></span></div></form></main>
+<script src="/clip.js"></script></body></html>
