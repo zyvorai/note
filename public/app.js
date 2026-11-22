@@ -223,7 +223,7 @@ function renderPane() {
   setIcon('#tog', preview ? 'pencil' : 'eye', preview ? 'Edit' : 'Preview');
   if (preview) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   else if (settings.livePreview) lpMount(t);
-  else { $('#pane').innerHTML = '<div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" spellcheck="' + settings.spellcheck + '" placeholder="Start writing… use [[links]] to connect notes"></textarea></div>';
+  else { $('#pane').innerHTML = '<div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" aria-label="Note editor" spellcheck="' + settings.spellcheck + '" placeholder="Start writing… use [[links]] to connect notes"></textarea></div>';
     const ed = $('#ed'); ed.value = t; syncEditor(); ed.oninput = () => { onInput(); acUpdate(); caretIntoView(); }; ed.onkeydown = (e) => { edKey(e); setTimeout(caretIntoView, 0); }; ed.onblur = () => setTimeout(acHide, 150);
     ed.onpaste = (e) => { const lk = MD.pasteLink(ed.value, ed.selectionStart, ed.selectionEnd, e.clipboardData.getData('text/plain')); if (lk) { e.preventDefault(); applyEdit(ed, lk); return; } if (attach(e.clipboardData.files)) { if ([...e.clipboardData.files].some((f) => /^image\/|^application\/pdf$/.test(f.type))) e.preventDefault(); } };
     ed.ondragover = (e) => { if ([...e.dataTransfer.items].some((i) => /^image\/|^application\/pdf$/.test(i.type))) e.preventDefault(); };
@@ -591,7 +591,7 @@ let tabs = [{ name: null, preview: false }], ti = 0, pendingPreview = false;
 const saveTabs = () => { try { localStorage.setItem('tabs', JSON.stringify({ i: ti, tabs: tabs.map((t) => ({ name: t.name, preview: !!t.preview })) })); } catch {} };
 function renderTabs() {
   const el = $('#tabs'); el.style.display = tabs.length > 1 ? 'flex' : 'none';
-  el.innerHTML = tabs.map((t, i) => `<div class="tab${i === ti ? ' on' : ''}" role="tab" aria-selected="${i === ti}" data-tab="${i}" title="${esc(t.name || 'New tab')}"><span>${esc(t.name ? t.name.split('/').pop() : 'New tab')}</span><button class="x" data-tabclose="${i}" aria-label="Close tab" title="Close tab">×</button></div>`).join('')
+  el.innerHTML = tabs.map((t, i) => `<div class="tab${i === ti ? ' on' : ''}" role="tab" aria-selected="${i === ti}" tabindex="${i === ti ? 0 : -1}" data-tab="${i}" title="${esc(t.name || 'New tab')}"><span>${esc(t.name ? t.name.split('/').pop() : 'New tab')}</span><button class="x" data-tabclose="${i}" aria-label="Close tab" title="Close tab">×</button></div>`).join('')
     + '<button id="newtab" title="New tab (Ctrl/Cmd+T)" aria-label="New tab">+</button>';
 }
 function showEmpty() {
@@ -958,6 +958,7 @@ function drawGraph() {
   const pane = $('#pane');
   pane.innerHTML = '<canvas id="gc"></canvas><div id="gmode" title="Click to change: all notes / this note and its links / two steps out"></div>';
   const cv = $('#gc'), ctx = cv.getContext('2d'), dpr = devicePixelRatio || 1;
+  cv.setAttribute('role', 'img'); cv.setAttribute('aria-label', 'Graph of your notes and the links between them. The note list in the sidebar has the same notes for keyboard and screen-reader use.');
   const ids = new Map(), nodes = [], links = [];
   const node = (id, label, ghost) => { let n = ids.get(id);
     if (!n) { const a = Math.random() * 6.28, d = 40 + Math.random() * 120;
@@ -1042,6 +1043,7 @@ function drawGraph() {
     else { const h = pick(px, py); if (h !== hover) { hover = h; cv.style.cursor = h ? 'pointer' : 'grab'; } } };
   cv.onpointerup = () => { if (drag && !moved) { const n = drag; drag = null; graphOn = false; open(n.id, true); return; }
     drag = pan = null; cv.style.cursor = hover ? 'pointer' : 'grab'; };
+  cv.onpointercancel = () => { drag = pan = null; cv.style.cursor = 'grab'; };          // the browser took the gesture (scroll, system swipe): never leave a drag stuck
   cv.onwheel = (e) => { e.preventDefault(); userView = true; const [px, py] = pos(e), k = Math.exp(-e.deltaY * 0.0015), ns = Math.min(4, Math.max(0.2, scale * k));
     const [wx, wy] = toW(px, py); scale = ns; ox = px - W / 2 - wx * scale; oy = py - H / 2 - wy * scale; };
   if (/[?&]settle\b/.test(location.search)) for (let i = 0; i < 600; i++) step();   // ?graph&settle: pre-computed layout (deterministic screenshots)
@@ -1943,3 +1945,84 @@ function openRestore() {
   };
   $('#bkf').focus();
 }
+
+
+/* ---------- accessibility layer ----------
+   Roles, names and keyboard handling for the parts of the UI that are built as plain <div>s and handled by click delegation: the note list, tag chips,
+   tabs, the palette, and the autocomplete. Applied as the lists are (re)rendered, so every render path is covered without touching each template. */
+(function () {
+  const name = (sel, text) => { const e = $(sel); if (e && !e.getAttribute('aria-label')) e.setAttribute('aria-label', text); };
+  name('#q', 'Search notes'); name('#title', 'Note title'); name('#menu', 'Show the notes list'); name('#theme', 'Theme: automatic, light or dark'); name('#swq', 'Search notes or type a command');
+  name('#frq', 'Find in this note'); name('#frr', 'Replace with'); name('#frp', 'Previous match'); name('#frn', 'Next match'); name('#frs', 'Replace this match'); name('#fra', 'Replace all matches'); name('#frx', 'Close find');
+  name('#gfq', 'Find in all notes'); name('#gfr', 'Replace with'); name('#gfa', 'Apply the replacement to the ticked notes'); name('#gfx', 'Close'); name('#stx', 'Close settings');
+  name('#auto', 'Sync automatically every 2 minutes'); name('#sync', 'Sync notes'); name('#trash', 'Trash'); name('#ss', 'Sync status');
+  const frc = $('#frc'); if (frc) { frc.setAttribute('role', 'status'); frc.setAttribute('aria-live', 'polite'); }
+  const menu = $('#menu'); if (menu) menu.setAttribute('aria-expanded', 'false');
+
+  // the note list: one tab stop (the open note), arrow keys / Home / End move, Enter or Space opens, Shift+F10 / Menu opens the context menu
+  const list = $('#list'); list.setAttribute('role', 'listbox'); list.setAttribute('aria-label', 'Notes');
+  const decorateList = () => {
+    const items = [...list.querySelectorAll('.item')], hasOn = items.some((i) => i.classList.contains('on'));
+    items.forEach((el, i) => { const on = el.classList.contains('on'); el.setAttribute('role', 'option'); el.setAttribute('aria-selected', String(on)); el.tabIndex = on || (!hasOn && i === 0) ? 0 : -1; });
+  };
+  new MutationObserver(decorateList).observe(list, { childList: true }); decorateList();
+  list.addEventListener('keydown', (e) => {
+    const it = e.target.closest && e.target.closest('.item'); if (!it || e.target !== it) return;
+    const items = [...list.querySelectorAll('.item')], i = items.indexOf(it);
+    const go = (el) => { if (el) { e.preventDefault(); items.forEach((x) => { x.tabIndex = -1; }); el.tabIndex = 0; el.focus(); } };
+    if (e.key === 'ArrowDown') go(items[i + 1] || it); else if (e.key === 'ArrowUp') go(items[i - 1] || it);
+    else if (e.key === 'Home') go(items[0]); else if (e.key === 'End') go(items[items.length - 1]);
+    else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault(); const folder = it.dataset.folder, isNote = !!it.dataset.note; it.click();
+      if (folder !== undefined) setTimeout(() => list.querySelector(`[data-folder="${CSS.escape(folder)}"]`)?.focus(), 0);                 // the tree re-renders: keep the place
+      else if (isNote) setTimeout(() => { const t = $('#ed') || $('#lp'); if (t) t.focus(); }, 60);                                          // opening a note moves you into it
+    } else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      e.preventDefault(); const r = it.getBoundingClientRect(); it.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 24, clientY: r.bottom - 4 }));
+    }
+  });
+
+  // tag and saved-search chips behave like toggle buttons
+  const tags = $('#tags');
+  const decorateTags = () => {
+    for (const c of tags.querySelectorAll('.chip')) { c.setAttribute('role', 'button'); c.tabIndex = 0; if (c.dataset.tag !== undefined) c.setAttribute('aria-pressed', String(c.classList.contains('on'))); }
+    for (const x of tags.querySelectorAll('.x')) { x.setAttribute('role', 'button'); x.setAttribute('aria-label', 'Remove this saved search'); x.tabIndex = 0; }
+  };
+  new MutationObserver(decorateTags).observe(tags, { childList: true }); decorateTags();
+  tags.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.chip,.x')) { e.preventDefault(); e.target.click(); } });
+
+  // tabs: arrow keys move between them (and open the one you land on), Home / End jump
+  $('#tabs').addEventListener('keydown', (e) => {
+    const t = e.target.closest && e.target.closest('.tab'); if (!t) return;
+    const all = [...document.querySelectorAll('#tabs .tab')], i = all.indexOf(t); let next = null;
+    if (e.key === 'ArrowRight') next = all[(i + 1) % all.length]; else if (e.key === 'ArrowLeft') next = all[(i - 1 + all.length) % all.length];
+    else if (e.key === 'Home') next = all[0]; else if (e.key === 'End') next = all[all.length - 1];
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); t.click(); return; }
+    if (next) {
+      e.preventDefault(); const want = next.dataset.tab; next.click();
+      const refocus = (tries) => { const on = document.querySelector('#tabs .tab.on'); if (on && on.dataset.tab === want) on.focus(); else if (tries > 0) setTimeout(() => refocus(tries - 1), 30); };   // switching re-renders the strip asynchronously
+      refocus(20);
+    }
+  });
+
+  // the palette is a combobox over a listbox: screen readers hear the highlighted row as you arrow through it
+  const swq = $('#swq'), swl = $('#swl');
+  swq.setAttribute('role', 'combobox'); swq.setAttribute('aria-controls', 'swl'); swq.setAttribute('aria-expanded', 'true'); swq.setAttribute('aria-autocomplete', 'list');
+  swl.setAttribute('role', 'listbox'); swl.setAttribute('aria-label', 'Results');
+  const decoratePalette = () => {
+    const rows = [...swl.querySelectorAll('.item')]; let active = '';
+    rows.forEach((el, i) => { el.id = 'swo' + i; el.setAttribute('role', 'option'); const on = el.classList.contains('on'); el.setAttribute('aria-selected', String(on)); if (on) active = el.id; });
+    if (active) swq.setAttribute('aria-activedescendant', active); else swq.removeAttribute('aria-activedescendant');
+  };
+  new MutationObserver(decoratePalette).observe(swl, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] }); decoratePalette();
+
+  // the in-editor [[link]] / slash autocomplete
+  const ac = $('#ac'); ac.setAttribute('role', 'listbox'); ac.setAttribute('aria-label', 'Suggestions');
+  new MutationObserver(() => ac.querySelectorAll('.item').forEach((el, i) => { el.setAttribute('role', 'option'); el.setAttribute('aria-selected', String(el.classList.contains('on'))); })).observe(ac, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+
+  // the notes drawer on phones: announce its state, and keep the page behind it unreachable while it is open
+  const sync = () => {
+    const open = document.body.classList.contains('side-open'), narrow = matchMedia('(max-width:700px)').matches;
+    if (menu) menu.setAttribute('aria-expanded', String(open)); $('#main').inert = open && narrow;
+  };
+  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] }); addEventListener('resize', sync); sync();
+})();
