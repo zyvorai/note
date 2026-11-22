@@ -969,6 +969,8 @@ const COMMANDS = [
   { id: 'history', name: 'Version history of this note…', run: () => openHistory() },
   { id: 'clipper', name: 'Web clipper: get the Clip bookmark…', run: () => openClipper() },
   { id: 'import', name: 'Import notes from another app…', run: () => openImport() },
+  { id: 'tour', name: 'Take the Plainnote tour', run: () => PNTour.start() },
+  { id: 'samples', name: 'Add the sample notes', run: () => PNTour.createSamples(true) },
   { id: 'pdf', name: 'Export this note as PDF / Print…', run: () => exportPdf() },
   { id: 'gfind', name: 'Find and replace in all notes', hint: 'Ctrl/Cmd+Shift+H', run: () => openGlobalFind() },
   { id: 'export', name: 'Export this note as HTML', run: () => exportHtml() },
@@ -1499,6 +1501,7 @@ plainnote.ready = load().then(async () => {
   if (!cur) renderPane();                                           // nothing to open: show the (touch-aware) empty state
   if (/[?&]graph\b/.test(location.search)) { graphOn = true; renderPane(); }   // ?graph opens the graph view (used for screenshots)
   if (/[?&]preview\b/.test(location.search) && cur) { preview = true; renderPane(); }
+  PNTour.maybeStart();
 });
 
 /* Image lightbox: click an image in the reading view to see it full size (click or Esc closes) */
