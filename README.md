@@ -26,15 +26,17 @@ node server.js ~/Notes          # http://localhost:4777
 ### Attachments, diagrams and PDFs
 
 - **Images and PDFs**: paste or drop a `.png`, `.jpg`, `.gif`, `.webp`, `.svg` or `.pdf` into the editor. It is saved under `attachments/` and linked as `![name](attachments/…)`. In the reading view, PDFs show in an inline viewer and images open full size when clicked (Esc closes).
-- **Diagrams**: a fenced block named `diagram` draws a flow diagram as SVG (follows light/dark, prints cleanly). One chain per line, `: label` on the last arrow, and a first line of `down` for top-to-bottom:
+- **Diagrams**: a fenced block named `diagram` draws a flow or sequence diagram as SVG (follows light/dark, prints cleanly). Hover one in the reading view to **copy it as SVG, copy it as an image, or save a PNG**.
 
   ````
   ```diagram
-  Browser -> Server: HTTP
-  Server -> Notes folder
-  Server -> Git: sync
+  title: Signup
+  (Start) -> Enter email #blue -> {Valid?}: yes
+  {Valid?} --> Show error #red: no
+  Enter email -> [(Users DB)] #green
   ```
   ````
+  One chain per line, with `: label` on the last arrow. `->` is an arrow, `-->` a dashed arrow, `---` a plain line. Shapes: `Name` rounded box, `(Name)` pill, `{Name}` diamond, `[(Name)]` database, `((Name))` circle. Add a colour with `#blue #green #orange #pink #teal #gold #red #gray` or `#rrggbb`. Header lines: `down` for top-to-bottom, `title: …`. For a sequence diagram start with `sequence`, then `Browser -> Server: POST /login` and `Server --> Browser: 200` (dashed is a reply).
 - **Math**: `$e^{i\pi}+1=0$` inline and `$$ … $$` blocks (one line or several). A LaTeX subset (fractions, roots, sub/superscripts, sums and integrals with limits, Greek letters, common symbols, matrices and `cases`) is drawn as MathML, which browsers render natively, so there is nothing to download. Prices like "$5 and $10" and anything inside code are left alone; an unknown command shows in red instead of breaking the note.
 - **Charts**: a `chart` fence draws a bar, line or pie chart as SVG:
 

@@ -1619,3 +1619,31 @@ function openImport() {
   };
   $('#impf').focus();
 }
+/* Diagrams and charts: hover to copy them as SVG or PNG, or save a PNG (added here, so exports and published pages stay clean) */
+(function () {
+  const bgOf = () => { for (const el of [$('#pv'), document.body]) { const c = el && getComputedStyle(el).backgroundColor; if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) return c; } return '#ffffff'; };
+  const say = (s) => { $('#status').textContent = s; };
+  async function act(kind, wrap) {
+    const svg = wrap.querySelector('svg'); if (!svg) return;
+    const color = getComputedStyle(wrap).color, bg = bgOf();
+    try {
+      if (kind === 'svg') { await navigator.clipboard.writeText(PNDiagram.standalone(svg, color, bg).svg); say('Copied the SVG'); return; }
+      const blob = await PNDiagram.toPngBlob(svg, color, bg);
+      if (kind === 'png') { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); say('Copied the image'); return; }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = ((svg.getAttribute('aria-label') || 'diagram').replace(/[^\w -]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'diagram') + '.png';
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); say('Saved ' + a.download);
+    } catch (e) { say('Could not ' + (kind === 'save' ? 'save the PNG' : kind === 'svg' ? 'copy the SVG' : 'copy the image') + ' here: ' + e.message); }
+  }
+  function decorate() {
+    for (const w of document.querySelectorAll('#pv .diagram-wrap:not([data-tb])')) {
+      w.dataset.tb = '1';
+      const tb = document.createElement('div'); tb.className = 'dtb';
+      tb.innerHTML = '<button data-k="svg" title="Copy as SVG">SVG</button><button data-k="png" title="Copy as image">Copy</button><button data-k="save" title="Save as PNG">PNG</button>';
+      tb.onclick = (e) => { const b = e.target.closest('button'); if (b) act(b.dataset.k, w); };
+      w.appendChild(tb);
+    }
+  }
+  new MutationObserver(decorate).observe($('#pane'), { childList: true, subtree: true });
+  decorate();
+})();
