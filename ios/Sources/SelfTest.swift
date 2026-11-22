@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 // A launch-time smoke test driven from the command line (see ios/build.sh): when PLAINNOTE_SELFTEST is set the app
 // exercises the real web UI against the real native bridge and writes the outcome to <notes>/.selftest-<n>.json.

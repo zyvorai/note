@@ -11,7 +11,7 @@
 
 <p align="center"><img src="docs/assets/hero-light.png" alt="Plainnote screenshot" width="860"></p>
 
-A free, lightweight, local-first notes app. Your notes are plain Markdown files in a folder you choose. No dependencies, no build step, no accounts, no telemetry: just Node.js.
+A lightweight, local-first notes app. Your notes are plain Markdown files in a folder you choose. No dependencies, no build step, no accounts, no telemetry: just Node.js.
 
 ## Run
 
@@ -175,15 +175,15 @@ The editor is a plain textarea, not a full code editor. The graph layout is O(n�
 
 ## Contributing
 
-Please contact sales@zyvor.dev before sending a contribution; contributions are accepted only under the terms of the Zyvor Production License v1.0. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately ([SECURITY.md](SECURITY.md)).
+Please contact sales@zyvor.dev before sending a contribution; contributions are accepted only under the terms of the Zyvor Production Licence v2.0. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately ([SECURITY.md](SECURITY.md)).
 
 ## Support
 
-Plainnote: Evaluation is free for 30 days per organization under the Zyvor Production License v1.0; production use requires a commercial license (sales@zyvor.dev). If it helps you, you can give any amount you like, from INR 1 up: by UPI, card or netbanking at <https://rzp.io/rzp/utwdYh3> (Razorpay; international cards work too). Suggested: INR 999 (about US$10), INR 2,999 (about US$30) or INR 9,999 (about US$100). A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or licence, and it is not tax-deductible (Zyvor AI Labs Private Limited is a company, not a charity).
+Plainnote: A 30-day trial is available on request from sales@zyvor.dev (a paid evaluation Order at no charge); production and any other use needs a paid Order under the Zyvor Production Licence v2.0. If it helps you, you can give any amount you like, from INR 1 up: by UPI, card or netbanking at <https://rzp.io/rzp/utwdYh3> (Razorpay; international cards work too). Suggested: INR 999 (about US$10), INR 2,999 (about US$30) or INR 9,999 (about US$100). A donation is voluntary and supports development and maintenance. It is not a purchase: it buys no support, SLA, features, priority or licence, and it is not tax-deductible (Zyvor AI Labs Private Limited is a company, not a charity).
 
 ## License
 
-Plainnote is source-available under the **[Zyvor Production License v1.0](LICENSE)** (SPDX `LicenseRef-Zyvor-Production-1.0`, also in [LICENSES/](LICENSES/LicenseRef-Zyvor-Production-1.0.txt); see [NOTICE](NOTICE), which also records the earlier MIT-licensed history).
+Plainnote is source-available under the **[Zyvor Production Licence v2.0](LICENSE)** (SPDX `LicenseRef-Zyvor-Production-2.0`, also in [LICENSES/](LICENSES/LicenseRef-Zyvor-Production-2.0.txt); see [NOTICE](NOTICE), which also records the earlier MIT-licensed history).
 
-- **Free for 30 days** per organization, for evaluation, development, testing, proofs of concept, research and education. After that a commercial license is required.
-- **Production use needs a commercial license** from Zyvor AI Labs. A 30-day trial key is available for production evaluation. Buy / get a quote: [zyvor.dev/buy](https://zyvor.dev/buy) · [sales@zyvor.dev](mailto:sales@zyvor.dev).
+- A 30-day trial is available on request from sales@zyvor.dev (a paid evaluation Order at no charge); production and any other use needs a paid Order under the Zyvor Production Licence v2.0.
+- **Production use needs a paid Order** from Zyvor AI Labs. Buy / get a quote: [zyvor.dev/buy](https://zyvor.dev/buy) · [sales@zyvor.dev](mailto:sales@zyvor.dev).

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 // Builds a single-file executable (no Node install needed) for the CURRENT platform:
 //   node scripts/build-sea.js   ->  dist/plainnote-<platform>-<arch>[.exe]

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 # iOS build helper.   ./ios/build.sh [icon|project|test|build|selftest|archive]
 #   icon      render the app icon (full-bleed, no alpha) into the asset catalog

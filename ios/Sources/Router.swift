@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 // The same /api/* routes (and JSON shapes and status codes) that server.js exposes, answered from NotesStore, so the web UI
 // in public/ runs unmodified. Requests arrive from the page's fetch() through the native bridge (see WebHost.swift).
