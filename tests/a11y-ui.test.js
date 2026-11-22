@@ -30,6 +30,10 @@ test('accessibility: list, chips, tabs, palette, names, drawer and graph', { ski
     // Shift+F10 / the Menu key opens the context menu from the keyboard
     await ev("document.querySelector('#list .item').focus()"); await key('F10', { shift: true }); await until("getComputedStyle(document.querySelector('#ctx')).display !== 'none'", 'context menu from the keyboard'); await key('Escape');
 
+    // the list is rebuilt on every save and reload: a keyboard user keeps their place
+    await ev("document.querySelector('#list .item').focus()"); const placed = await ev("document.activeElement.dataset.note"); await ev("renderList()"); await ev("load()");
+    assert.equal(await ev("document.activeElement.dataset && document.activeElement.dataset.note"), placed, 'focus is restored to the same row after a re-render'); assert.equal(await ev("document.activeElement.getAttribute('role')"), 'option');
+
     // chips are toggle buttons; Enter filters the list
     assert.equal(await ev("[...document.querySelectorAll('#tags .chip[data-tag]')].every((c) => c.getAttribute('role') === 'button' && c.tabIndex === 0 && c.hasAttribute('aria-pressed'))"), true);
     await ev("document.querySelector('#tags .chip[data-tag=\"idea\"]').focus()"); await key('Enter');

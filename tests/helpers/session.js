@@ -39,8 +39,12 @@ async function session(opts = {}) {
   const key = async (k, mods = {}) => { const modifiers = (mods.alt ? 1 : 0) | (mods.ctrl ? 2 : 0) | (mods.meta ? 4 : 0) | (mods.shift ? 8 : 0); for (const type of ['rawKeyDown', 'keyUp']) await cdp('Input.dispatchKeyEvent', { type, key: k, code: k.length === 1 ? 'Key' + k.toUpperCase() : k, windowsVirtualKeyCode: keyCodes[k] || k.toUpperCase().charCodeAt(0), modifiers, text: type === 'rawKeyDown' && k.length === 1 && !modifiers ? k : undefined }); };
   const typeInto = (sel, text) => ev(`(()=>{const i=document.querySelector(${JSON.stringify(sel)});i.value=${JSON.stringify(text)};i.dispatchEvent(new Event('input',{bubbles:true}))})()`);
   await cdp('Runtime.enable'); await cdp('Page.enable');
-  if (opts.mobile) await cdp('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: true });
-  const reload = async () => { await cdp('Page.navigate', { url: `http://localhost:${port}/` }); await sleep(1500); await ev("localStorage.tourSeen='1'"); };
+  if (opts.mobile) { await cdp('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: true }); await cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }); }        // the app treats the device as touch only when the browser reports touch
+  const reload = async () => {
+    await cdp('Page.navigate', { url: `http://localhost:${port}/` });
+    for (let i = 0; i < 100; i++) { try { if (await ev("typeof plainnote !== 'undefined'")) break; } catch {} await sleep(100); }          // wait for the app's own ready signal, not a fixed delay
+    await ev('plainnote.ready.then(() => true)'); await ev("localStorage.tourSeen='1'");
+  };
   await reload();
   return {
     dir, port, base: `http://localhost:${port}`, ev, until, key, cdp, typeInto, errors, reload, sleep,

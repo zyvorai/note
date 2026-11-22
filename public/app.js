@@ -170,7 +170,17 @@ function relTime(ms) {
   if (d < 7 * day) return dt.toLocaleDateString(undefined, { weekday: 'short' });
   return dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(dt.getFullYear() !== now.getFullYear() ? { year: '2-digit' } : {}) });
 }
+// The list is rebuilt on every save and reload; a keyboard user on a row must not lose their place each time, so focus is put back on the same row.
 function renderList() {
+  const ae = document.activeElement, inList = ae && ae !== document.body && $('#list').contains(ae);
+  const key = inList ? (ae.dataset.note !== undefined ? ['data-note', ae.dataset.note] : ae.dataset.folder !== undefined ? ['data-folder', ae.dataset.folder] : ae.id ? ['id', ae.id] : null) : null;
+  renderListNow();
+  if (key && !$('#list').contains(document.activeElement)) {
+    const el = key[0] === 'id' ? document.getElementById(key[1]) : $('#list').querySelector(`[${key[0]}="${CSS.escape(key[1])}"]`);
+    if (el && $('#list').contains(el)) { el.tabIndex = 0; el.focus({ preventScroll: true }); }
+  }
+}
+function renderListNow() {
   if (trashMode) return;
   renderTags();
   const pq = MD.parseQuery($('#q').value), q = !MD.emptyQuery(pq);
@@ -605,7 +615,11 @@ document.addEventListener('focusout', (e) => {
 });
 $('#kbar').addEventListener('pointerdown', (e) => { const b = e.target.closest('button'); if (b) { e.preventDefault(); kbarAct(b.dataset.k); } });   // preventDefault keeps focus (and the keyboard) in the editor
 $('#scrim').onclick = () => document.body.classList.remove('side-open');
+let paneAt = null, paneMoved = false;                                // a scroll or a text selection that ends over the text is not a tap
+$('#pane').addEventListener('touchstart', (e) => { paneMoved = false; paneAt = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: true });
+$('#pane').addEventListener('touchmove', (e) => { const t = e.touches[0]; if (paneAt && Math.hypot(t.clientX - paneAt.x, t.clientY - paneAt.y) > 8) paneMoved = true; }, { passive: true });
 $('#pane').addEventListener('click', (e) => {                       // reading view: tap the text to start editing
+  if (paneMoved) { paneMoved = false; return; }
   if (!isTouch() || !preview || !e.target.closest('#pv') || e.target.closest('a, input, img, button, summary, pre, table')) return;
   if (getSelection().toString()) return;
   haptic('light'); $('#tog').click();
@@ -625,12 +639,19 @@ $('#list').addEventListener('touchstart', (e) => {                   // long-pre
   pressAt = { x: t.clientX, y: t.clientY }; pressed = false; clearTimeout(pressTimer);
   pressTimer = setTimeout(() => { pressed = true; pull = null; haptic('medium'); row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: pressAt.x, clientY: pressAt.y })); try { navigator.vibrate?.(10); } catch {} }, 500);
 }, { passive: true });
-$('#list').addEventListener('touchmove', (e) => { const t = e.touches[0]; if (pressAt && Math.hypot(t.clientX - pressAt.x, t.clientY - pressAt.y) > 10) clearTimeout(pressTimer); }, { passive: true });
+// pull-to-refresh with a visible indicator that follows the finger (the browser's own is switched off with overscroll-behavior)
+const ptr = document.createElement('div'); ptr.id = 'ptr'; ptr.setAttribute('aria-hidden', 'true'); $('#list').before(ptr);
+const PTR_AT = 90, ptrReset = () => { ptr.classList.remove('pulling'); ptr.style.height = '0'; };
+$('#list').addEventListener('touchmove', (e) => {
+  const t = e.touches[0]; if (pressAt && Math.hypot(t.clientX - pressAt.x, t.clientY - pressAt.y) > 10) clearTimeout(pressTimer);
+  if (pull && !pressed && $('#list').scrollTop === 0) { const dy = t.clientY - pull.y; if (dy > 6) { ptr.classList.add('pulling'); ptr.style.height = Math.min(56, dy * 0.5) + 'px'; ptr.textContent = dy > PTR_AT ? 'Release to refresh' : 'Pull to refresh'; } else ptrReset(); }
+}, { passive: true });
 $('#list').addEventListener('touchend', async (e) => {
   clearTimeout(pressTimer); const p = pull; pull = null;
-  if (p && !pressed && e.changedTouches[0].clientY - p.y > 90) { haptic('light'); await load(); say('Refreshed'); }
+  if (p && !pressed && e.changedTouches[0].clientY - p.y > PTR_AT) { haptic('light'); ptr.classList.remove('pulling'); ptr.style.height = '28px'; ptr.textContent = 'Refreshing…'; try { await load(); say('Refreshed'); } catch (err) { say('Could not refresh: ' + reachable(err.message)); } ptrReset(); }
+  else ptrReset();
 }, { passive: true });
-$('#list').addEventListener('touchcancel', () => clearTimeout(pressTimer), { passive: true });
+$('#list').addEventListener('touchcancel', () => { clearTimeout(pressTimer); pull = null; ptrReset(); }, { passive: true });
 $('#list').addEventListener('click', (e) => { if (pressed) { e.stopPropagation(); e.preventDefault(); pressed = false; } }, true);   // the tap that ends a long-press must not open the note
 
 /* ---------- phone chrome: tab bar, haptics, keyboard height ---------- */
