@@ -387,3 +387,21 @@ html.touch #outline{display:none!important}
 /* motion and forced-colours preferences */
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}}
 @media (forced-colors:active){#ed{color:CanvasText!important}#hl{display:none!important}}      /* the editor draws its text in a transparent textarea over #hl, which High Contrast would hide */
+
+/* shared UI kit (ui.js): dialogs, toasts, empty states */
+.dlg-scrim{position:fixed;inset:0;z-index:98;background:var(--scrim);display:flex;align-items:center;justify-content:center}
+.dlg{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:12px;box-shadow:var(--elev);width:min(var(--w,520px),94vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+.dlg header{padding:12px 16px 6px;display:flex;justify-content:space-between;align-items:center;gap:8px}.dlg h3{margin:0;font-size:16px}
+.dlg-body{padding:4px 16px 12px;line-height:1.55;overflow:auto;min-height:0}.dlg-act{padding:10px 16px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--line)}
+.dlg-msg{margin:6px 0;color:var(--mute)}.dlg-lbl{display:block;margin-top:10px;font-size:13px;color:var(--mute)}
+.dlg input[type=text],.dlg-body input[type=text]{display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.dlg-err{min-height:1.3em;margin-top:6px;color:var(--danger);font-size:13px}
+button.danger{color:var(--danger)}button.pri.danger{background:var(--danger);color:var(--bg)}
+.empty-state{max-width:26rem;margin:10vh auto 0;text-align:center;padding:0 16px}.empty-state h3{margin:0 0 6px;font-size:17px}.empty-state p{margin:0 0 14px;color:var(--mute);line-height:1.5}
+.empty-state .es-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+#toasts{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;align-items:center;z-index:120;pointer-events:none;max-width:94vw}
+.toast{pointer-events:auto;display:flex;align-items:center;gap:12px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-left:4px solid var(--acc);border-radius:10px;box-shadow:var(--elev);padding:9px 12px;font-size:13.5px;max-width:min(520px,94vw)}
+.toast.ok{border-left-color:var(--ok)}.toast.error{border-left-color:var(--danger)}.toast span{min-width:0;overflow-wrap:anywhere}
+.toast button{flex:none;font-weight:600;color:var(--acc)}.toast .toast-x{color:var(--mute);font-weight:400}
+@media (prefers-reduced-motion:no-preference){.toast{animation:toastin .16s ease-out}@keyframes toastin{from{opacity:0;transform:translateY(8px)}}}
+@media print{.dlg-scrim,#toasts{display:none!important}}
