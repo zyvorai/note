@@ -66,13 +66,33 @@ const resolve = (t) => { t = t.trim(); if (!t) return cur; if (notes.has(t)) ret
 const resolveLink = (t) => { const r = resolve(t); if (r) return r; const sp = MD.splitTarget(t); return sp.name ? resolve(sp.name) : (sp.heading || sp.block) ? cur : null; };
 
 let folders = [];
+let metaOK = true;                                                   // false once we learn the server only has the full /api/notes (e.g. the iPhone app's built-in one)
 async function load() {
-  const [fresh, fl] = await Promise.all([api('/api/notes'), api('/api/folders').catch(() => folders)]);
-  folders = fl;
+  const foldersP = api('/api/folders').catch(() => folders);
+  let list = null;
+  if (metaOK) { try { list = await api('/api/notes?meta=1'); } catch { list = null; } }
+  if (!list) list = await api('/api/notes');
+  const full = list.length > 0 && typeof list[0].text === 'string';       // an older server ignored ?meta=1 and sent everything
+  if (full) metaOK = false;
+  folders = await foldersP;
   const keep = [...unsaved].map((nm) => notes.get(nm)).filter(Boolean);      // never replace text the user typed but hasn't saved yet (in any note)
   aliasMap = null;
-  notes = new Map(fresh.map((n) => [n.name, { ...n, base: n.mtime }]));
-  for (const n of notes.values()) {
+  const old = notes, next = new Map(), fresh = [], need = [];
+  for (const m of list) {
+    const prev = old.get(m.name);
+    if (full) { const n = { ...m, base: m.mtime }; next.set(m.name, n); fresh.push(n); }
+    else if (prev && prev.base === m.mtime && !unsaved.has(m.name)) next.set(m.name, prev);      // unchanged on disk: keep it as it is, parsed (and decrypted, if unlocked)
+    else need.push(m.name);
+  }
+  if (need.length) {                                                     // fetch only what is new or changed, a few requests at a time
+    const chunks = []; for (let k = 0; k < need.length; k += 200) chunks.push(need.slice(k, k + 200));
+    for (let k = 0; k < chunks.length; k += 3) {
+      const got = await Promise.all(chunks.slice(k, k + 3).map((names) => api('/api/notes/read', { method: 'POST', body: JSON.stringify({ names }) })));
+      for (const n of got.flat()) { const nn = { ...n, base: n.mtime }; next.set(n.name, nn); fresh.push(nn); }
+    }
+  }
+  notes = next;
+  for (const n of fresh) {                                               // encrypted notes: the file holds an envelope; unlock again if this session already knows the key
     if (!PNCrypto.isEnvelope(n.text)) { keyring.delete(n.name); continue; }
     n.cipher = n.text; n.text = '';
     const sess = keyring.get(n.name);

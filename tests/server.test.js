@@ -365,3 +365,30 @@ test('deleting a note returns its trash id, and that id restores it', async () =
     assert.equal(back.status, 200); assert.equal(back.body.name, 'Plan'); assert.equal(fs.readFileSync(path.join(s.dir, 'Plan.md'), 'utf8'), 'precious');
   } finally { s.stop(); }
 });
+
+test('metadata listing and batch read: names and mtimes only, then just the bodies asked for', async () => {
+  const s = await start();
+  try {
+    await s.put('A', 'alpha'); await s.put('sub/B', 'beta'); fs.writeFileSync(path.join(s.dir, '.hidden.md'), 'x');
+    const meta = (await s.j('/api/notes?meta=1')).body;
+    assert.deepEqual(meta.map((m) => m.name).sort(), ['A', 'sub/B']); for (const m of meta) { assert.equal(typeof m.mtime, 'number'); assert.equal('text' in m, false, 'no file contents in the listing'); }
+    const read = async (names) => s.j('/api/notes/read', { method: 'POST', body: JSON.stringify({ names }) });
+    const r = (await read(['A', 'sub/B', 'Missing', '../../etc/passwd', '/etc/passwd', 'A\0'])).body;
+    assert.deepEqual(r.map((n) => [n.name, n.text]).sort(), [['A', 'alpha'], ['sub/B', 'beta']]); assert.equal(r[0].mtime, meta.find((m) => m.name === r[0].name).mtime);
+    assert.equal((await read(Array.from({ length: 501 }, (_, i) => 'n' + i))).status, 400);
+    assert.equal((await s.j('/api/notes')).body.find((n) => n.name === 'A').text, 'alpha');                 // the full listing is unchanged for older clients
+  } finally { s.stop(); }
+});
+
+test('the app files are gzipped when accepted and revalidated with an ETag (304), the API is never cached', async () => {
+  const s = await start();
+  try {
+    const plain = await fetch(`${s.base}/app.js`, { headers: { 'Accept-Encoding': 'identity' } }), raw = Buffer.from(await plain.arrayBuffer());
+    assert.equal(plain.headers.get('content-encoding'), null); assert.equal(plain.headers.get('cache-control'), 'no-cache'); const tag = plain.headers.get('etag'); assert.match(tag, /^".+"$/);
+    const zr = await new Promise((res, rej) => require('node:http').get(`${s.base}/app.js`, { headers: { 'Accept-Encoding': 'gzip' } }, (r) => { const c = []; r.on('data', (d) => c.push(d)); r.on('end', () => res({ h: r.headers, b: Buffer.concat(c) })); r.on('error', rej); }));
+    assert.equal(zr.h['content-encoding'], 'gzip'); assert.ok(zr.b.length < raw.length / 2, 'much smaller on the wire'); assert.deepEqual(require('node:zlib').gunzipSync(zr.b), raw); assert.match(zr.h.vary, /Accept-Encoding/);
+    assert.equal((await fetch(`${s.base}/app.js`, { headers: { 'If-None-Match': tag } })).status, 304);
+    assert.equal((await fetch(`${s.base}/app.js`, { headers: { 'If-None-Match': '"stale"' } })).status, 200);
+    assert.equal((await fetch(`${s.base}/api/notes?meta=1`)).headers.get('cache-control'), 'no-store');
+  } finally { s.stop(); }
+});
