@@ -35,6 +35,7 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     let id = 0; const pending = new Map(), errors = [];
     ws.onmessage = (m) => {
       const d = JSON.parse(m.data);
+      if (d.method === 'Page.javascriptDialogOpening') { ws.send(JSON.stringify({ id: 99999 + (id++), method: 'Page.handleJavaScriptDialog', params: { accept: true } })); return; }
       if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); }
       else if (d.method === 'Runtime.exceptionThrown') errors.push(d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text);
       else if (d.method === 'Runtime.consoleAPICalled' && d.params.type === 'error') errors.push(d.params.args.map((a) => a.value ?? a.description).join(' '));
@@ -244,16 +245,19 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
     assert.equal(await ev(`getComputedStyle(document.querySelector('#hp')).display`), 'none', 'preview hides');
     // search operators and saved searches
-    const listed = () => ev(`[...document.querySelectorAll('#list .item')].map((i) => i.dataset.note).sort().join(',')`);
+    const frames = () => ev(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);                // the list repaints on the next frame while typing in the search box
+    const listed = async () => { await frames(); return ev(`[...document.querySelectorAll('#list .item')].map((i) => i.dataset.note).sort().join(',')`); };
     await ev(`(() => { const q = document.querySelector('#q'); q.value = 'setup -steps'; q.dispatchEvent(new Event('input')); })()`);
     assert.equal(await listed(), 'Linker', 'words and exclusions');
     await ev(`document.querySelector('#sssave').click()`);
     await ev(`(() => { const q = document.querySelector('#q'); q.value = ''; q.dispatchEvent(new Event('input')); })()`);
+    await frames();
     assert.equal(await ev(`document.querySelectorAll('#tags .chip.ss').length`), 1, 'saved search chip');
     await ev(`document.querySelector('#tags .chip.ss').click()`);
     assert.equal(await ev(`document.querySelector('#q').value`), 'setup -steps', 'chip restores the query');
     await ev(`document.querySelector('[data-ssdel="0"]').click()`);
     await ev(`(() => { const q = document.querySelector('#q'); q.value = ''; q.dispatchEvent(new Event('input')); })()`);
+    await frames();
     assert.equal(await ev(`document.querySelectorAll('#tags .chip.ss').length`), 0, 'saved search removed');
     await ev(`(async () => { graphOn = false; await open('Home', false); })()`);
 
@@ -276,8 +280,10 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`[...document.querySelectorAll('#ctx button')].find((b) => b.textContent === 'Duplicate').click()`);
     await until(`notes.has('Archive/Moveme copy') && cur === 'Archive/Moveme copy'`, 'duplicate opened');
     assert.equal(await ev(`getComputedStyle(document.querySelector('#ctx')).display`), 'none', 'menu closes');
-    await ev(`window.confirm = () => true; document.querySelector('#list [data-folder="Archive"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }))`);
+    await ev(`document.querySelector('#list [data-folder="Archive"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }))`);
     await ev(`[...document.querySelectorAll('#ctx button')].find((b) => /Delete empty folder/.test(b.textContent)).click()`);
+    await until(`!!document.querySelector('#dlg-ok')`, 'folder delete asks first');
+    await ev(`document.querySelector('#dlg-ok').click()`);
     await until(`/not empty/.test(document.querySelector('#status').textContent)`, 'non-empty folder is refused');
     await ev(`document.querySelector('#vlist').click()`);
     assert.equal(await ev(`document.querySelectorAll('#list [data-folder]').length`), 0, 'list view has no folder rows');
@@ -527,7 +533,10 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.equal(fs.readFileSync(path.join(dir, untitled), 'utf8'), 'changed on disk');
 
     // delete -> trash -> restore
-    await ev(`window.confirm = () => true; document.querySelector('#del').click()`);
+    await ev(`document.querySelector('#del').click()`);
+    const movedToast = `[...document.querySelectorAll('.toast')].find((t) => /^Moved “.*” to the trash/.test(t.textContent))`;    // the earlier conflict left its own sticky error toast
+    await until(`!!(${movedToast})`, 'deleting is instant and offers Undo');
+    assert.equal(await ev(`(${movedToast}).querySelector('button').textContent`), 'Undo');
     await until(`document.querySelectorAll('#list .item').length >= 2 && !document.querySelector('[data-note="${untitled.slice(0, -3)}"]')`, 'note removed');
     await ev(`document.querySelector('#trash').click()`);
     await until(`document.querySelector('[data-restore]')`, 'trash lists note');

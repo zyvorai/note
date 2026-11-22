@@ -15,7 +15,7 @@ test('escapes raw HTML', () => {
 
 test('headings, emphasis, inline code', () => {
   const h = md('# Title\n\n**b** *i* ~~s~~ `c*d*`');
-  assert.match(h, /<h1>Title<\/h1>/);
+  assert.match(h, /<h1 id="title" data-h="Title">Title<\/h1>/);
   assert.match(h, /<b>b<\/b> <i>i<\/i> <s>s<\/s> <code>c\*d\*<\/code>/);
 });
 
@@ -290,7 +290,7 @@ test('setProperty and removeProperty change only the frontmatter', () => {
 
 test('settings are validated and cleaned', () => {
   const d = MD.normalizeSettings(null);
-  assert.deepEqual(d, { font: 'system', width: 'normal', accent: '', dailyFolder: 'daily', dailyTemplate: 'templates/Daily', newFolder: '', livePreview: false, spellcheck: false, autoPair: true, hotkeys: {}, snippets: [] });
+  assert.deepEqual(d, { font: 'system', width: 'normal', accent: '', dailyFolder: 'daily', dailyTemplate: 'templates/Daily', newFolder: '', livePreview: false, spellcheck: false, autoPair: true, sort: 'modified', listPreview: true, lineHeight: 'normal', autosave: 600, hotkeys: {}, snippets: [] });
   const s = MD.normalizeSettings({ font: 'comic', width: 'wide', accent: '#FF9F0A', dailyFolder: '../x/.hidden/Journal/', newFolder: ' Inbox ', dailyTemplate: '/templates/My.md',
     hotkeys: { new: 'mod+shift+x', bad: '  ', 'we ird': 'mod+k', q: 'mod+alt+[', plain: 'mod+' }, snippets: ['a.css', '../b.css', 'a.css', 'x/y.css', 'ok name.css', 'no.txt'] });
   assert.equal(s.font, 'system', 'unknown font falls back');
@@ -439,4 +439,37 @@ test('charts: bar, line and pie fences become SVG; bad data falls back to code',
   assert.match(md('```chart\nnothing here\n```'), /<pre>/);
   assert.doesNotMatch(MD.chartSvg('bar\ntitle: <img onerror=x>\n<b>: 3'), /<img|<b>/);
   assert.doesNotThrow(() => MD.chartSvg('bar\nA: -5\nB: 0\nC: 0'));
+});
+
+test('nested lists, mixed kinds, and tasks that know their line', () => {
+  const { md } = MD.create({ resolve: () => null, embed: () => null });
+  const flat = md('- a\n- b'); assert.equal(flat, '<ul>\n<li>a</li>\n<li>b</li>\n</ul>');                                    // flat lists render exactly as before
+  const n = md('- a\n  - b\n    - c\n- d');
+  assert.equal(n.replace(/\n/g, ''), '<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li><li>d</li></ul>', 'two levels of nesting, then back to the top');
+  assert.equal(md('1. x\n   - y\n   - z\n2. w').replace(/\n/g, ''), '<ol><li>x<ul><li>y</li><li>z</li></ul></li><li>w</li></ol>', 'a bullet list inside a numbered one');
+  assert.equal(md('- a\n1. b').replace(/\n/g, ''), '<ul><li>a</li></ul><ol><li>b</li></ol>', 'a different kind of list at the same level starts a new list');
+  assert.equal(md('- a\n\ntext\n\n- b').replace(/\n/g, ''), '<ul><li>a</li></ul><p>text</p><ul><li>b</li></ul>');
+  assert.equal(md('\t- tab\n\t- indented').replace(/\n/g, ''), '<ul><li>tab</li><li>indented</li></ul>');
+  // tasks carry the line they came from (counting a frontmatter block), so a click in the reading view can tick the right line
+  const t = md('---\ntags: x\n---\n# Title\n- [ ] one\n  - [x] two');
+  assert.match(t, /<input type="checkbox" data-line="4" aria-label="[^"]+" > one/); assert.match(t, /<input type="checkbox" data-line="5" aria-label="[^"]+" checked> two/);
+  assert.match(md('- [ ] plain'), /data-line="0"/);
+  const em = MD.create({ resolve: (x) => (x === 'Other' ? 'Other' : null), embed: () => '- [ ] from another note' }).md('![[Other]]');
+  assert.match(em, /<input type="checkbox" disabled >/); assert.doesNotMatch(em, /data-line/);                     // an embedded note's tasks are not this note's lines
+});
+
+test('headings get stable ids in the note itself, not in embeds', () => {
+  const { md } = MD.create({ resolve: (x) => (x === 'Other' ? 'Other' : null), embed: () => '# Embedded heading' });
+  const h = md('# Title\n## Plan & Goals!\n## Plan & Goals!\n### [[Link]] and `code`\n## 日本語 heading');
+  assert.match(h, /<h1 id="title" data-h="Title">/); assert.match(h, /<h2 id="plan-goals" data-h="Plan &amp; Goals!">/); assert.match(h, /<h2 id="plan-goals-2" data-h="Plan &amp; Goals!">/, 'duplicates are numbered');
+  assert.match(h, /<h3 id="link-and-code" data-h="Link and `code`">/); assert.match(h, /<h2 id="日本語-heading"/, 'non-Latin letters are kept');
+  assert.doesNotMatch(md('![[Other]]'), /id="embedded-heading"/);
+  assert.doesNotMatch(md('# <script>x</script>'), /<script>/);
+});
+
+test('settings: list order, preview, line spacing and autosave delay are validated', () => {
+  const s = MD.normalizeSettings({ sort: 'name', listPreview: false, lineHeight: 'relaxed', autosave: '1500' });
+  assert.deepEqual([s.sort, s.listPreview, s.lineHeight, s.autosave], ['name', false, 'relaxed', 1500]);
+  const bad = MD.normalizeSettings({ sort: 'size', listPreview: 'no', lineHeight: 'huge', autosave: 5 });
+  assert.deepEqual([bad.sort, bad.listPreview, bad.lineHeight, bad.autosave], ['modified', true, 'normal', 600], 'anything unknown falls back to the default');
 });

@@ -122,7 +122,7 @@ test('encrypted notes: encrypt, edit, lock, unlock, and nothing leaks or is lost
 
     // removing encryption restores plain text
     await ev("open('Journal', false)"); await until("!!document.querySelector('.lockcard')", 'lock'); await ev("document.querySelector('#lkp').value='brand new passphrase';document.querySelector('#lkf').requestSubmit()"); await until("!!document.querySelector('#ed')", 'unlocked 3');
-    await ev('window.confirm = () => true; void removeEncryption()'); await until("!notes.get('Journal').cipher", 'decrypted'); await sleep(300);
+    await ev('void removeEncryption()'); await until("!!document.querySelector('#dlg-ok')", 'remove-encryption confirmation'); await ev("document.querySelector('#dlg-ok').click()"); await until("!notes.get('Journal').cipher", 'decrypted'); await sleep(300);
     assert.ok(!C.isEnvelope(disk('Journal'))); assert.match(disk('Journal'), /correcthorse/);
     assert.deepEqual(errors, []);
   } finally { try { ws?.close(); } catch {} chrome.kill(); server.kill(); }

@@ -245,6 +245,17 @@ async function listFolders(dir, base = '') {
   return out;
 }
 
+// Names and modification times only (no file contents): what the app needs to find out what changed since it last looked.
+async function walkMeta(dir, base = '') {
+  const out = [];
+  for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+    if (e.name.startsWith('.')) continue;
+    const rel = base ? `${base}/${e.name}` : e.name;
+    if (e.isDirectory()) out.push(...(await walkMeta(path.join(dir, e.name), rel)));
+    else if (e.isFile() && e.name.toLowerCase().endsWith('.md')) out.push({ name: rel.replace(/\.md$/i, ''), mtime: (await fs.stat(path.join(dir, e.name))).mtimeMs });
+  }
+  return out;
+}
 async function walk(dir, base = '') {
   const out = [];
   for (const e of await fs.readdir(dir, { withFileTypes: true })) {
@@ -280,6 +291,17 @@ const send = (res, code, data, type = 'application/json') => {
   res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' });
   res.end(typeof data === 'string' || Buffer.isBuffer(data) ? data : JSON.stringify(data));
 };
+// Like send(), but gzips anything worth it when the client accepts it, and (with `etag`) answers 304 to a matching If-None-Match.
+const sendEncoded = (req, res, code, data, type, headers = {}, etag = false) => new Promise((resolve) => {
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(data), h = { 'Content-Type': type, 'Vary': 'Accept-Encoding', ...headers };
+  if (etag) {
+    const tag = '"' + crypto.createHash('sha1').update(buf).digest('base64url') + '"'; h.ETag = tag;
+    if (req.headers['if-none-match'] === tag) { res.writeHead(304, h); res.end(); return resolve(); }
+  }
+  if (buf.length > 1024 && /\bgzip\b/.test(req.headers['accept-encoding'] || '') && /^(text\/|application\/(json|javascript)|image\/svg)/.test(type)) {
+    zlib.gzip(buf, (err, z) => { if (err) { res.writeHead(code, h); res.end(buf); } else { res.writeHead(code, { ...h, 'Content-Encoding': 'gzip' }); res.end(z); } resolve(); });
+  } else { res.writeHead(code, h); res.end(buf); resolve(); }
+});
 
 // ---- Git sync (notes folder is plain files, so git is the sync backend) ----
 const git = (args) => new Promise((resolve) => execFile('git', args, {
@@ -368,7 +390,20 @@ return http.createServer(async (req, res) => {
     if (opts.remote && !authorize(req, res, url)) return;
 
     if (url.pathname === '/api/ping') { hooks.onPing?.(); return send(res, 200, { app: 'plainnote' }); }
-    if (url.pathname === '/api/notes' && req.method === 'GET') return send(res, 200, await walk(ROOT));
+    if (url.pathname === '/api/notes' && req.method === 'GET') {
+      if (url.searchParams.get('meta') === '1') return sendEncoded(req, res, 200, JSON.stringify(await walkMeta(ROOT)), 'application/json', { 'Cache-Control': 'no-store' });
+      return sendEncoded(req, res, 200, JSON.stringify(await walk(ROOT)), 'application/json', { 'Cache-Control': 'no-store' });          // the full list, compressed
+    }
+    if (url.pathname === '/api/notes/read' && req.method === 'POST') {          // the bodies of just the named notes (the app asks for what changed)
+      const { names } = JSON.parse(await body(req));
+      if (!Array.isArray(names) || names.length > 500) return send(res, 400, { error: 'send up to 500 names' });
+      const out = [];
+      for (const name of names) {
+        let p; try { p = notePath(name); } catch { continue; }                  // a bad or traversing name is skipped, never read
+        try { const [text, st] = await Promise.all([fs.readFile(p, 'utf8'), fs.stat(p)]); out.push({ name: String(name).replace(/\.md$/i, ''), text, mtime: st.mtimeMs }); } catch {}
+      }
+      return sendEncoded(req, res, 200, JSON.stringify(out), 'application/json', { 'Cache-Control': 'no-store' });
+    }
     if (url.pathname === '/api/snippets' && req.method === 'GET') {        // user CSS: <notes>/.plainnote/snippets/*.css
       const files = await fs.readdir(SNIPPETS).catch(() => []);
       return send(res, 200, files.filter((f) => SNIPPET.test(f)).sort().map((name) => ({ name })));
@@ -411,8 +446,9 @@ return http.createServer(async (req, res) => {
       if (req.method === 'DELETE') {                     // move to .trash instead of destroying
         const name = url.searchParams.get('name').replace(/\.md$/i, '');
         await fs.mkdir(TRASH, { recursive: true });
-        await fs.rename(p, path.join(TRASH, `${Date.now()}__${encodeURIComponent(name)}.md`));
-        return send(res, 200, { ok: true });
+        const trashId = `${Date.now()}__${encodeURIComponent(name)}.md`;
+        await fs.rename(p, path.join(TRASH, trashId));
+        return send(res, 200, { ok: true, id: trashId });                 // the id lets the app offer Undo (POST /api/restore)
       }
     }
     if (url.pathname === '/api/history' && req.method === 'GET') {          // versions of one note, newest first; ?id=<timestamp> returns that version's text
@@ -513,7 +549,7 @@ return http.createServer(async (req, res) => {
     }
     if (req.method === 'GET') {
       const rel = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1));
-      return send(res, 200, await readPublic(rel), TYPES[path.extname(rel)] || 'application/octet-stream');
+      return sendEncoded(req, res, 200, await readPublic(rel), TYPES[path.extname(rel)] || 'application/octet-stream', { 'Cache-Control': 'no-cache' }, true);   // revalidated with an ETag: unchanged files cost a 304
     }
     send(res, 404, { error: 'not found' });
   } catch (e) {

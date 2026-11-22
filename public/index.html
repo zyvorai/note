@@ -17,6 +17,7 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
+<div id="sr" class="sr" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="scrim"></div>
 <div id="app">
   <aside id="side">
@@ -43,19 +44,20 @@
     <div id="ac"></div>
   </main>
 </div>
-<div id="gf"><div><div class="row"><input id="gfq" placeholder="Find in all notes…" autocomplete="off"><input id="gfr" placeholder="Replace with…" autocomplete="off"></div><div id="gfl"></div><div id="gfs"><span id="gfc"></span><span><button id="gfx">Close</button> <button id="gfa" class="pri">Replace selected</button></span></div></div></div>
-<div id="sw"><div><input id="swq" placeholder="Jump to or create a note…" autocomplete="off"><div id="swl"></div></div></div>
+<div id="gf" role="dialog" aria-modal="true" aria-label="Find and replace in all notes"><div><div class="row"><input id="gfq" placeholder="Find in all notes…" autocomplete="off"><input id="gfr" placeholder="Replace with…" autocomplete="off"></div><div id="gfl"></div><div id="gfs"><span id="gfc"></span><span><button id="gfx">Close</button> <button id="gfa" class="pri">Replace selected</button></span></div></div></div>
+<div id="sw" role="dialog" aria-modal="true" aria-label="Quick switcher and commands"><div><input id="swq" placeholder="Jump to or create a note…" autocomplete="off"><div id="swl"></div></div></div>
 
-<div id="st" role="dialog" aria-label="Settings"><div><div class="stbar"><b>Settings</b><button id="stx" class="pri">Done</button></div><div class="stbody" id="stbody"></div></div></div>
+<div id="st" role="dialog" aria-modal="true" aria-label="Settings"><div><div class="stbar"><b>Settings</b><button id="stx" class="pri">Done</button></div><div class="stbody" id="stbody"></div></div></div>
 <nav id="tabbar" aria-label="Main"></nav>
 <div id="ctx" role="menu"></div>
 <div id="kbar" role="toolbar" aria-label="Formatting"></div>
-<script src="diagram.js"></script>
-<script src="md.js"></script>
-<script src="crypto.js"></script>
-<script src="clip.js"></script>
-<script src="import.js"></script>
-<script src="app.js"></script>
-<script src="tour.js"></script>
+<script defer src="ui.js"></script>
+<script defer src="diagram.js"></script>
+<script defer src="md.js"></script>
+<script defer src="crypto.js"></script>
+<script defer src="clip.js"></script>
+<script defer src="import.js"></script>
+<script defer src="app.js"></script>
+<script defer src="tour.js"></script>
 </body>
 </html>

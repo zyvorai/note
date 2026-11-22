@@ -2,7 +2,31 @@
 // SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 const $ = (s) => document.querySelector(s);
-let notes = new Map();   // name -> {text, mtime}
+/* ---------- feedback ----------
+   saveState(): the persistent state in #status ("Editing…", "Saved", "Not saved"), which is not announced on every keystroke.
+   say(): one-off messages. They show in #status for a few seconds then give way to the save state, are announced to screen readers through #sr,
+   and failures also raise a toast that stays until dismissed (optionally with an action, e.g. Undo). */
+const SAVE = { text: '', title: '' };
+let sayTimer = 0, SAY_MS = 6000;
+const isErrorMessage = (m) => /^(Could not|Save failed|Upload failed|Rename failed|Backup failed|History failed|Stopped)|\bfailed\b|^Changed elsewhere/i.test(m);
+let sayShown = '';                                                     // the one-off message currently in #status, if any
+function saveState(text, title = '', quiet = false) {                  // quiet: a background update (e.g. "Saved") must not replace a message nobody has read yet
+  SAVE.text = text; SAVE.title = title;
+  if (quiet && sayShown) return;
+  clearTimeout(sayTimer); sayShown = '';
+  const st = $('#status'); if (!st) return; st.textContent = text; st.title = title || text; st.classList.remove('err');
+}
+function say(msg, opts = {}) {
+  const st = $('#status'); if (!st) return; msg = String(msg);
+  const kind = opts.kind || (isErrorMessage(msg) ? 'error' : 'info');
+  clearTimeout(sayTimer); sayShown = msg; st.textContent = msg; st.title = msg; st.classList.toggle('err', kind === 'error');
+  const sr = $('#sr'); if (sr && msg) sr.textContent = msg;
+  if (msg && (kind === 'error' || opts.toast || opts.action)) PNUI.toast(msg, { kind, action: opts.action });
+  if (msg && kind !== 'error') sayTimer = setTimeout(() => { if (st.textContent === msg) { sayShown = ''; st.textContent = SAVE.text; st.title = SAVE.title || SAVE.text; } }, SAY_MS);
+}
+let notesVer = 0;                                                  // bumped whenever a note is added, removed or renamed: derived indexes rebuild when it changes
+class NoteMap extends Map { set(k, v) { notesVer++; return super.set(k, v); } delete(k) { notesVer++; return super.delete(k); } clear() { notesVer++; super.clear(); } }
+let notes = new NoteMap();   // name -> {text, mtime}
 /* Encrypted notes: the file on disk holds an armored envelope (n.cipher). While locked, n.text is '' so search, the graph, backlinks and
    find-and-replace see nothing; while unlocked n.text is the plaintext and n.enc the in-memory key (see crypto.js). */
 const keyring = new Map();                                          // note name -> unlocked session (never persisted)
@@ -22,6 +46,7 @@ async function putNote(n, text, base) {
 let activeTag = null;
 let graphOn = false, gRaf = 0, graphScope = 0;   // graphScope: 0 = all notes, 1/2 = neighbourhood of the open note
 let cur = null, preview = false, timer = null, dirty = false;
+const unsaved = new Set();                   // names of notes with edits that are not on disk yet (dirty is true while this is non-empty)
 
 const api = async (url, opt) => {
   const r = await fetch(url, opt);
@@ -29,33 +54,77 @@ const api = async (url, opt) => {
   return r.json();
 };
 const { esc, linkRe, tagsOf } = MD;
-let aliasMap = null, aliasAt = 0;                                   // frontmatter aliases -> note name (rebuilt lazily)
+/* Per-note derived data (lowercased text, tags, aliases, resolved link targets) is cached on the note object and recomputed only when that note's text changes.
+   This is what keeps search, the tag list and the backlinks panel fast on vaults with thousands of notes. */
+const lowerOf = (n) => (n._lwText === n.text ? n._lw : (n._lwText = n.text, n._lw = n.text.toLowerCase()));
+const tagsCached = (n) => (n._tgText === n.text ? n._tg : (n._tgText = n.text, n._tg = tagsOf(n.text)));
+const aliasesCached = (n) => (n._alText === n.text ? n._al : (n._alText = n.text, n._al = n.text.startsWith('---') ? MD.aliasesOf(n.text) : []));
+let aliasMap = null, aliasAt = 0, aliasVer = 0, aliasSig = '';        // frontmatter aliases -> note name (rebuilt lazily; aliasVer changes only when the set of aliases does)
 const aliases = () => {
   if (aliasMap && Date.now() - aliasAt < 2000) return aliasMap;
   aliasMap = new Map(); aliasAt = Date.now();
-  for (const n of notes.values()) if (n.text.startsWith('---')) for (const a of MD.aliasesOf(n.text)) aliasMap.set(a.toLowerCase(), n.name);
+  for (const n of notes.values()) for (const a of aliasesCached(n)) aliasMap.set(a.toLowerCase(), n.name);
+  const sig = [...aliasMap].map((e) => e.join('>')).join('|'); if (sig !== aliasSig) { aliasSig = sig; aliasVer++; }
   return aliasMap;
 };
-const resolve = (t) => { t = t.trim(); if (!t) return cur; if (notes.has(t)) return t;
-  const l = t.toLowerCase(); for (const n of notes.keys()) if (n.toLowerCase() === l || n.split('/').pop().toLowerCase() === l) return n;
-  return aliases().get(l) || null; };
+// name -> canonical name by lowercase full name or lowercase last path part: the first note in list order wins, as before, but in O(1)
+let nameIdx = null, nameIdxVer = -1, nameIdxOf = null;
+const nameIndex = () => {
+  if (nameIdx && nameIdxVer === notesVer && nameIdxOf === notes) return nameIdx;
+  nameIdx = new Map(); nameIdxVer = notesVer; nameIdxOf = notes;
+  for (const nm of notes.keys()) { const l = nm.toLowerCase(), b = l.slice(l.lastIndexOf('/') + 1); if (!nameIdx.has(l)) nameIdx.set(l, nm); if (!nameIdx.has(b)) nameIdx.set(b, nm); }
+  return nameIdx;
+};
+const resolve = (t, self = cur) => { t = t.trim(); if (!t) return self; if (notes.has(t)) return t;
+  const l = t.toLowerCase(); return nameIndex().get(l) || aliases().get(l) || null; };
 // a link target as written, e.g. "Note#Heading", "Note^id", "#Heading" (current note) or an alias -> note name or null
-const resolveLink = (t) => { const r = resolve(t); if (r) return r; const sp = MD.splitTarget(t); return sp.name ? resolve(sp.name) : (sp.heading || sp.block) ? cur : null; };
+const resolveLink = (t, self = cur) => { const r = resolve(t, self); if (r) return r; const sp = MD.splitTarget(t); return sp.name ? resolve(sp.name, self) : (sp.heading || sp.block) ? self : null; };
+// the notes a note links to (as canonical names, in order of first appearance), cached until its text, the set of notes or the aliases change
+const targetsOf = (n) => {
+  aliases(); const key = notesVer + ':' + aliasVer;                          // refresh the alias index first so the key reflects it
+  if (n._tgtText === n.text && n._tgtKey === key) return n._tgt;
+  const set = new Set(); for (const m of n.text.matchAll(linkRe)) { const r = resolveLink(m[1], n.name); if (r) set.add(r); }
+  n._tgtText = n.text; n._tgtKey = key; n._tgt = set; return set;
+};
 
 let folders = [];
-async function load() {
-  const [fresh, fl] = await Promise.all([api('/api/notes'), api('/api/folders').catch(() => folders)]);
-  folders = fl;
-  const keep = dirty && cur ? notes.get(cur) : null;      // never replace text the user typed but hasn't saved yet
+// Reloads run one after another: overlapping ones (a window-focus reload plus an explicit one) could finish out of order and let an older, staler result overwrite a newer one.
+let loadChain = Promise.resolve();
+function load() { const p = loadChain.then(loadNow, loadNow); loadChain = p.catch(() => {}); return p; }
+let lastSyncAt = 0;                                                  // when this window last synced, for the footer
+let metaOK = true;                                                   // false once we learn the server only has the full /api/notes (e.g. the iPhone app's built-in one)
+async function loadNow() {
+  const foldersP = api('/api/folders').catch(() => folders);
+  let list = null;
+  if (metaOK) { try { list = await api('/api/notes?meta=1'); } catch { list = null; } }
+  if (!list) list = await api('/api/notes');
+  const full = list.length > 0 && typeof list[0].text === 'string';       // an older server ignored ?meta=1 and sent everything
+  if (full) metaOK = false;
+  folders = await foldersP;
+  const keep = [...unsaved].map((nm) => notes.get(nm)).filter(Boolean);      // never replace text the user typed but hasn't saved yet (in any note)
   aliasMap = null;
-  notes = new Map(fresh.map((n) => [n.name, { ...n, base: n.mtime }]));
-  for (const n of notes.values()) {
+  const old = notes, next = new NoteMap(), fresh = [], need = [];
+  for (const m of list) {
+    const prev = old.get(m.name);
+    if (full) { const n = { ...m, base: m.mtime }; next.set(m.name, n); fresh.push(n); }
+    else if (prev && prev.base === m.mtime && !unsaved.has(m.name)) next.set(m.name, prev);      // unchanged on disk: keep it as it is, parsed (and decrypted, if unlocked)
+    else need.push(m.name);
+  }
+  if (need.length) {                                                     // fetch only what is new or changed, a few requests at a time
+    const chunks = []; for (let k = 0; k < need.length; k += 200) chunks.push(need.slice(k, k + 200));
+    for (let k = 0; k < chunks.length; k += 3) {
+      const got = await Promise.all(chunks.slice(k, k + 3).map((names) => api('/api/notes/read', { method: 'POST', body: JSON.stringify({ names }) })));
+      for (const n of got.flat()) { const nn = { ...n, base: n.mtime }; next.set(n.name, nn); fresh.push(nn); }
+    }
+  }
+  notes = next;
+  for (const n of fresh) {                                               // encrypted notes: the file holds an envelope; unlock again if this session already knows the key
     if (!PNCrypto.isEnvelope(n.text)) { keyring.delete(n.name); continue; }
     n.cipher = n.text; n.text = '';
     const sess = keyring.get(n.name);
     if (sess) { try { n.text = (await PNCrypto.decrypt(n.cipher, sess)).text; n.enc = sess; } catch { keyring.delete(n.name); } }   // changed elsewhere with another passphrase: lock it
   }
-  if (keep) notes.set(keep.name, keep);
+  for (const k of keep) notes.set(k.name, k);
   renderList();
 }
 
@@ -72,7 +141,7 @@ const savedSearches = () => { try { return JSON.parse(localStorage.getItem('sear
 const setSearches = (a) => { try { localStorage.setItem('searches', JSON.stringify(a.slice(0, 20))); } catch {} };
 function renderTags() {
   const counts = new Map();
-  for (const n of notes.values()) for (const t of tagsOf(n.text)) counts.set(t, (counts.get(t) || 0) + 1);
+  for (const n of notes.values()) for (const t of tagsCached(n)) counts.set(t, (counts.get(t) || 0) + 1);
   if (activeTag && !counts.has(activeTag)) activeTag = null;
   const all = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 40), cap = tagsOpen ? 40 : 8;
   let shown = all.slice(0, cap);
@@ -101,35 +170,52 @@ function relTime(ms) {
   if (d < 7 * day) return dt.toLocaleDateString(undefined, { weekday: 'short' });
   return dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(dt.getFullYear() !== now.getFullYear() ? { year: '2-digit' } : {}) });
 }
+// The list is rebuilt on every save and reload; a keyboard user on a row must not lose their place each time, so focus is put back on the same row.
 function renderList() {
+  const ae = document.activeElement, inList = ae && ae !== document.body && $('#list').contains(ae);
+  const key = inList ? (ae.dataset.note !== undefined ? ['data-note', ae.dataset.note] : ae.dataset.folder !== undefined ? ['data-folder', ae.dataset.folder] : ae.id ? ['id', ae.id] : null) : null;
+  renderListNow();
+  if (key && !$('#list').contains(document.activeElement)) {
+    const el = key[0] === 'id' ? document.getElementById(key[1]) : $('#list').querySelector(`[${key[0]}="${CSS.escape(key[1])}"]`);
+    if (el && $('#list').contains(el)) { el.tabIndex = 0; el.focus({ preventScroll: true }); }
+  }
+}
+function renderListNow() {
   if (trashMode) return;
   renderTags();
   const pq = MD.parseQuery($('#q').value), q = !MD.emptyQuery(pq);
   let rows = [...notes.values()];
-  if (activeTag) rows = rows.filter((n) => tagsOf(n.text).has(activeTag));
-  if (q) rows = rows.filter((n) => MD.searchMatch(pq, n.name, n.text));
+  if (activeTag) rows = rows.filter((n) => tagsCached(n).has(activeTag));
+  if (q) rows = rows.filter((n) => MD.searchMatch(pq, n.name, n.text, lowerOf(n)));
   if (view === 'files' && !q && !activeTag) { $('#list').innerHTML = treeHtml(MD.buildTree([...notes.keys()], folders), 0) || '<div class="empty">No notes</div>'; return; }
-  rows.sort((a, b) => pins.has(b.name) - pins.has(a.name) || b.mtime - a.mtime);   // pinned first, then newest
+  rows.sort((a, b) => pins.has(b.name) - pins.has(a.name) || (settings.sort === 'name' ? a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }) : b.mtime - a.mtime));   // pinned first, then by your chosen order
+  const listKey = $('#q').value + '|' + activeTag + '|' + view; if (listKey !== renderList.key) { renderList.key = listKey; listLimit = LIST_PAGE; }      // a new search or filter starts from the first page again
+  const total = rows.length; if (total > listLimit) rows = rows.slice(0, listLimit);                                                                   // thousands of rows cost real time: show a page, then more on request
   $('#list').innerHTML = rows.map((n) => {
     let snip = '';
     if (q) { const i = MD.searchSnippetAt(pq, n.text);
       if (i >= 0) snip = `<span class="snip">${esc(n.text.slice(Math.max(0, i - 20), i + 50).replace(/\n/g, ' '))}</span>`; }
+    if (!isTouch() && !snip && settings.listPreview && !n.cipher) { const pv = notePreview(n.text, n.name); if (pv) snip = `<span class="snip">${esc(pv)}</span>`; }
     if (isTouch() && !snip) snip = `<span class="snip">${n.cipher && !n.enc ? 'Encrypted' : esc(notePreview(n.text, n.name))}</span>`;
     const inner = isTouch() ? `<div class="r1"><span class="nm">${pins.has(n.name) ? '📌 ' : ''}${n.cipher ? '🔒 ' : ''}${esc(n.name.split('/').pop())}</span><span class="tm">${esc(relTime(n.mtime))}</span></div>` : `${pins.has(n.name) ? '📌 ' : ''}${n.cipher ? '🔒 ' : ''}${esc(n.name)}`;
     return `<div class="item${n.name === cur ? ' on' : ''}" data-note="${esc(n.name)}">${inner}${snip}</div>`;
-  }).join('') || '<div class="empty">No notes</div>';
+  }).join('') + (!total && q && !/[:"\/-]/.test($('#q').value.trim()) ? `<div class="empty">No notes match “${esc($('#q').value.trim())}”<button id="createFromQuery" class="pri">Create “${esc($('#q').value.trim())}”</button></div>` : '') + (total > rows.length ? `<div class="item more" id="moreRows" role="button">Show ${Math.min(MORE_STEP, total - rows.length)} more · ${total - rows.length} not shown</div>` : '') || '<div class="empty">No notes</div>';
 }
+const LIST_PAGE = 200, MORE_STEP = 400; let listLimit = LIST_PAGE;
+$('#list').addEventListener('click', (e) => {
+  if (e.target.closest('#createFromQuery')) { const name = $('#q').value.trim(); $('#q').value = ''; renderList(); open(name, true); return; }
+  if (!e.target.closest('#moreRows')) return;
+  const shown = $('#list').querySelectorAll('.item:not(.more)').length; listLimit += MORE_STEP; renderList();
+  const next = $('#list').querySelectorAll('.item')[shown]; if (next) { next.tabIndex = 0; next.focus(); }          // keyboard users land on the first new row (tabindex first: the a11y layer adds it a moment later)
+});
 function renderBack() {
   if (!cur) { $('#back').innerHTML = ''; return; }
-  const hits = [];
-  for (const n of notes.values()) {
-    if (n.name === cur) continue;
-    for (const m of n.text.matchAll(linkRe)) { if (resolveLink(m[1]) === cur) { hits.push(n.name); break; } }
-  }
-  const out = [], seenOut = new Set();
-  for (const m of notes.get(cur).text.matchAll(linkRe)) { const r = resolveLink(m[1]); if (r && r !== cur && !seenOut.has(r)) { seenOut.add(r); out.push(r); } }
-  const um = MD.unlinkedMentions([...notes.values()], cur);
-  const emptyBack = !hits.length && !out.length && !MD.unlinkedMentions([...notes.values()], cur).length;
+  const me = notes.get(cur), hits = [];
+  for (const n of notes.values()) if (n.name !== cur && targetsOf(n).has(cur)) hits.push(n.name);
+  const out = me ? [...targetsOf(me)].filter((r) => r !== cur) : [];
+  const short = cur.split('/').pop().toLowerCase();                          // only notes whose text contains the name at all can mention it: a cheap filter before the regex scan
+  const um = short.length < 3 ? [] : MD.unlinkedMentions([...notes.values()].filter((n) => n.name !== cur && lowerOf(n).includes(short)), cur);
+  const emptyBack = !hits.length && !out.length && !um.length;
   $('#back').style.display = isTouch() && emptyBack ? 'none' : '';
   $('#back').innerHTML = (hits.length ? 'Linked from: ' + hits.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join('') : isTouch() ? '' : 'No backlinks')
     + (out.length ? `<span class="um" id="outgoing"><b>Links to:</b> ` + out.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join(' ') + '</span>' : '')
@@ -142,8 +228,8 @@ async function linkMention(from) {
   const link = n.text.slice(0, um.index) + (cur === orig ? `[[${cur}]]` : `[[${cur}|${orig}]]`) + n.text.slice(um.index + short.length);
   try {
     const r = await putNote(n, link, n.base ?? 0);
-    n.text = link; n.base = r.mtime; $('#status').textContent = `Linked in ${from}`; renderBack();
-  } catch (e) { $('#status').textContent = 'Could not link: ' + e.message; }
+    n.text = link; n.base = r.mtime; say(`Linked in ${from}`); renderBack();
+  } catch (e) { say('Could not link: ' + e.message); }
 }
 /* outline: headings of the open note (ignoring fenced code); click to jump */
 function headingsOf(text) {
@@ -192,7 +278,9 @@ function renderPane() {
   stopGraph(); setIcon('#gr', 'graph', 'Graph view'); $('#gr').title = 'Graph view (Ctrl/Cmd+G)';
   if (!cur) {
     $('#pane').innerHTML = isTouch() ? '<div class="empty">Your notes are in the sidebar.<div class="es-actions"><button id="es-notes">Browse notes</button><button id="es-new">New note</button></div></div>'
-      : '<div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div>';
+      : '';
+    if (!isTouch()) PNUI.emptyState($('#pane'), { title: notes.size ? 'Pick a note, or start one' : 'Write your first note', body: `${hintLabel('Ctrl/Cmd+K')} jumps to or creates any note, ${hintLabel('Ctrl/Cmd+N')} starts a new one, ${hintLabel('Ctrl/Cmd+Shift+P')} lists every command.`,
+      actions: [{ label: 'New note', primary: true, run: () => newNote() }, { label: 'Today’s note', run: () => plainnote.run('today') }, { label: 'Keyboard shortcuts', run: () => showShortcuts() }, ...(typeof PNTour !== 'undefined' && !PNTour.seen() ? [{ label: 'Take the tour', run: () => PNTour.start() }] : [])] });
     return;
   }
   if (isLocked(notes.get(cur))) return renderLocked();
@@ -200,7 +288,7 @@ function renderPane() {
   setIcon('#tog', preview ? 'pencil' : 'eye', preview ? 'Edit' : 'Preview');
   if (preview) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   else if (settings.livePreview) lpMount(t);
-  else { $('#pane').innerHTML = '<div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" spellcheck="' + settings.spellcheck + '" placeholder="Start writing… use [[links]] to connect notes"></textarea></div>';
+  else { $('#pane').innerHTML = '<div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" aria-label="Note editor" spellcheck="' + settings.spellcheck + '" placeholder="Start writing… use [[links]] to connect notes"></textarea></div>';
     const ed = $('#ed'); ed.value = t; syncEditor(); ed.oninput = () => { onInput(); acUpdate(); caretIntoView(); }; ed.onkeydown = (e) => { edKey(e); setTimeout(caretIntoView, 0); }; ed.onblur = () => setTimeout(acHide, 150);
     ed.onpaste = (e) => { const lk = MD.pasteLink(ed.value, ed.selectionStart, ed.selectionEnd, e.clipboardData.getData('text/plain')); if (lk) { e.preventDefault(); applyEdit(ed, lk); return; } if (attach(e.clipboardData.files)) { if ([...e.clipboardData.files].some((f) => /^image\/|^application\/pdf$/.test(f.type))) e.preventDefault(); } };
     ed.ondragover = (e) => { if ([...e.dataTransfer.items].some((i) => /^image\/|^application\/pdf$/.test(i.type))) e.preventDefault(); };
@@ -233,6 +321,7 @@ function applySettings() {
   const st = document.documentElement.style;
   st.setProperty('--measure', { normal: '760px', wide: '1040px', full: 'none' }[settings.width]);
   if (READ_FONTS[settings.font]) st.setProperty('--read-font', READ_FONTS[settings.font]); else st.removeProperty('--read-font');
+  st.setProperty('--lh', { compact: '1.5', normal: '1.7', relaxed: '1.95' }[settings.lineHeight] || '1.7');
   applyAccent(settings.accent || nativeAccent);
   document.querySelectorAll('#ed,#lp').forEach((el) => { el.spellcheck = settings.spellcheck; });
   hkMap = new Map(Object.entries(settings.hotkeys).map(([id, c]) => [c, id]));
@@ -272,8 +361,14 @@ function renderSettings() {
     <div class="strow"><label for="st-lp">Live Preview editor <small>(beta: no find, [[ completion or slash menu yet)</small></label><input id="st-lp" type="checkbox"${S.livePreview ? ' checked' : ''}></div>
     <div class="strow"><label for="st-pair">Auto-pair brackets and quotes</label><input id="st-pair" type="checkbox"${S.autoPair ? ' checked' : ''}></div>
     <div class="strow"><label for="st-spell">Check spelling while typing</label><input id="st-spell" type="checkbox"${S.spellcheck ? ' checked' : ''}></div>
+    <div class="strow"><label for="st-lh">Line spacing</label>${sel('st-lh', S.lineHeight, [['compact', 'Compact'], ['normal', 'Comfortable'], ['relaxed', 'Relaxed']])}</div>
     <div class="strow"><label for="st-fs">Text size</label><input id="st-fs" type="number" min="10" max="28" value="${fontSize}" style="width:70px"></div>
     <div class="strow"><label for="st-accent">Accent colour</label><input id="st-accent" type="color" value="${S.accent || nativeAccent || '#5b5bd6'}"><button id="st-accent-reset"${S.accent ? '' : ' disabled'}>${nativeAccent ? 'Use system colour' : 'Reset'}</button></div>
+    <h4>Note list</h4>
+    <div class="strow"><label for="st-sort">Order</label>${sel('st-sort', S.sort, [['modified', 'Most recently changed first'], ['name', 'By name']])}</div>
+    <div class="strow"><label for="st-prev">Show a line of each note's text</label><input id="st-prev" type="checkbox"${S.listPreview ? ' checked' : ''}></div>
+    <h4>Saving</h4>
+    <div class="strow"><label for="st-save">Save after I stop typing for</label>${sel('st-save', String(S.autosave), [['300', '0.3 seconds'], ['600', '0.6 seconds'], ['1500', '1.5 seconds']])}</div>
     <h4>Notes</h4>
     ${document.documentElement.classList.contains('ios') ? '<div class="strow"><span class="l">Notes folder</span><button id="st-folder">Choose folder…</button></div><div class="hint">Pick a folder in iCloud Drive or any Files location to keep your notes in sync across devices.</div>' : ''}
     <div class="strow"><label for="st-daily">Daily notes folder</label><input id="st-daily" type="text" value="${esc(S.dailyFolder)}" placeholder="(top level)"></div>
@@ -287,8 +382,9 @@ function renderSettings() {
     ${snippetList.map((x) => `<div class="strow"><label><input type="checkbox" data-snip="${esc(x.name)}"${S.snippets.includes(x.name) ? ' checked' : ''}> ${esc(x.name)}</label></div>`).join('') || '<div class="hint">No snippets found.</div>'}
     <div class="strow"><button id="st-reload">Reload snippets</button></div>`;
 }
-async function openSettings() { $('#st').style.display = 'flex'; await loadSnippets(); renderSettings(); }
-function closeSettings() { hkCapture = null; $('#st').style.display = 'none'; }
+let stModal = null, gfModal = null, swModal = null;           // PNUI.modal handles: while one is open the page behind it is inert and Tab stays inside
+async function openSettings() { if (!stModal) stModal = PNUI.modal($('#st'), {}); $('#st').style.display = 'flex'; await loadSnippets(); renderSettings(); }
+function closeSettings() { hkCapture = null; $('#st').style.display = 'none'; if (stModal) { stModal.release(); stModal = null; } }
 $('#stx').onclick = closeSettings;
 $('#st').addEventListener('mousedown', (e) => { if (e.target.id === 'st') closeSettings(); });
 const setSetting = (patch) => { settings = MD.normalizeSettings({ ...settings, ...patch }); saveSettings(); applySettings(); };
@@ -297,6 +393,10 @@ $('#st').addEventListener('change', (e) => {
   if (id === 'st-theme') applyTheme(t.value, true);
   else if (id === 'st-font') setSetting({ font: t.value });
   else if (id === 'st-width') setSetting({ width: t.value });
+  else if (id === 'st-lh') setSetting({ lineHeight: t.value });
+  else if (id === 'st-sort') { setSetting({ sort: t.value }); renderList(); }
+  else if (id === 'st-prev') { setSetting({ listPreview: t.checked }); renderList(); }
+  else if (id === 'st-save') setSetting({ autosave: Number(t.value) });
   else if (id === 'st-lp') setLivePreview(t.checked);
   else if (id === 'st-pair') setSetting({ autoPair: t.checked });
   else if (id === 'st-spell') setSetting({ spellcheck: t.checked });
@@ -515,7 +615,11 @@ document.addEventListener('focusout', (e) => {
 });
 $('#kbar').addEventListener('pointerdown', (e) => { const b = e.target.closest('button'); if (b) { e.preventDefault(); kbarAct(b.dataset.k); } });   // preventDefault keeps focus (and the keyboard) in the editor
 $('#scrim').onclick = () => document.body.classList.remove('side-open');
+let paneAt = null, paneMoved = false;                                // a scroll or a text selection that ends over the text is not a tap
+$('#pane').addEventListener('touchstart', (e) => { paneMoved = false; paneAt = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: true });
+$('#pane').addEventListener('touchmove', (e) => { const t = e.touches[0]; if (paneAt && Math.hypot(t.clientX - paneAt.x, t.clientY - paneAt.y) > 8) paneMoved = true; }, { passive: true });
 $('#pane').addEventListener('click', (e) => {                       // reading view: tap the text to start editing
+  if (paneMoved) { paneMoved = false; return; }
   if (!isTouch() || !preview || !e.target.closest('#pv') || e.target.closest('a, input, img, button, summary, pre, table')) return;
   if (getSelection().toString()) return;
   haptic('light'); $('#tog').click();
@@ -535,12 +639,19 @@ $('#list').addEventListener('touchstart', (e) => {                   // long-pre
   pressAt = { x: t.clientX, y: t.clientY }; pressed = false; clearTimeout(pressTimer);
   pressTimer = setTimeout(() => { pressed = true; pull = null; haptic('medium'); row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: pressAt.x, clientY: pressAt.y })); try { navigator.vibrate?.(10); } catch {} }, 500);
 }, { passive: true });
-$('#list').addEventListener('touchmove', (e) => { const t = e.touches[0]; if (pressAt && Math.hypot(t.clientX - pressAt.x, t.clientY - pressAt.y) > 10) clearTimeout(pressTimer); }, { passive: true });
+// pull-to-refresh with a visible indicator that follows the finger (the browser's own is switched off with overscroll-behavior)
+const ptr = document.createElement('div'); ptr.id = 'ptr'; ptr.setAttribute('aria-hidden', 'true'); $('#list').before(ptr);
+const PTR_AT = 90, ptrReset = () => { ptr.classList.remove('pulling'); ptr.style.height = '0'; };
+$('#list').addEventListener('touchmove', (e) => {
+  const t = e.touches[0]; if (pressAt && Math.hypot(t.clientX - pressAt.x, t.clientY - pressAt.y) > 10) clearTimeout(pressTimer);
+  if (pull && !pressed && $('#list').scrollTop === 0) { const dy = t.clientY - pull.y; if (dy > 6) { ptr.classList.add('pulling'); ptr.style.height = Math.min(56, dy * 0.5) + 'px'; ptr.textContent = dy > PTR_AT ? 'Release to refresh' : 'Pull to refresh'; } else ptrReset(); }
+}, { passive: true });
 $('#list').addEventListener('touchend', async (e) => {
   clearTimeout(pressTimer); const p = pull; pull = null;
-  if (p && !pressed && e.changedTouches[0].clientY - p.y > 90) { haptic('light'); await load(); $('#status').textContent = 'Refreshed'; }
+  if (p && !pressed && e.changedTouches[0].clientY - p.y > PTR_AT) { haptic('light'); ptr.classList.remove('pulling'); ptr.style.height = '28px'; ptr.textContent = 'Refreshing…'; try { await load(); say('Refreshed'); } catch (err) { say('Could not refresh: ' + reachable(err.message)); } ptrReset(); }
+  else ptrReset();
 }, { passive: true });
-$('#list').addEventListener('touchcancel', () => clearTimeout(pressTimer), { passive: true });
+$('#list').addEventListener('touchcancel', () => { clearTimeout(pressTimer); pull = null; ptrReset(); }, { passive: true });
 $('#list').addEventListener('click', (e) => { if (pressed) { e.stopPropagation(); e.preventDefault(); pressed = false; } }, true);   // the tap that ends a long-press must not open the note
 
 /* ---------- phone chrome: tab bar, haptics, keyboard height ---------- */
@@ -567,11 +678,11 @@ let tabs = [{ name: null, preview: false }], ti = 0, pendingPreview = false;
 const saveTabs = () => { try { localStorage.setItem('tabs', JSON.stringify({ i: ti, tabs: tabs.map((t) => ({ name: t.name, preview: !!t.preview })) })); } catch {} };
 function renderTabs() {
   const el = $('#tabs'); el.style.display = tabs.length > 1 ? 'flex' : 'none';
-  el.innerHTML = tabs.map((t, i) => `<div class="tab${i === ti ? ' on' : ''}" role="tab" aria-selected="${i === ti}" data-tab="${i}" title="${esc(t.name || 'New tab')}"><span>${esc(t.name ? t.name.split('/').pop() : 'New tab')}</span><button class="x" data-tabclose="${i}" aria-label="Close tab" title="Close tab">×</button></div>`).join('')
+  el.innerHTML = tabs.map((t, i) => `<div class="tab${i === ti ? ' on' : ''}" role="tab" aria-selected="${i === ti}" tabindex="${i === ti ? 0 : -1}" data-tab="${i}" title="${esc(t.name || 'New tab')}"><span>${esc(t.name ? t.name.split('/').pop() : 'New tab')}</span><button class="x" data-tabclose="${i}" aria-label="Close tab" title="Close tab">×</button></div>`).join('')
     + '<button id="newtab" title="New tab (Ctrl/Cmd+T)" aria-label="New tab">+</button>';
 }
 function showEmpty() {
-  cur = null; dirty = false; preview = false; $('#status').textContent = ''; $('#title').value = ''; $('#title').disabled = true;
+  cur = null; dirty = false; preview = false; saveState(''); $('#title').value = ''; $('#title').disabled = true;
   location.hash = ''; renderList(); renderPane(); renderBack();
 }
 async function openInNewTab(name, create) {
@@ -613,7 +724,7 @@ async function open(name, create) {
   addingProp = false; cur = name; preview = pendingPreview || (isTouch() && !!notes.get(name).text); pendingPreview = false; graphOn = false; tabs[ti].name = name; renderTabs(); location.hash = encodeURIComponent(name);
   try { localStorage.setItem('last', name); } catch {}
   const t = $('#title'); t.disabled = false; t.value = name.split('/').pop();
-  renderPane(); renderList(); renderBack(); $('#status').textContent = '';
+  renderPane(); renderList(); renderBack(); saveState('');
   if (!notes.get(name).text) ($('#ed') || $('#lp'))?.focus();
 }
 /* ---------- editor helpers ---------- */
@@ -670,6 +781,10 @@ function edKey(e) {
     const x = MD.listEnter(v, s); if (x) { e.preventDefault(); applyEdit(ed, x); }
   } else if (e.key === 'Tab' && !mod) {
     e.preventDefault(); applyEdit(ed, MD.indentLines(v, s, en, e.shiftKey));
+  } else if (mod && e.shiftKey && !e.altKey && e.code === 'KeyX') { e.preventDefault(); applyEdit(ed, MD.wrap(v, s, en, '~~'));                 // strikethrough
+  } else if (mod && e.altKey && !e.shiftKey && e.code === 'KeyM') { e.preventDefault(); applyEdit(ed, MD.wrap(v, s, en, '=='));                 // highlight ("mark"; Ctrl/Cmd+Shift+H is find-and-replace)
+  } else if (mod && e.altKey && !e.shiftKey && e.code === 'KeyC') { e.preventDefault(); applyEdit(ed, MD.wrap(v, s, en, '`'));                  // inline code
+  } else if (mod && e.altKey && !e.shiftKey && e.code === 'KeyH') { e.preventDefault(); applyEdit(ed, MD.toggleHeading(v, s));                  // cycle the heading level
   } else if (mod && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'i')) {
     e.preventDefault(); applyEdit(ed, MD.wrap(v, s, en, e.key === 'b' ? '**' : '*'));
   }
@@ -684,7 +799,7 @@ async function attach(files) {
       const r = await api('/api/upload?name=' + encodeURIComponent(f.name || 'image.' + (f.type.split('/')[1] || 'png').replace('svg+xml', 'svg')), { method: 'POST', body: f });
       const md = `![${(f.name || '').replace(/\.\w+$/, '').replace(/[\[\]]/g, '')}](${r.path})\n`;
       const a = ed.selectionStart; ed.setRangeText(md, a, ed.selectionEnd, 'end');
-    } catch (e) { $('#status').textContent = 'Upload failed: ' + e.message; }
+    } catch (e) { say('Upload failed: ' + e.message); }
   }
   onInput(); return true;
 }
@@ -724,27 +839,71 @@ function onInput() {
 }
 function afterTextChange() {                                       // the open note's text changed (from the textarea, the Live Preview editor or a panel)
   const n = notes.get(cur); if (!n) return;
-  n.mtime = Date.now(); aliasMap = null; dirty = true; updateWC(); renderOutline(); renderProps(); if (split && split === cur) renderSplitSoon();
-  $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
+  n.mtime = Date.now(); aliasMap = null; dirty = true; unsaved.add(cur); updateWC(); renderOutline(); renderProps(); if (split && split === cur) renderSplitSoon();
+  saveState('Editing…'); clearTimeout(timer); timer = setTimeout(flush, settings.autosave || 600);
 }
-async function flush() {
-  clearTimeout(timer);
-  if (!dirty || !cur) return;
-  dirty = false;
-  const name = cur, n = notes.get(name), text = n.text;
+/* Saving. Unsaved notes are tracked by name, so switching notes after a failed save cannot orphan the first note's edits; saves are serialised;
+   a failure keeps the note unsaved, shows "Not saved" with a Retry button and retries with backoff; closing the page makes a last-chance save. */
+const retry = { delay: 0, timer: 0, toast: null }, flushLock = { p: Promise.resolve() };
+const reachable = (m) => (/Failed to fetch|NetworkError|Load failed/i.test(m) ? 'the notes server is not reachable' : m);
+function saveFailed(e) {
+  saveState('Not saved'); $('#status').classList.add('err'); $('#status').title = 'Click to retry saving';
+  retry.delay = retry.delay ? Math.min(retry.delay * 2, 30000) : 2000; clearTimeout(retry.timer); retry.timer = setTimeout(flush, retry.delay);
+  const msg = `Could not save: ${reachable(e.message)}. Your text is safe in this window and will be retried.`;
+  const sr = $('#sr'); if (sr) sr.textContent = msg;
+  if (!retry.toast || !retry.toast.el.isConnected) retry.toast = PNUI.toast(msg, { kind: 'error', action: { label: 'Retry now', run: () => flush() } });
+}
+function saveSucceeded() {
+  retry.delay = 0; clearTimeout(retry.timer); if (retry.toast) { retry.toast.close(); retry.toast = null; }
+  if (!unsaved.size) saveState('Saved', 'Saved at ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), true);
+}
+async function saveNote(name) {
+  const n = notes.get(name);
+  if (!n || isLocked(n)) { unsaved.delete(name); return true; }
+  const text = n.text;
   try {
     const r = await putNote(n, text, n.base ?? 0);
-    n.base = r.mtime; $('#status').textContent = 'Saved'; renderList();
+    n.base = r.mtime; if (n.text === text) unsaved.delete(name);                       // typed more while it was saving: stays unsaved, the timer saves again
+    return true;
   } catch (e) {
-    if (e.message !== 'conflict') { dirty = true; $('#status').textContent = 'Save failed: ' + e.message; return; }
+    if (e.message !== 'conflict') { saveNote.lastError = e; return false; }
     // The file changed on disk (sync, another window…). Keep both versions: ours as a conflict copy.
     const copy = `${name} (conflict ${new Date().toTimeString().slice(0, 8).replace(/:/g, '-')})`;
     try { await api('/api/note?name=' + encodeURIComponent(copy), { method: 'PUT', body: await noteBody(n, text) }); } catch {}     // an encrypted note's conflict copy is encrypted too
+    unsaved.delete(name);
     const was = cur; await load();
     if (was === name && notes.has(name)) { cur = name; renderPane(); renderBack(); }
-    $('#status').textContent = `Changed elsewhere — your version saved as “${copy}”`;
+    say(`Changed elsewhere — your version saved as “${copy}”`);
+    return true;
   }
 }
+function flush() {
+  clearTimeout(timer);
+  flushLock.p = flushLock.p.then(async () => {
+    if (!unsaved.size) { dirty = false; return; }
+    let ok = true;
+    for (const name of [...unsaved]) if (!(await saveNote(name))) ok = false;
+    dirty = unsaved.size > 0;
+    if (ok) { saveSucceeded(); renderList(); } else saveFailed(saveNote.lastError || new Error('unknown error'));
+  });
+  return flushLock.p;
+}
+$('#status').addEventListener('click', () => { if (SAVE.text === 'Not saved') flush(); });
+window.addEventListener('online', () => { if (unsaved.size) flush(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && unsaved.size) flush(); });
+// Closing the page: browsers cut async work short, so plain-text notes get a keepalive request (it outlives the page); encrypted notes can't be
+// encrypted synchronously, and anything still unsaved makes the browser ask before closing.
+window.addEventListener('pagehide', () => {
+  for (const name of unsaved) {
+    const n = notes.get(name); if (!n || n.cipher || n.text.length > 60000) continue;
+    const sent = n.text;                                                               // if the page survives (back/forward cache), record that this version is on disk so the next save is not seen as a conflict
+    try { fetch('/api/note?name=' + encodeURIComponent(name), { method: 'PUT', body: sent, keepalive: true, headers: { 'x-base-mtime': String(n.base ?? 0) } }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j && notes.get(name) === n) { n.base = j.mtime; if (n.text === sent) { unsaved.delete(name); dirty = unsaved.size > 0; } } }).catch(() => {}); } catch {}
+  }
+});
+// Ask before closing only when the close-time save cannot be guaranteed: an encrypted note (it cannot be encrypted synchronously), a note too big for a
+// keepalive request, or a server that is already failing. An ordinary pending autosave is simply sent as the page goes away, with no nagging.
+const closeRisk = () => retry.delay > 0 || [...unsaved].some((name) => { const n = notes.get(name); return !n || n.cipher || n.text.length > 60000; });
+window.addEventListener('beforeunload', (e) => { if (unsaved.size) flush(); if (unsaved.size && closeRisk()) { e.preventDefault(); e.returnValue = ''; } });
 async function newNote() {
   const pre = settings.newFolder ? settings.newFolder + '/' : '';
   let i = 0, n; do { n = pre + (i ? `Untitled ${i}` : 'Untitled'); i++; } while (notes.has(n));
@@ -764,7 +923,7 @@ async function addStarterTemplates() {
   const T = { 'templates/Daily': '# {{date}}\n\n## Plan\n- [ ] \n\n## Notes\n\n', 'templates/Meeting': '# {{title}}\n{{date}}\n\n**Attendees:** \n\n## Agenda\n- \n\n## Decisions\n\n## Action items\n- [ ] \n',
     'templates/Project': '# {{title}}\nCreated {{date}} #project\n\n## Goal\n\n## Milestones\n- [ ] \n\n## Notes\n' };
   for (const [name, text] of Object.entries(T)) if (!notes.has(name)) await api('/api/note?name=' + encodeURIComponent(name), { method: 'PUT', body: text, headers: { 'x-base-mtime': '0' } }).catch(() => {});
-  await load(); renderList(); $('#status').textContent = 'Templates added: use “New note from template” in the palette (Daily is used for new daily notes)';
+  await load(); renderList(); say('Templates added: use “New note from template” in the palette (Daily is used for new daily notes)');
 }
 
 /* focus mode */
@@ -800,7 +959,7 @@ function frUpdate(scroll) {
 }
 function frStep(dir) { const ms = frUpdate(); if (!ms.length) return; frIdx = (frIdx + dir + ms.length) % ms.length; frUpdate(true); }
 function openFind() {
-  if ($('#lp')) { $('#status').textContent = 'Find in note is not available in Live Preview yet'; return; }
+  if ($('#lp')) { say('Find in note is not available in Live Preview yet'); return; }
   if (!$('#ed')) { if (cur && preview) { preview = false; renderPane(); } if (!$('#ed')) return; }
   const ed = $('#ed'), sel = ed.value.slice(ed.selectionStart, ed.selectionEnd);
   $('#fr').classList.add('on'); if (sel && !sel.includes('\n')) $('#frq').value = sel;
@@ -858,7 +1017,7 @@ function exportHtml() {
 async function renameNote(from, to) {
   await flush();
   try { await api('/api/rename', { method: 'POST', body: JSON.stringify({ from, to }) }); }
-  catch (e) { $('#status').textContent = 'Rename failed: ' + (e.message === 'exists' ? 'a note with that name already exists' : e.message); return false; }
+  catch (e) { say('Rename failed: ' + (e.message === 'exists' ? 'a note with that name already exists' : e.message)); return false; }
   const n = notes.get(from); notes.delete(from); n.name = to; notes.set(to, n); aliasMap = null;
   if (keyring.has(from)) { keyring.set(to, keyring.get(from)); keyring.delete(from); }
   tabs.forEach((t) => { if (t.name === from) t.name = to; }); renderTabs(); saveTabs();
@@ -890,6 +1049,7 @@ function drawGraph() {
   const pane = $('#pane');
   pane.innerHTML = '<canvas id="gc"></canvas><div id="gmode" title="Click to change: all notes / this note and its links / two steps out"></div>';
   const cv = $('#gc'), ctx = cv.getContext('2d'), dpr = devicePixelRatio || 1;
+  cv.setAttribute('role', 'img'); cv.setAttribute('aria-label', 'Graph of your notes and the links between them. The note list in the sidebar has the same notes for keyboard and screen-reader use.');
   const ids = new Map(), nodes = [], links = [];
   const node = (id, label, ghost) => { let n = ids.get(id);
     if (!n) { const a = Math.random() * 6.28, d = 40 + Math.random() * 120;
@@ -903,6 +1063,9 @@ function drawGraph() {
       const t = node(key, r ? r.split('/').pop() : m[1].trim(), !r), s = ids.get(o.name);
       links.push([s, t]); s.deg++; t.deg++;
     } }
+  const GRAPH_MAX = 1500;                              // all-pairs physics is O(n²): beyond this, show the neighbourhood of the open note, or the best-connected notes
+  let capped = false;
+  if (!graphScope && nodes.length > GRAPH_MAX && cur && ids.has(cur)) { graphScope = 1; capped = true; }
   if (graphScope && cur && ids.has(cur)) {           // keep only notes within graphScope links of the open note
     const dist = new Map([[cur, 0]]), q = [cur];
     while (q.length) { const id = q.shift(), d = dist.get(id); if (d >= graphScope) continue;
@@ -911,15 +1074,23 @@ function drawGraph() {
     for (let i = links.length - 1; i >= 0; i--) if (!dist.has(links[i][0].id) || !dist.has(links[i][1].id)) links.splice(i, 1);
     for (const n of nodes) { n.deg = 0; n.x *= 0.3; n.y *= 0.3; }
     for (const [a, b] of links) { a.deg++; b.deg++; }
-  } else if (graphScope) graphScope = 0;
-  $('#gmode').textContent = graphScope ? `Around “${cur.split('/').pop()}” · ${graphScope === 1 ? '1 step' : '2 steps'}` : 'All notes';
+  } else {
+    if (graphScope) graphScope = 0;
+    if (nodes.length > GRAPH_MAX) {
+      const keep = new Set([...nodes].sort((x, y) => y.deg - x.deg).slice(0, GRAPH_MAX)); capped = true;
+      for (let i = nodes.length - 1; i >= 0; i--) if (!keep.has(nodes[i])) nodes.splice(i, 1);
+      for (let i = links.length - 1; i >= 0; i--) if (!keep.has(links[i][0]) || !keep.has(links[i][1])) links.splice(i, 1);
+    }
+  }
+  $('#gmode').textContent = (graphScope ? `Around “${cur.split('/').pop()}” · ${graphScope === 1 ? '1 step' : '2 steps'}` : capped ? `The ${GRAPH_MAX} best-connected notes` : 'All notes') + (capped && graphScope ? ' (large vault)' : '');
   $('#gmode').onclick = () => { graphScope = cur ? (graphScope + 1) % 3 : 0; drawGraph(); };
   if (!nodes.length) { pane.innerHTML = '<div class="empty">No notes yet</div>'; return; }
   cv.dataset.nodes = nodes.length;
-  const css = getComputedStyle(document.documentElement), C = (v) => css.getPropertyValue(v).trim();
-  let userView = false, frames = 0, W, H, scale = 1, ox = 0, oy = 0, alpha = 1, drag = null, pan = null, hover = null, moved = false;
+  const css = getComputedStyle(document.documentElement), C = (v) => css.getPropertyValue(v).trim(), col = {};
+  const refreshCols = () => { for (const v of ['--acc', '--line', '--mute', '--fg']) col[v] = C(v); }; refreshCols(); let paints = 0;
+  let lastEnergy = 1, idle = 0, userView = false, frames = 0, W, H, scale = 1, ox = 0, oy = 0, alpha = 1, drag = null, pan = null, hover = null, moved = false;
   const size = () => { W = pane.clientWidth; H = pane.clientHeight; cv.width = W * dpr; cv.height = H * dpr; };
-  size(); const ro = new ResizeObserver(() => { if (cv.isConnected) size(); else ro.disconnect(); }); ro.observe(pane);
+  size(); const ro = new ResizeObserver(() => { if (cv.isConnected) { size(); wake(); } else ro.disconnect(); }); ro.observe(pane);
   const rad = (n) => 4 + Math.sqrt(n.deg) * 3;
   const toW = (px, py) => [(px - W / 2 - ox) / scale, (py - H / 2 - oy) / scale];
   const pick = (px, py) => { const [x, y] = toW(px, py); let best = null, bd = 1e9;
@@ -936,9 +1107,11 @@ function drawGraph() {
         a.vx += dx; a.vy += dy; b.vx -= dx; b.vy -= dy; } }
     for (const [a, b] of links) { const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, f = (d - 70) * 0.02;
       a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; }
+    let energy = 0;
     for (const n of nodes) { n.vx -= n.x * 0.004; n.vy -= n.y * 0.004;
       if (n === drag) { n.vx = n.vy = 0; continue; }
-      n.vx *= 0.82; n.vy *= 0.82; n.x += n.vx * alpha; n.y += n.vy * alpha; }
+      n.vx *= 0.82; n.vy *= 0.82; n.x += n.vx * alpha; n.y += n.vy * alpha; energy += (Math.abs(n.vx) + Math.abs(n.vy)) * alpha; }      // energy = how far things visibly moved this frame
+    lastEnergy = energy;
     alpha = Math.max(alpha * 0.994, 0.02);
     if (!userView && frames++ < 400) {                       // ease the view to fit the whole graph until the user takes over
       let mx = 1, my = 1; for (const n of nodes) { mx = Math.max(mx, Math.abs(n.x)); my = Math.max(my, Math.abs(n.y)); }
@@ -947,34 +1120,43 @@ function drawGraph() {
     }
   }
   function paint() {
+    if (!(paints++ % 30)) refreshCols();                  // picks up a theme change within half a second
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
     ctx.translate(W / 2 + ox, H / 2 + oy); ctx.scale(scale, scale);
     const hot = new Set(); if (hover) { hot.add(hover); for (const [a, b] of links) { if (a === hover) hot.add(b); if (b === hover) hot.add(a); } }
     ctx.lineWidth = 1 / scale;
     for (const [a, b] of links) { const on = hover && (a === hover || b === hover);
-      ctx.strokeStyle = on ? C('--acc') : C('--line'); ctx.globalAlpha = hover && !on ? 0.3 : 1;
+      ctx.strokeStyle = on ? col['--acc'] : col['--line']; ctx.globalAlpha = hover && !on ? 0.3 : 1;
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
     ctx.font = `${12 / scale}px -apple-system,system-ui,sans-serif`; ctx.textAlign = 'center';
     for (const n of nodes) {
       const dim = hover && !hot.has(n), isCur = n.id === cur;
       ctx.globalAlpha = dim ? 0.25 : 1;
-      ctx.fillStyle = isCur ? C('--acc') : n.ghost ? C('--line') : C('--mute');
+      ctx.fillStyle = isCur ? col['--acc'] : n.ghost ? col['--line'] : col['--mute'];
       ctx.beginPath(); ctx.arc(n.x, n.y, rad(n), 0, 6.283); ctx.fill();
-      if (isCur) { ctx.strokeStyle = C('--acc'); ctx.beginPath(); ctx.arc(n.x, n.y, rad(n) + 3 / scale, 0, 6.283); ctx.stroke(); }
-      if (scale > 0.6 || hot.has(n) || isCur) { ctx.fillStyle = C('--fg'); ctx.fillText(n.label, n.x, n.y + rad(n) + 13 / scale); } }
+      if (isCur) { ctx.strokeStyle = col['--acc']; ctx.beginPath(); ctx.arc(n.x, n.y, rad(n) + 3 / scale, 0, 6.283); ctx.stroke(); }
+      if (scale > 0.6 || hot.has(n) || isCur) { ctx.fillStyle = col['--fg']; ctx.fillText(n.label, n.x, n.y + rad(n) + 13 / scale); } }
     ctx.globalAlpha = 1;
   }
-  const loop = () => { if (!cv.isConnected) return; step(); paint(); gRaf = requestAnimationFrame(loop); };
+  // The animation sleeps once the layout has settled (no battery burned on a still graph) and wakes on any interaction.
+  const loop = () => {
+    if (!cv.isConnected) { gRaf = 0; return; }
+    step(); paint();
+    idle = lastEnergy < 0.02 * nodes.length && !drag && !pan && (userView || frames >= 400) ? idle + 1 : 0;
+    gRaf = idle > 60 ? 0 : requestAnimationFrame(loop);
+  };
+  const wake = () => { idle = 0; if (!gRaf && cv.isConnected) gRaf = requestAnimationFrame(loop); };
   const pos = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  cv.onpointerdown = (e) => { const [px, py] = pos(e); cv.setPointerCapture(e.pointerId); moved = false; userView = true;
+  cv.onpointerdown = (e) => { wake(); const [px, py] = pos(e); cv.setPointerCapture(e.pointerId); moved = false; userView = true;
     const n = pick(px, py); if (n) drag = n; else { pan = [px - ox, py - oy]; } cv.style.cursor = 'grabbing'; };
-  cv.onpointermove = (e) => { const [px, py] = pos(e);
+  cv.onpointermove = (e) => { wake(); const [px, py] = pos(e);
     if (drag) { [drag.x, drag.y] = toW(px, py); alpha = 0.6; moved = true; }
     else if (pan) { ox = px - pan[0]; oy = py - pan[1]; moved = true; }
     else { const h = pick(px, py); if (h !== hover) { hover = h; cv.style.cursor = h ? 'pointer' : 'grab'; } } };
   cv.onpointerup = () => { if (drag && !moved) { const n = drag; drag = null; graphOn = false; open(n.id, true); return; }
     drag = pan = null; cv.style.cursor = hover ? 'pointer' : 'grab'; };
-  cv.onwheel = (e) => { e.preventDefault(); userView = true; const [px, py] = pos(e), k = Math.exp(-e.deltaY * 0.0015), ns = Math.min(4, Math.max(0.2, scale * k));
+  cv.onpointercancel = () => { drag = pan = null; cv.style.cursor = 'grab'; };          // the browser took the gesture (scroll, system swipe): never leave a drag stuck
+  cv.onwheel = (e) => { e.preventDefault(); wake(); userView = true; const [px, py] = pos(e), k = Math.exp(-e.deltaY * 0.0015), ns = Math.min(4, Math.max(0.2, scale * k));
     const [wx, wy] = toW(px, py); scale = ns; ox = px - W / 2 - wx * scale; oy = py - H / 2 - wy * scale; };
   if (/[?&]settle\b/.test(location.search)) for (let i = 0; i < 600; i++) step();   // ?graph&settle: pre-computed layout (deterministic screenshots)
   loop();
@@ -994,6 +1176,7 @@ const COMMANDS = [
   { id: 'history', name: 'Version history of this note…', run: () => openHistory() },
   { id: 'clipper', name: 'Web clipper: get the Clip bookmark…', run: () => openClipper() },
   { id: 'import', name: 'Import notes from another app…', run: () => openImport() },
+  { id: 'shortcuts', name: 'Keyboard shortcuts', hint: 'Ctrl/Cmd+/', run: () => showShortcuts() },
   { id: 'tour', name: 'Take the Plainnote tour', run: () => PNTour.start() },
   { id: 'samples', name: 'Add the sample notes', run: () => PNTour.createSamples(true) },
   { id: 'encrypt', name: 'Encrypt this note…', run: () => encryptNote() },
@@ -1079,27 +1262,38 @@ function gfRender() {
   $('#gfc').textContent = q ? `${total} match${total === 1 ? '' : 'es'} in ${gfHits.length} note${gfHits.length === 1 ? '' : 's'}` : '';
   $('#gfa').disabled = !gfHits.length;
 }
-function openGlobalFind() { $('#gf').style.display = 'flex'; $('#gfq').focus(); $('#gfq').select(); gfRender(); }
-function closeGlobalFind() { $('#gf').style.display = 'none'; }
+function openGlobalFind() { if (!gfModal) gfModal = PNUI.modal($('#gf'), {}); $('#gf').style.display = 'flex'; $('#gfq').focus(); $('#gfq').select(); gfRender(); }
+function closeGlobalFind() { $('#gf').style.display = 'none'; if (gfModal) { gfModal.release(); gfModal = null; } }
 async function gfApply() {
   const q = $('#gfq').value, r = $('#gfr').value;
   const chosen = [...document.querySelectorAll('#gfl [data-gf]')].filter((c) => c.checked).map((c) => gfHits[+c.dataset.gf]);
   if (!chosen.length) return;
-  await flush(); let done = 0, failed = 0;
+  await flush(); let done = 0, failed = 0; const changes = [];
   for (const h of chosen) {
     const n = notes.get(h.name); if (!n) continue;
-    const { text } = MD.replaceAll(n.text, q, r);
-    try { const res = await putNote(n, text, n.base ?? 0); n.text = text; n.base = res.mtime; done++; }
+    const before = n.text, { text } = MD.replaceAll(n.text, q, r);
+    try { const res = await putNote(n, text, n.base ?? 0); n.text = text; n.base = res.mtime; done++; changes.push({ name: h.name, before, after: text }); }
     catch { failed++; }
   }
   if (cur && notes.get(cur)) { const ed = $('#ed'); if (ed) { ed.value = notes.get(cur).text; syncEditor(); } else renderPane(); }
   renderList(); renderBack(); closeGlobalFind();
-  $('#status').textContent = `Replaced in ${done} note${done === 1 ? '' : 's'}` + (failed ? `, ${failed} failed (changed elsewhere)` : '');
+  const undo = async () => {                                         // put the old text back, but never over a note that was edited since
+    let ok = 0, skipped = 0;
+    for (const c of changes) {
+      const n = notes.get(c.name);
+      if (!n || isLocked(n) || n.text !== c.after) { skipped++; continue; }
+      try { const res = await putNote(n, c.before, n.base ?? 0); n.text = c.before; n.base = res.mtime; ok++; } catch { skipped++; }
+    }
+    if (cur && notes.get(cur)) { const ed = $('#ed'); if (ed) { ed.value = notes.get(cur).text; syncEditor(); } else renderPane(); }
+    renderList(); renderBack();
+    say(`Undid the replace in ${ok} note${ok === 1 ? '' : 's'}` + (skipped ? `; ${skipped} changed since and ${skipped === 1 ? 'was' : 'were'} left alone` : ''));
+  };
+  say(`Replaced in ${done} note${done === 1 ? '' : 's'}` + (failed ? `, ${failed} failed (changed elsewhere)` : ''), done ? { action: { label: 'Undo', run: undo } } : {});
 }
 $('#gfq').oninput = gfRender;
 $('#gfx').onclick = closeGlobalFind;
 $('#gfa').onclick = gfApply;
-$('#gf').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeGlobalFind(); else if (e.key === 'Enter' && !$('#gfa').disabled) gfApply(); });
+$('#gf').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeGlobalFind(); });          // Enter in the fields does not apply a replace; use the button
 $('#gf').addEventListener('mousedown', (e) => { if (e.target.id === 'gf') closeGlobalFind(); });
 /* PDF: print the rendered note (the print stylesheet hides the app chrome); the Mac app prints natively */
 async function exportPdf() {
@@ -1112,33 +1306,71 @@ function allTasks() {
   for (const n of notes.values()) for (const t of MD.tasksOf(n.text)) if (!t.done) out.push({ ...t, name: n.name });
   return out;
 }
+/* Command palette and quick switcher: fuzzy matching with highlighted letters, grouped commands, recent commands first, shortcut hints for this platform */
+const CMD_GROUPS = [
+  ['Notes', ['new', 'today', 'pin', 'history', 'splitcur', 'splitclose', 'trash', 'starter', 'samples']],
+  ['View', ['toggle', 'graph', 'localgraph', 'focus', 'livepreview', 'theme', 'bigger', 'smaller', 'reset', 'tasks']],
+  ['Find', ['find', 'gfind']],
+  ['Share and back up', ['pdf', 'export', 'backup', 'restore', 'sync', 'import', 'clipper']],
+  ['Privacy', ['encrypt', 'lock', 'lockall', 'chpass', 'decrypt']],
+  ['Tabs and navigation', ['newtab', 'closetab', 'nexttab', 'prevtab', 'back', 'forward']],
+  ['Help and settings', ['settings', 'tour', 'shortcuts']],
+];
+const CMD_GROUP = new Map(); for (const [g, ids] of CMD_GROUPS) ids.forEach((id) => CMD_GROUP.set(id, g));
+const hintLabel = (h) => (!h ? '' : h.split('+').map((k) => (isMac ? { 'Ctrl/Cmd': '⌘', Cmd: '⌘', Ctrl: '⌃', Shift: '⇧', Alt: '⌥' }[k] || k : k === 'Ctrl/Cmd' ? 'Ctrl' : k)).join(isMac ? '' : '+'));
+const cmdHint = (c) => (c.id && settings.hotkeys && settings.hotkeys[c.id] ? MD.comboLabel(settings.hotkeys[c.id], isMac) : hintLabel(c.hint));       // your own shortcut wins over the built-in one
+const recentCmds = () => { try { return JSON.parse(localStorage.getItem('recentCmds') || '[]').filter((x) => typeof x === 'string'); } catch { return []; } };
+const pushRecentCmd = (id) => { try { localStorage.setItem('recentCmds', JSON.stringify([id, ...recentCmds().filter((x) => x !== id)].slice(0, 6))); } catch {} };
+const rowKb = (c) => { const h = cmdHint(c); return h ? `<span class="kb">${esc(h)}</span>` : ''; };
 function swRender() {
   if (swMode === 'tasks') {
     const l = $('#swq').value.trim().toLowerCase();
     swRows = allTasks().filter((t) => !l || (t.text + ' ' + t.name).toLowerCase().includes(l)).slice(0, 50);
     swSel = Math.min(swSel, Math.max(0, swRows.length - 1));
-    $('#swl').innerHTML = swRows.map((t, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}"><input type="checkbox" class="tk" data-tk="${i}" title="Mark done">${esc(t.text)}<span class="snip" style="float:right">${esc(t.name)}</span></div>`).join('') || '<div class="empty">No open tasks 🎉</div>';
+    $('#swl').innerHTML = swRows.map((t, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}"><input type="checkbox" class="tk" data-tk="${i}" title="Mark done">${esc(t.text)}<span class="snip" style="float:right">${esc(t.name)}</span></div>`).join('') || '<div class="empty">No open tasks</div>';
     return;
   }
   if (swMode === 'cmds') {
-    const l = $('#swq').value.trim().toLowerCase();
-    const tpls = [...notes.keys()].filter((n) => /^templates\//i.test(n)).sort().map((n) => ({ name: 'New note from template: ' + n.slice(10), run: () => newFromTemplate(n) }));
-    swRows = [...COMMANDS, ...tpls].filter((c) => !l || c.name.toLowerCase().includes(l) || l.split(/\s+/).every((w) => c.name.toLowerCase().includes(w)));
-    swSel = Math.min(swSel, Math.max(0, swRows.length - 1));
-    $('#swl').innerHTML = swRows.map((r, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${esc(r.name)}${r.hint ? `<span class="snip" style="float:right">${esc(r.hint)}</span>` : ''}</div>`).join('') || '<div class="empty">No matching command</div>';
+    const v = $('#swq').value.trim();
+    const tpls = [...notes.keys()].filter((n) => /^templates\//i.test(n)).sort().map((n) => ({ name: 'New note from template: ' + n.slice(10), run: () => newFromTemplate(n), group: 'Notes' }));
+    const all = [...COMMANDS, ...tpls].map((c) => ({ ...c, group: c.group || CMD_GROUP.get(c.id) || 'Other' }));
+    let html = '';
+    if (!v) {                                                                         // nothing typed: recent commands, then everything by group
+      const recent = recentCmds().map((id) => all.find((c) => c.id === id)).filter(Boolean).slice(0, 5);
+      const order = [...CMD_GROUPS.map((g) => g[0]), 'Notes', 'Other'], seen = new Set(), sections = [];
+      if (recent.length) sections.push(['Recent', recent]);
+      for (const g of order) if (!seen.has(g)) { seen.add(g); const list = all.filter((c) => c.group === g && !recent.includes(c)); if (list.length) sections.push([g, list]); }
+      swRows = sections.flatMap((x) => x[1]); swSel = Math.min(swSel, Math.max(0, swRows.length - 1));
+      let k = 0;
+      $('#swl').innerHTML = sections.map(([label, list]) => `<div class="gh" role="presentation">${esc(label)}</div>` + list.map((c) => { const i = k++; return `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${esc(c.name)}${rowKb(c)}</div>`; }).join('')).join('');
+      return;
+    }
+    const scored = all.map((c) => ({ c, m: PNUI.fuzzy(v, c.name) })).filter((x) => x.m).sort((a, b) => b.m.score - a.m.score);
+    swRows = scored.map((x) => x.c); swSel = Math.min(swSel, Math.max(0, swRows.length - 1));
+    $('#swl').innerHTML = scored.map((x, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${PNUI.highlight(x.c.name, x.m.idx)}${rowKb(x.c)}</div>`).join('') || '<div class="empty">No matching command</div>';
     return;
   }
-  const v = $('#swq').value.trim(), l = v.toLowerCase();
-  // most recently edited first; names that start with the query beat names that merely contain it
-  const rank = (n) => (l && n.toLowerCase().startsWith(l) ? 0 : 1);
-  swRows = [...notes.keys()].filter((n) => n.toLowerCase().includes(l))
-    .sort((a, b) => rank(a) - rank(b) || (notes.get(b).mtime || 0) - (notes.get(a).mtime || 0)).slice(0, 8);
+  const v = $('#swq').value.trim();
+  const scored = [];
+  for (const n of notes.values()) {
+    let m = v ? PNUI.fuzzy(v, n.name) : { score: 0, idx: [] }, via = '';
+    if (v && !m) for (const a of aliasesCached(n)) { const am = PNUI.fuzzy(v, a); if (am) { m = { score: am.score - 40, idx: [] }; via = a; break; } }   // a note is also found by its alias
+    if (m) scored.push({ n, m, via });
+  }
+  scored.sort((a, b) => b.m.score - a.m.score || (b.n.mtime || 0) - (a.n.mtime || 0));                     // best match first, then most recently edited
+  swRows = scored.slice(0, 12).map((x) => x.n.name);
+  const extra = scored.slice(0, 12);
   if (v && !notes.has(v)) swRows.push({ create: v });
   swSel = Math.min(swSel, swRows.length - 1);
-  $('#swl').innerHTML = swRows.map((r, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${r.create ? `Create “${esc(r.create)}”` : esc(r)}</div>`).join('');
+  $('#swl').innerHTML = swRows.map((r, i) => {
+    if (r.create) return `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">Create “${esc(r.create)}”</div>`;
+    const x = extra[i], k = r.lastIndexOf('/') + 1, folder = r.slice(0, k), base = r.slice(k);
+    const idx = (x.m.idx || []).filter((p) => p >= k).map((p) => p - k);
+    return `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${folder ? `<span class="fp">${esc(folder)}</span>` : ''}${PNUI.highlight(base, idx)}${x.via ? `<span class="kb">alias: ${esc(x.via)}</span>` : (notes.get(r).cipher ? '<span class="kb">🔒</span>' : '')}</div>`;
+  }).join('');
 }
-function swOpen(mode) { swMode = mode || 'notes'; $('#swq').placeholder = swMode === 'cmds' ? 'Type a command…' : swMode === 'tasks' ? 'Filter open tasks…' : 'Jump to or create a note…'; $('#sw').style.display = 'flex'; $('#swq').value = ''; swSel = 0; swRender(); $('#swq').focus(); }
-function swClose() { $('#sw').style.display = 'none'; }
+function swOpen(mode) { if (!swModal) swModal = PNUI.modal($('#sw'), {}); swMode = mode || 'notes'; $('#swq').placeholder = swMode === 'cmds' ? 'Type a command…' : swMode === 'tasks' ? 'Filter open tasks…' : 'Jump to or create a note…'; $('#sw').style.display = 'flex'; $('#swq').value = ''; swSel = 0; swRender(); $('#swq').focus(); }
+function swClose() { $('#sw').style.display = 'none'; if (swModal) { swModal.release(); swModal = null; } }
 async function toggleTask(t) {
   const n = notes.get(t.name); if (!n) return;
   const L = n.text.split('\n'); if (!/\[ \]/.test(L[t.line] || '')) return;
@@ -1147,16 +1379,16 @@ async function toggleTask(t) {
     const r = await putNote(n, text, n.base ?? 0);
     n.text = text; n.base = r.mtime;
     if (cur === t.name) { const ed = $('#ed'); if (ed) { ed.value = text; syncEditor(); } else renderPane(); }
-    $('#status').textContent = 'Task done';
-  } catch (e) { $('#status').textContent = 'Could not update task: ' + e.message; }
+    say('Task done');
+  } catch (e) { say('Could not update task: ' + e.message); }
   swRender();
 }
-function swPick(i) { const r = swRows[i]; swClose(); if (!r) return; if (swMode === 'tasks') { open(r.name, false); return; } if (r.run) setTimeout(r.run, 0); else open(r.create || r, !!r.create); }
+function swPick(i, o = {}) { const r = swRows[i]; swClose(); if (!r) return; if (swMode === 'cmds' && r.id) pushRecentCmd(r.id); if (swMode === 'tasks') { open(r.name, false); return; } if (r.run) setTimeout(r.run, 0); else if (o.newTab && !r.create) openInNewTab(r, false); else open(r.create || r, !!r.create); }
 
 /* events */
 document.addEventListener('click', (e) => {
   if (document.body.classList.contains('side-open') && !e.target.closest('#side, #menu')) document.body.classList.remove('side-open');
-  if (e.target.id === 'emptytrash') { if (confirm('Permanently delete everything in the trash?')) api('/api/trash', { method: 'DELETE' }).then(() => { trashMode = true; showTrash(); }); return; }
+  if (e.target.id === 'emptytrash') { PNUI.askConfirm({ title: 'Empty the trash?', message: 'Everything in the trash is deleted for good.', ok: 'Delete forever', danger: true }).then((yes) => { if (yes) api('/api/trash', { method: 'DELETE' }).then(() => { trashMode = true; showTrash(); }); }); return; }
   const rs = e.target.closest('[data-restore]');
   if (rs) { api('/api/restore', { method: 'POST', body: JSON.stringify({ id: rs.dataset.restore }) }).then(async (r) => { await load(); trashMode = false; trashIcon(false); renderList(); open(r.name, false); }); return; }
   const tcl = e.target.closest('[data-tabclose]');
@@ -1184,7 +1416,8 @@ document.addEventListener('click', (e) => {
     if (e.altKey && notes.has(a.dataset.note)) { openSplit(a.dataset.note); return; }
     (e.metaKey || e.ctrlKey ? openInNewTab : open)(a.dataset.note || cur, true).then(() => { if (anchor) gotoAnchor(anchor); else if (block) gotoBlock(block); }); }
 });
-$('#q').oninput = renderList;
+let listRaf = 0; const renderListSoon = () => { if (!listRaf) listRaf = requestAnimationFrame(() => { listRaf = 0; renderList(); }); };
+$('#q').oninput = renderListSoon;
 document.addEventListener('auxclick', (e) => {                      // middle-click: close a tab / open a link in a new tab
   if (e.button !== 1) return;
   const tb = e.target.closest?.('[data-tab]'), a = e.target.closest?.('[data-note]');
@@ -1228,7 +1461,7 @@ $('#list').addEventListener('drop', async (e) => {
   const name = dragName(e); if (!name || view !== 'files') return;
   e.preventDefault(); const to = dropTarget(e);
   if (to) { openFolders.add(to); saveOpenFolders(); }
-  if (await moveNote(name, to)) $('#status').textContent = `Moved to ${to || 'the top level'}`;
+  if (await moveNote(name, to)) say(`Moved to ${to || 'the top level'}`);
 });
 /* right-click menu */
 function showCtx(items, x, y) {
@@ -1243,16 +1476,53 @@ $('#ctx').addEventListener('click', (e) => { const b = e.target.closest('[data-c
 document.addEventListener('mousedown', (e) => { if (!e.target.closest?.('#ctx')) hideCtx(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideCtx(); });
 const uniqueName = (base) => { let i = 0, n; do { n = i ? `${base} ${i + 1}` : base; i++; } while (notes.has(n)); return n; };
+// Names of notes and folders may not contain these characters (the server and other file systems reject them).
+const NAME_BAD = /[\\:*?"<>|]/;
+const nameCheck = (v) => (!v.trim() ? 'Enter a name' : NAME_BAD.test(v) ? 'These characters are not allowed:  \\ : * ? " < > |' : '');
+// A folder chooser: type to filter (fuzzy), arrow keys + Enter, or type a new folder path. Resolves to a folder ('' = the top level) or null.
+function pickFolder({ title, current = '' }) {
+  return new Promise((resolve) => {
+    const body = document.createElement('div');
+    body.innerHTML = '<label class="dlg-lbl">Folder<input type="text" id="pfq" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="pfl" placeholder="Type to search, or a new folder name"></label><div class="dlg-err" role="alert"></div><ul class="pf-list" id="pfl" role="listbox" aria-label="Folders"></ul>';
+    const q = body.querySelector('input'), ul = body.querySelector('ul'), err = body.querySelector('.dlg-err'), all = ['', ...[...folders].sort()]; let rows = [], sel = 0;
+    const label = (f) => (f === '' ? 'Top level' : f);
+    const paint = () => {
+      const v = q.value.trim().replace(/^\/+|\/+$/g, '');
+      rows = all.map((f) => ({ f, m: v ? PNUI.fuzzy(v, label(f)) : { score: 0, idx: [] } })).filter((r) => r.m).sort((a, b) => b.m.score - a.m.score).slice(0, 60);
+      if (v && !all.includes(v)) rows.push({ f: v, create: true });
+      sel = Math.max(0, Math.min(sel, rows.length - 1)); err.textContent = '';
+      ul.innerHTML = rows.map((r, i) => `<li role="option" id="pf${i}" data-i="${i}" aria-selected="${i === sel}" class="${i === sel ? 'on' : ''}">${r.create ? `Create “${PNUI.esc(r.f)}”` : PNUI.highlight(label(r.f), r.m.idx)}${r.f === current && !r.create ? ' <small>current</small>' : ''}</li>`).join('') || '<li class="none">No folders</li>';
+      q.setAttribute('aria-activedescendant', rows.length ? 'pf' + sel : '');
+    };
+    const choose = (close) => {
+      const r = rows[sel]; if (!r) return;
+      if (r.create && r.f.split('/').some((x) => !x.trim() || NAME_BAD.test(x))) { err.textContent = 'Folder names cannot be empty or contain  \\ : * ? " < > |'; return; }
+      close(r.f);
+    };
+    let dlg; const close = (v) => dlg.close(v);
+    dlg = PNUI.openDialog({ title, width: '440px', body, focus: '#pfq', actions: [{ label: 'Cancel', onClick: (c) => c(null) }, { label: 'Move here', primary: true, onClick: (c) => choose(c) }] });
+    q.oninput = () => { sel = 0; paint(); };
+    q.onkeydown = (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(sel + 1, rows.length - 1); paint(); ul.querySelector('.on')?.scrollIntoView({ block: 'nearest' }); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(sel - 1, 0); paint(); ul.querySelector('.on')?.scrollIntoView({ block: 'nearest' }); }
+      else if (e.key === 'Enter') { e.preventDefault(); choose(close); }
+    };
+    ul.onclick = (e) => { const li = e.target.closest('li[data-i]'); if (li) { sel = +li.dataset.i; choose(close); } };
+    q.value = current; paint(); q.select();
+    dlg.closed.then((r) => resolve(typeof r === 'string' ? r : null));
+  });
+}
 async function newFolder(parent) {
-  const sub = (prompt('New folder name', '') || '').trim().replace(/[\\:*?"<>|]/g, ''); if (!sub) return;
+  const typed = await PNUI.askText({ title: parent ? `New folder in “${parent}”` : 'New folder', label: 'Folder name', ok: 'Create', validate: nameCheck });
+  const sub = typed === null ? '' : typed.trim(); if (!sub) return;
   const name = parent ? parent + '/' + sub : sub;
-  try { await api('/api/folder', { method: 'POST', body: JSON.stringify({ name }) }); } catch (e) { $('#status').textContent = 'Could not create folder: ' + e.message; return; }
+  try { await api('/api/folder', { method: 'POST', body: JSON.stringify({ name }) }); } catch (e) { say('Could not create folder: ' + e.message); return; }
   openFolders.add(parent || name); openFolders.add(name); saveOpenFolders(); folders = await api('/api/folders').catch(() => folders); setView('files');
 }
 async function deleteFolder(path) {
-  if (!confirm(`Delete the empty folder “${path}”?`)) return;
+  if (!(await PNUI.askConfirm({ title: 'Delete this folder?', message: `The empty folder “${path}” will be removed.`, ok: 'Delete folder', danger: true }))) return;
   try { await api('/api/folder?name=' + encodeURIComponent(path), { method: 'DELETE' }); }
-  catch (e) { $('#status').textContent = e.message === 'not empty' ? 'Folder is not empty' : 'Could not delete: ' + e.message; return; }
+  catch (e) { say(e.message === 'not empty' ? 'Folder is not empty' : 'Could not delete: ' + e.message); return; }
   folders = await api('/api/folders').catch(() => folders); renderList();
 }
 async function duplicateNote(name) {
@@ -1271,9 +1541,9 @@ $('#list').addEventListener('contextmenu', (e) => {
   if (n) {
     const name = n.dataset.note, dir = name.includes('/') ? name.slice(0, name.lastIndexOf('/') + 1) : '';
     showCtx([['Open', () => open(name, false)], ['Open in new tab', () => openInNewTab(name, false)], ['Open to the right', () => openSplit(name)], null,
-      ['Rename…', async () => { const v = (prompt('Rename note', name.split('/').pop()) || '').trim().replace(/[\\:*?"<>|]/g, ''); if (v && dir + v !== name) await renameNote(name, dir + v); }],
+      ['Rename…', async () => { const typed = await PNUI.askText({ title: 'Rename note', label: 'Name', value: name.split('/').pop(), ok: 'Rename', validate: nameCheck }); const v = typed === null ? '' : typed.trim(); if (v && dir + v !== name) await renameNote(name, dir + v); }],
       ['Duplicate', () => duplicateNote(name)],
-      ['Move to folder…', async () => { const v = prompt('Move to folder (empty for the top level)', dir.replace(/\/$/, '')); if (v !== null) await moveNote(name, v.trim().replace(/^\/+|\/+$/g, '')); }],
+      ['Move to folder…', async () => { const v = await pickFolder({ title: `Move “${name.split('/').pop()}”`, current: dir.replace(/\/$/, '') }); if (v !== null) await moveNote(name, v); }],
       [pins.has(name) ? 'Unpin' : 'Pin to top', () => { pins.has(name) ? pins.delete(name) : pins.add(name); savePins(); renderPin(); renderList(); }],
       ['Copy link', () => { try { navigator.clipboard.writeText(`[[${name}]]`); } catch {} }], null,
       ['Move to trash…', async () => { await open(name, false); $('#del').click(); }]], e.clientX, e.clientY);
@@ -1310,10 +1580,10 @@ function renderProps(force) {
 }
 function setNoteText(t) {
   const n = notes.get(cur); if (!n || n.text === t) return;
-  n.text = t; n.mtime = Date.now(); aliasMap = null; dirty = true;
+  n.text = t; n.mtime = Date.now(); aliasMap = null; dirty = true; unsaved.add(cur);
   const ed = $('#ed'); if (ed) { ed.value = t; syncEditor(); } else if ($('#lp')) { lp.lines = t.split('\n'); lpPaint(); } else if ($('#pv')) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
   updateWC(); renderOutline(); renderList(); renderProps(true); if (split && split === cur) renderSplitSoon();
-  $('#status').textContent = 'Editing…'; clearTimeout(timer); timer = setTimeout(flush, 600);
+  saveState('Editing…'); clearTimeout(timer); timer = setTimeout(flush, settings.autosave || 600);
 }
 $('#props').addEventListener('change', (e) => {
   const i = e.target.dataset.prop; if (i == null || !curProps[+i]) return;
@@ -1323,7 +1593,7 @@ $('#props').addEventListener('change', (e) => {
 });
 function addProperty() {
   const k = ($('#pnew')?.value || '').trim().replace(/\s+/g, '-');
-  if (!/^[\w-]+$/.test(k)) { $('#status').textContent = 'Property names use letters, numbers, - and _'; return; }
+  if (!/^[\w-]+$/.test(k)) { say('Property names use letters, numbers, - and _'); return; }
   addingProp = false; setNoteText(MD.setProperty(notes.get(cur).text, k, '')); setTimeout(() => $('#props input[data-prop]:last-of-type')?.focus(), 0);
 }
 $('#props').addEventListener('click', (e) => {
@@ -1358,7 +1628,7 @@ document.addEventListener('mousedown', hpHide); document.addEventListener('scrol
 /* sync */
 async function syncStatus() {
   try { const s = await api('/api/sync/status');
-    $('#ss').textContent = !s.isRepo || !s.remote ? 'Not set up' : s.dirty ? `${s.dirty} unsynced` : 'Up to date';
+    $('#ss').textContent = !s.isRepo || !s.remote ? 'Not set up' : s.dirty ? `${s.dirty} unsynced` : 'Up to date' + (lastSyncAt ? ' · synced ' + relTime(lastSyncAt) : '');
     return s; } catch { return null; }
 }
 let syncing = false;
@@ -1370,13 +1640,14 @@ async function doSync(auto) {
     let s = await syncStatus();
     if (!s?.isRepo || !s.remote) {
       if (auto) return;
-      const url = prompt('Git remote URL for syncing (https://…, ssh://… or git@host:user/repo.git).\nCreate an empty private repo first.', s?.remote || '');
+      const url = await PNUI.askText({ title: 'Sync with git', message: 'Create an empty private repository first, then paste its address.', label: 'Repository address', value: s?.remote || '', placeholder: 'git@github.com:you/notes.git', ok: 'Connect',
+        validate: (v) => (!v.trim() ? 'Enter the repository address' : /^(https:\/\/|ssh:\/\/|git@)\S+$/.test(v.trim()) ? '' : 'Use an https://, ssh:// or git@host:user/repo.git address') });
       if (!url) return;
       await api('/api/sync/setup', { method: 'POST', body: JSON.stringify({ url: url.trim() }) });
     }
     $('#ss').textContent = 'Syncing…';
     const before = cur && notes.get(cur)?.text;
-    const r = await api('/api/sync', { method: 'POST' });
+    const r = await api('/api/sync', { method: 'POST' }); lastSyncAt = Date.now();
     if (dirty) { $('#ss').textContent = r.message; return; }   // user typed meanwhile; don't clobber
     await load();
     if (cur && !notes.has(cur)) { cur = null; renderPane(); renderBack(); }
@@ -1446,13 +1717,24 @@ $('#pin').onclick = () => { if (!cur) return; pins.has(cur) ? pins.delete(cur) :
 $('#gr').onclick = async () => { await flush(); graphOn = !graphOn; renderPane(); };
 $('#tog').onclick = () => { if (!cur) return; graphOn = false; preview = !preview; flush(); renderPane(); };
 $('#del').onclick = async () => {
-  if (!cur || !confirm(`Move “${cur}” to the trash?`)) return;
-  keyring.delete(cur);
-  await api('/api/note?name=' + encodeURIComponent(cur), { method: 'DELETE' });
+  if (!cur) return;
+  await flush();                                                       // the trash copy should hold the latest text
+  const name = cur, sess = keyring.get(name), short = name.split('/').pop();
+  let res;
+  try { res = await api('/api/note?name=' + encodeURIComponent(name), { method: 'DELETE' }); } catch (e) { say('Could not move to the trash: ' + e.message); return; }
+  keyring.delete(name);
   const gone = cur, keep = tabs[ti]; tabs = tabs.filter((t) => t === keep || t.name !== gone); keep.name = null; ti = tabs.indexOf(keep); renderTabs(); saveTabs();
-  notes.delete(cur); cur = null; dirty = false; if (split === gone) closeSplit(); $('#status').textContent = ''; $('#title').value = ''; $('#title').disabled = true;
+  unsaved.delete(gone); notes.delete(cur); cur = null; dirty = unsaved.size > 0; if (split === gone) closeSplit(); saveState(''); $('#title').value = ''; $('#title').disabled = true;
   location.hash = ''; renderList(); renderPane(); renderBack();
+  say(`Moved “${short}” to the trash`, { action: res.id ? { label: 'Undo', run: () => undoDelete(res.id, short, sess) } : undefined });
 };
+async function undoDelete(id, short, sess) {
+  try {
+    const r = await api('/api/restore', { method: 'POST', body: JSON.stringify({ id }) });
+    if (sess) keyring.set(r.name, sess);                               // an encrypted note that was unlocked comes back unlocked
+    await load(); renderList(); await open(r.name, false); say(`Restored “${short}”`);
+  } catch (e) { say('Could not restore: ' + e.message); }
+}
 let trashMode = false;
 async function showTrash() {
   trashMode = !trashMode; trashIcon(trashMode);
@@ -1475,7 +1757,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') swClose();
     else if (e.key === 'ArrowDown') { e.preventDefault(); swSel = Math.min(swSel + 1, swRows.length - 1); swRender(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); swSel = Math.max(swSel - 1, 0); swRender(); }
-    else if (e.key === 'Enter') swPick(swSel);
+    else if (e.key === 'Enter') swPick(swSel, { newTab: e.metaKey || e.ctrlKey });
     return;
   }
   if (e.key === 'Escape' && document.body.classList.contains('focus') && !frOpen()) { toggleFocus(); return; }
@@ -1503,6 +1785,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '[') { e.preventDefault(); history.back(); }
   else if (e.key === ']') { e.preventDefault(); history.forward(); }
   else if (k === 'l' && e.shiftKey) { e.preventDefault(); $('#theme').click(); }
+  else if (e.key === '/' && !e.shiftKey && !e.altKey) { e.preventDefault(); showShortcuts(); }
 });
 window.addEventListener('focus', async () => {
   if (dirty) return;
@@ -1514,8 +1797,8 @@ window.addEventListener('focus', async () => {
 
 /* installable web app: keep the shell available offline when served over HTTPS or from another machine (never on the local desktop server) */
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) navigator.serviceWorker.register('/sw.js').catch(() => {});
-window.addEventListener('offline', () => { $('#status').textContent = 'Offline: showing what is on screen'; });
-window.addEventListener('online', () => { $('#status').textContent = 'Back online'; load(); });
+window.addEventListener('offline', () => { say('Offline: showing what is on screen'); });
+window.addEventListener('online', () => { say('Back online'); load(); });
 setInterval(() => fetch('/api/ping').catch(() => {}), 10000);   // lets the desktop launcher notice when the window is closed
 /* back / forward: every opened note is a history entry, so the browser buttons, Alt+Arrows and Ctrl/Cmd+[ ] walk through them */
 window.addEventListener('hashchange', () => {
@@ -1524,6 +1807,10 @@ window.addEventListener('hashchange', () => {
 });
 applySettings(); loadSnippets(); buildTabbar();
 setView(view);
+function showLoadError(e) {
+  PNUI.emptyState($('#list'), { title: 'Could not load your notes', body: `${reachable(e.message)}. Your files are untouched.`, actions: [{ label: 'Try again', primary: true, run: () => load().then(() => { $('#status').textContent = ''; renderPane(); }, showLoadError) }] });
+  say('Could not load your notes: ' + reachable(e.message), { kind: 'error' });
+}
 plainnote.ready = load().then(async () => {
   let h = decodeURIComponent(location.hash.slice(1));
   try {                                                              // restore the tabs from last time
@@ -1538,31 +1825,28 @@ plainnote.ready = load().then(async () => {
   if (/[?&]graph\b/.test(location.search)) { graphOn = true; renderPane(); }   // ?graph opens the graph view (used for screenshots)
   if (/[?&]preview\b/.test(location.search) && cur) { preview = true; renderPane(); }
   PNTour.maybeStart();
-});
+}).catch(showLoadError);
 
 /* Image lightbox: click an image in the reading view to see it full size (click or Esc closes) */
 document.addEventListener('click', (e) => {
   const img = e.target.closest('#pv img'); if (!img || e.target.closest('a')) return;
-  const lb = document.createElement('div'); lb.id = 'lb';
+  const lb = document.createElement('div'); lb.id = 'lb'; lb.setAttribute('role', 'dialog'); lb.setAttribute('aria-modal', 'true'); lb.setAttribute('aria-label', img.alt || 'Image'); lb.tabIndex = -1;
   const big = document.createElement('img'); big.src = img.src; big.alt = img.alt; lb.appendChild(big);
-  const close = () => { lb.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
-  lb.onclick = close; document.addEventListener('keydown', onKey, true); document.body.appendChild(lb);
+  let m; const close = () => { lb.remove(); m.release(); };
+  lb.onclick = close; document.body.appendChild(lb); m = PNUI.modal(lb, { onEscape: close }); lb.focus();
 });
 
 /* Version history: the server keeps earlier versions of each note (every 2 minutes at most); pick one to preview, then restore it */
 async function openHistory() {
   if (!cur) return; await flush();
-  if (isLocked(notes.get(cur))) { $('#status').textContent = 'Unlock this note to see its history'; return; }
+  if (isLocked(notes.get(cur))) { say('Unlock this note to see its history'); return; }
   const name = cur; let list = [];
-  try { list = await api('/api/history?name=' + encodeURIComponent(name)); } catch (e) { $('#status').textContent = 'History failed: ' + e.message; return; }
-  const box = document.createElement('div'); box.id = 'hist';
+  try { list = await api('/api/history?name=' + encodeURIComponent(name)); } catch (e) { say('History failed: ' + e.message); return; }
   const when = (t) => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-  box.innerHTML = `<div><header><b>History: ${esc(name.split('/').pop())}</b><button id="hx" aria-label="Close">×</button></header><div class="hbody"><ul>${list.map((v) => `<li data-id="${v.id}" tabindex="0">${esc(when(v.id))}<small>${v.size} B</small></li>`).join('') || '<li class="none">No earlier versions yet. They appear after you edit this note.</li>'}</ul><pre id="hpre">Pick a version to preview it.</pre></div><footer><button id="hr" disabled>Restore this version</button></footer></div>`;
-  document.body.appendChild(box);
-  let sel = null; const close = () => { box.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
-  document.addEventListener('keydown', onKey, true);
+  const d = PNUI.openDialog({ id: 'hist', className: 'dlg-hist', width: '760px', title: `History: ${name.split('/').pop()}`, body: `<div class="hbody"><ul>${list.map((v) => `<li data-id="${v.id}" tabindex="0">${esc(when(v.id))}<small>${v.size} B</small></li>`).join('') || '<li class="none">No earlier versions yet. They appear after you edit this note.</li>'}</ul><pre id="hpre">Pick a version to preview it.</pre></div>`,
+    actions: [{ label: 'Restore this version', id: 'hr', primary: true, disabled: true, onClick: () => {} }] });
+  const box = d.box, close = () => d.close();
+  let sel = null;
   const pick = async (li) => {
     box.querySelectorAll('li.on').forEach((x) => x.classList.remove('on')); li.classList.add('on');
     const v = await api('/api/history?name=' + encodeURIComponent(name) + '&id=' + li.dataset.id);
@@ -1573,49 +1857,38 @@ async function openHistory() {
     }
     sel = text; $('#hpre').textContent = text; $('#hr').disabled = false;
   };
-  box.onclick = (e) => { const li = e.target.closest('li[data-id]'); if (li) pick(li); else if (e.target.id === 'hist' || e.target.id === 'hx') close(); };
+  box.onclick = (e) => { const li = e.target.closest('li[data-id]'); if (li) pick(li); };
   box.onkeydown = (e) => { if (e.key === 'Enter' && e.target.matches('li[data-id]')) pick(e.target); };
   $('#hr').onclick = () => {
     if (sel === null || !notes.get(name)) return;
-    notes.get(name).text = sel; close();
+    const n = notes.get(name), before = n.text; n.text = sel; close();
     if (cur === name) { renderPane(); afterTextChange(); }          // saved like any edit; the version it replaced is kept in history
-    $('#status').textContent = 'Restored an earlier version';
+    say('Restored an earlier version', { action: { label: 'Undo', run: () => { const m = notes.get(name); if (!m || isLocked(m)) return; m.text = before; if (cur === name) { renderPane(); afterTextChange(); } else { m.mtime = Date.now(); putNote(m, before, m.base ?? 0).then((r) => { m.base = r.mtime; }, () => {}); } say('Undid the restore'); } } });
   };
 }
 
 /* Web clipper: a bookmark that saves the page you're reading (or your selection) here as a Markdown note */
 function openClipper() {
-  const box = document.createElement('div'); box.id = 'clipdlg';
-  box.innerHTML = `<div><header><b>Web clipper</b><button id="hx" aria-label="Close">×</button></header><div class="cbody">
+  const d = PNUI.openDialog({ id: 'clipdlg', width: '560px', title: 'Web clipper', body: `
 <p>Drag this to your bookmarks bar: <a id="clipbm" class="att" style="padding:3px 10px;border:1px solid var(--line);border-radius:6px;text-decoration:none">Clip to Plainnote</a></p>
 <p>Then, on any page, select some text (or select nothing to take the whole article) and click the bookmark. A small window shows the page as Markdown to edit and save into <b>Clippings/</b>, tagged <code>#clipping</code>, with the source link.</p>
-<p style="color:var(--mute);font-size:13px">The bookmark points at <code>${esc(location.origin)}</code>, so it only works while Plainnote is running at that address: use <code>node server.js ~/Notes 4777</code> for a fixed one. The Mac app picks a new port each launch. Allow pop-ups when asked. A few sites block bookmarks with a strict security policy.</p></div></div>`;
-  document.body.appendChild(box);
+<p style="color:var(--mute);font-size:13px">The bookmark points at <code>${esc(location.origin)}</code>, so it only works while Plainnote is running at that address: use <code>node server.js ~/Notes 4777</code> for a fixed one. The Mac app picks a new port each launch. Allow pop-ups when asked. A few sites block bookmarks with a strict security policy.</p>` });
   $('#clipbm').setAttribute('href', PNClip.bookmarklet(location.origin));
   $('#clipbm').onclick = (e) => e.preventDefault();                 // drag it, don't run it here
-  const close = () => { box.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
-  document.addEventListener('keydown', onKey, true);
-  box.onclick = (e) => { if (e.target.id === 'clipdlg' || e.target.id === 'hx') close(); };
 }
 
 /* Import: bring notes in from Obsidian, Notion, Evernote, Bear or any folder/zip of Markdown. Nothing is overwritten. */
 function openImport() {
-  const box = document.createElement('div'); box.id = 'impdlg';
-  box.innerHTML = `<div role="dialog" aria-label="Import notes"><header><b>Import notes</b><button id="impx" aria-label="Close">×</button></header><div class="cbody">
+  const d = PNUI.openDialog({ id: 'impdlg', width: '580px', title: 'Import notes', canClose: () => !busy, body: `
 <p>Choose what you exported. Everything becomes plain Markdown files, with links, images and folders kept.</p>
 <ul class="impl"><li><b>Obsidian, Bear or a Markdown folder</b>: choose the folder (or a .zip of it).</li><li><b>Notion</b>: Export as <i>Markdown &amp; CSV</i> (or HTML), then choose the .zip.</li><li><b>Evernote</b>: File → Export Notes… as .enex, then choose the file.</li></ul>
 <div class="improw"><button id="impf" class="pri">Choose files or a .zip…</button><button id="impd">Choose a folder…</button></div>
 <input id="impfi" type="file" multiple hidden accept=".zip,.md,.markdown,.txt,.html,.htm,.enex,.csv,.png,.jpg,.jpeg,.gif,.webp,.svg,.pdf"><input id="impdi" type="file" webkitdirectory multiple hidden>
 <div id="impsum" aria-live="polite"></div>
 <div id="impgo" hidden><label>Put the imported notes in the folder <input id="impto" value="Imported" placeholder="(leave empty to merge into your notes)" spellcheck="false"></label>
-<div class="improw"><button id="impgo2" class="pri">Import</button><span id="impst" role="status"></span></div></div></div></div>`;
-  document.body.appendChild(box);
+<div class="improw"><button id="impgo2" class="pri">Import</button><span id="impst" role="status"></span></div></div>` });
+  const box = d.box, close = () => d.close(); box.querySelector('.dlg-x').id = 'impx';
   let prepared = null, busy = false;
-  const close = () => { if (busy) return; box.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
-  document.addEventListener('keydown', onKey, true);
-  box.onclick = (e) => { if (e.target.id === 'impdlg' || e.target.id === 'impx') close(); };
   const sum = (html) => { $('#impsum').innerHTML = html; };
   const prefix = () => $('#impto').value.trim().replace(/^\/+|\/+$/g, '');
   const planNow = () => PNImport.plan(prepared.files, { existing: new Set(notes.keys()), prefix: prefix(), html2md: PNClip.clip });
@@ -1635,7 +1908,7 @@ function openImport() {
   }
   $('#impf').onclick = () => $('#impfi').click(); $('#impd').onclick = () => $('#impdi').click();
   $('#impfi').onchange = (e) => chosen(e.target.files); $('#impdi').onchange = (e) => chosen(e.target.files);
-  box.addEventListener('dragover', (e) => e.preventDefault()); box.addEventListener('drop', (e) => { e.preventDefault(); chosen(e.dataTransfer.files); });
+  const zone = box.parentElement; zone.addEventListener('dragover', (e) => e.preventDefault()); zone.addEventListener('drop', (e) => { e.preventDefault(); chosen(e.dataTransfer.files); });
   $('#impgo2').onclick = async () => {
     if (busy || !prepared) return; busy = true; $('#impgo2').disabled = true;
     const st = (s) => { $('#impst').textContent = s; };
@@ -1667,7 +1940,6 @@ function openImport() {
 /* Diagrams and charts: hover to copy them as SVG or PNG, or save a PNG (added here, so exports and published pages stay clean) */
 (function () {
   const bgOf = () => { for (const el of [$('#pv'), document.body]) { const c = el && getComputedStyle(el).backgroundColor; if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) return c; } return '#ffffff'; };
-  const say = (s) => { $('#status').textContent = s; };
   async function act(kind, wrap) {
     const svg = wrap.querySelector('svg'); if (!svg) return;
     const color = getComputedStyle(wrap).color, bg = bgOf();
@@ -1696,27 +1968,20 @@ function openImport() {
 // A small passphrase dialog (the browser's prompt() can't hide typing and doesn't exist in every WebView). Resolves to the passphrase or null.
 function askPass({ title, message, confirm: twice, ok = 'OK', warn }) {
   return new Promise((resolve) => {
-    const box = document.createElement('div'); box.id = 'passdlg';
-    box.innerHTML = `<form role="dialog" aria-modal="true" aria-labelledby="pdt"><h3 id="pdt">${esc(title)}</h3>${message ? `<p>${esc(message)}</p>` : ''}${warn ? `<p class="pdw">${esc(warn)}</p>` : ''}
+    const d = PNUI.openDialog({ id: 'passdlg', width: '420px', title, body: `<form class="dlg-form">${message ? `<p>${esc(message)}</p>` : ''}${warn ? `<p class="pdw">${esc(warn)}</p>` : ''}
 <label>Passphrase<input id="pd1" type="password" autocomplete="off" spellcheck="false"></label>${twice ? '<label>Again<input id="pd2" type="password" autocomplete="off" spellcheck="false"></label>' : ''}
-<label class="pdshow"><input id="pds" type="checkbox"> Show</label><div id="pde" role="alert"></div><div class="pdact"><button type="button" id="pdc">Cancel</button><button type="submit" class="pri">${esc(ok)}</button></div></form>`;
-    document.body.appendChild(box);
-    const done = (v) => { document.removeEventListener('keydown', onKey, true); box.remove(); resolve(v); };
-    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
-    document.addEventListener('keydown', onKey, true);
+<label class="pdshow"><input id="pds" type="checkbox"> Show</label><div id="pde" role="alert"></div><div class="pdact"><button type="button" id="pdc">Cancel</button><button type="submit" class="pri">${esc(ok)}</button></div></form>`, onClose: (r) => resolve(typeof r === 'string' ? r : null) });
+    const box = d.box, done = (v) => d.close(v);
     $('#pds').onchange = (e) => { for (const i of box.querySelectorAll('input[type=password],input[data-pw]')) { i.type = e.target.checked ? 'text' : 'password'; i.dataset.pw = '1'; } };
     $('#pdc').onclick = () => done(null);
-    box.addEventListener('mousedown', (e) => { if (e.target === box) done(null); });
-    box.firstElementChild.onsubmit = (e) => {
+    box.querySelector('form').onsubmit = (e) => {
       e.preventDefault(); const a = $('#pd1').value;
       if ([...a].length < PNCrypto.MIN_PASS) { $('#pde').textContent = `Use at least ${PNCrypto.MIN_PASS} characters (a few random words work well).`; return; }
       if (twice && $('#pd2').value !== a) { $('#pde').textContent = 'The two passphrases are different.'; return; }
       done(a);
     };
-    $('#pd1').focus();
   });
 }
-const say = (s) => { $('#status').textContent = s; };
 
 const NO_CRYPTO = 'Encryption needs a secure connection: open Plainnote on localhost or over https (for example with Tailscale Serve).';
 function renderLocked() {
@@ -1742,7 +2007,7 @@ async function unlockNote(name, pass) {
 }
 async function lockNote(name) {
   const n = notes.get(name); if (!n || !n.enc) return true;
-  if (cur === name) { await flush(); if (dirty) { say('Could not save, so the note was not locked'); return false; } }
+  if (cur === name) { await flush(); if (unsaved.has(name)) { say('Could not save, so the note was not locked'); return false; } }
   n.enc = null; n.text = ''; keyring.delete(name); aliasMap = null;
   if (cur === name) { renderPane(); renderOutline(); renderProps(true); updateWC(); }
   if (split === name) renderSplit();
@@ -1779,7 +2044,7 @@ async function changePassphrase() {
 async function removeEncryption() {
   const n = cur && notes.get(cur); if (!n || !n.cipher) { say('This note is not encrypted'); return; }
   if (!n.enc) { say('Unlock the note first'); return; }
-  if (!window.confirm(`Remove encryption from “${n.name.split('/').pop()}”? It will be stored as plain text.`)) return;
+  if (!(await PNUI.askConfirm({ title: 'Remove encryption?', message: `“${n.name.split('/').pop()}” will be stored as plain text.`, ok: 'Remove encryption', danger: true }))) return;
   try {
     const r = await api('/api/note?name=' + encodeURIComponent(n.name), { method: 'PUT', body: n.text, headers: { 'x-base-mtime': String(n.base ?? 0) } });
     delete n.cipher; n.enc = null; n.base = r.mtime; keyring.delete(n.name); renderList(); renderPane(); say('Encryption removed');
@@ -1795,7 +2060,7 @@ setInterval(idleCheck, 15000);
 /* ---------- Backup and restore ---------- */
 // A backup is one .zip of your notes, attachments, CSS snippets and version history. A restore only ever adds files.
 async function downloadBackup() {
-  const st = (t) => { $('#status').textContent = t; };
+  const st = (t) => say(t);
   if (document.documentElement.classList.contains('ios')) { st('Backup is not built into the iPhone app: your notes are plain files in Files / iCloud Drive, which back up with your phone'); return; }
   await flush();
   if (window.webkit && webkit.messageHandlers && webkit.messageHandlers.mac) {      // the Mac app's window can't download links: the server writes the zip to your Downloads folder
@@ -1807,17 +2072,12 @@ async function downloadBackup() {
   document.body.appendChild(a); a.click(); a.remove(); st('Preparing your backup… your browser will ask where to save it');
 }
 function openRestore() {
-  const box = document.createElement('div'); box.id = 'bakdlg';
-  box.innerHTML = `<div role="dialog" aria-label="Restore from a backup"><header><b>Restore from a backup</b><button id="bkx" aria-label="Close">×</button></header><div class="cbody">
+  const d = PNUI.openDialog({ id: 'bakdlg', width: '540px', title: 'Restore from a backup', canClose: () => !busy, body: `
 <p>Choose a Plainnote backup (<code>.zip</code>). Restoring only <b>adds</b> files: anything you already have is left exactly as it is. A note that differs from the backup's version is kept as a separate “(restored …)” copy next to it.</p>
 <div class="bkrow"><button id="bkf" class="pri">Choose a backup…</button></div><input id="bkfi" type="file" accept=".zip,application/zip" hidden>
-<div id="bksum" aria-live="polite"></div><div class="bkrow" id="bkgo" hidden><button id="bkgo2" class="pri">Restore</button><span id="bkst" role="status"></span></div></div></div>`;
-  document.body.appendChild(box);
+<div id="bksum" aria-live="polite"></div><div class="bkrow" id="bkgo" hidden><button id="bkgo2" class="pri">Restore</button><span id="bkst" role="status"></span></div>` });
+  const box = d.box, close = () => d.close(); box.querySelector('.dlg-x').id = 'bkx';
   let file = null, busy = false;
-  const close = () => { if (busy) return; box.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
-  document.addEventListener('keydown', onKey, true);
-  box.onclick = (e) => { if (e.target.id === 'bakdlg' || e.target.id === 'bkx') close(); };
   const sum = (h) => { $('#bksum').innerHTML = h; };
   const plural = (n, w) => `<b>${n}</b> ${w}${n === 1 ? '' : 's'}`;
   const post = (mode) => api('/api/backup/restore?mode=' + mode, { method: 'POST', body: file });
@@ -1842,3 +2102,139 @@ function openRestore() {
   };
   $('#bkf').focus();
 }
+
+
+/* ---------- accessibility layer ----------
+   Roles, names and keyboard handling for the parts of the UI that are built as plain <div>s and handled by click delegation: the note list, tag chips,
+   tabs, the palette, and the autocomplete. Applied as the lists are (re)rendered, so every render path is covered without touching each template. */
+(function () {
+  const name = (sel, text) => { const e = $(sel); if (e && !e.getAttribute('aria-label')) e.setAttribute('aria-label', text); };
+  name('#q', 'Search notes'); name('#title', 'Note title'); name('#menu', 'Show the notes list'); name('#theme', 'Theme: automatic, light or dark'); name('#swq', 'Search notes or type a command');
+  name('#frq', 'Find in this note'); name('#frr', 'Replace with'); name('#frp', 'Previous match'); name('#frn', 'Next match'); name('#frs', 'Replace this match'); name('#fra', 'Replace all matches'); name('#frx', 'Close find');
+  name('#gfq', 'Find in all notes'); name('#gfr', 'Replace with'); name('#gfa', 'Apply the replacement to the ticked notes'); name('#gfx', 'Close'); name('#stx', 'Close settings');
+  name('#auto', 'Sync automatically every 2 minutes'); name('#sync', 'Sync notes'); name('#trash', 'Trash'); name('#ss', 'Sync status');
+  const frc = $('#frc'); if (frc) { frc.setAttribute('role', 'status'); frc.setAttribute('aria-live', 'polite'); }
+  const menu = $('#menu'); if (menu) menu.setAttribute('aria-expanded', 'false');
+
+  // the note list: one tab stop (the open note), arrow keys / Home / End move, Enter or Space opens, Shift+F10 / Menu opens the context menu
+  const list = $('#list'); list.setAttribute('role', 'listbox'); list.setAttribute('aria-label', 'Notes');
+  const decorateList = () => {
+    const items = [...list.querySelectorAll('.item')], hasOn = items.some((i) => i.classList.contains('on'));
+    items.forEach((el, i) => { const on = el.classList.contains('on'); el.setAttribute('role', 'option'); el.setAttribute('aria-selected', String(on)); el.tabIndex = on || (!hasOn && i === 0) ? 0 : -1; });
+  };
+  new MutationObserver(decorateList).observe(list, { childList: true }); decorateList();
+  list.addEventListener('keydown', (e) => {
+    const it = e.target.closest && e.target.closest('.item'); if (!it || e.target !== it) return;
+    const items = [...list.querySelectorAll('.item')], i = items.indexOf(it);
+    const go = (el) => { if (el) { e.preventDefault(); items.forEach((x) => { x.tabIndex = -1; }); el.tabIndex = 0; el.focus(); } };
+    if (e.key === 'ArrowDown') go(items[i + 1] || it); else if (e.key === 'ArrowUp') go(items[i - 1] || it);
+    else if (e.key === 'Home') go(items[0]); else if (e.key === 'End') go(items[items.length - 1]);
+    else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault(); const folder = it.dataset.folder, isNote = !!it.dataset.note; it.click();
+      if (folder !== undefined) setTimeout(() => list.querySelector(`[data-folder="${CSS.escape(folder)}"]`)?.focus(), 0);                 // the tree re-renders: keep the place
+      else if (isNote) setTimeout(() => { const t = $('#ed') || $('#lp'); if (t) t.focus(); }, 60);                                          // opening a note moves you into it
+    } else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      e.preventDefault(); const r = it.getBoundingClientRect(); it.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 24, clientY: r.bottom - 4 }));
+    }
+  });
+
+  // tag and saved-search chips behave like toggle buttons
+  const tags = $('#tags');
+  const decorateTags = () => {
+    for (const c of tags.querySelectorAll('.chip')) { c.setAttribute('role', 'button'); c.tabIndex = 0; if (c.dataset.tag !== undefined) c.setAttribute('aria-pressed', String(c.classList.contains('on'))); }
+    for (const x of tags.querySelectorAll('.x')) { x.setAttribute('role', 'button'); x.setAttribute('aria-label', 'Remove this saved search'); x.tabIndex = 0; }
+  };
+  new MutationObserver(decorateTags).observe(tags, { childList: true }); decorateTags();
+  tags.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.chip,.x')) { e.preventDefault(); e.target.click(); } });
+
+  // tabs: arrow keys move between them (and open the one you land on), Home / End jump
+  $('#tabs').addEventListener('keydown', (e) => {
+    const t = e.target.closest && e.target.closest('.tab'); if (!t) return;
+    const all = [...document.querySelectorAll('#tabs .tab')], i = all.indexOf(t); let next = null;
+    if (e.key === 'ArrowRight') next = all[(i + 1) % all.length]; else if (e.key === 'ArrowLeft') next = all[(i - 1 + all.length) % all.length];
+    else if (e.key === 'Home') next = all[0]; else if (e.key === 'End') next = all[all.length - 1];
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); t.click(); return; }
+    if (next) {
+      e.preventDefault(); const want = next.dataset.tab; next.click();
+      const refocus = (tries) => { const on = document.querySelector('#tabs .tab.on'); if (on && on.dataset.tab === want) on.focus(); else if (tries > 0) setTimeout(() => refocus(tries - 1), 30); };   // switching re-renders the strip asynchronously
+      refocus(20);
+    }
+  });
+
+  // the palette is a combobox over a listbox: screen readers hear the highlighted row as you arrow through it
+  const swq = $('#swq'), swl = $('#swl');
+  swq.setAttribute('role', 'combobox'); swq.setAttribute('aria-controls', 'swl'); swq.setAttribute('aria-expanded', 'true'); swq.setAttribute('aria-autocomplete', 'list');
+  swl.setAttribute('role', 'listbox'); swl.setAttribute('aria-label', 'Results');
+  const decoratePalette = () => {
+    const rows = [...swl.querySelectorAll('.item')]; let active = '';
+    rows.forEach((el, i) => { el.id = 'swo' + i; el.setAttribute('role', 'option'); const on = el.classList.contains('on'); el.setAttribute('aria-selected', String(on)); if (on) active = el.id; });
+    if (active) swq.setAttribute('aria-activedescendant', active); else swq.removeAttribute('aria-activedescendant');
+  };
+  new MutationObserver(decoratePalette).observe(swl, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] }); decoratePalette();
+
+  // the in-editor [[link]] / slash autocomplete
+  const ac = $('#ac'); ac.setAttribute('role', 'listbox'); ac.setAttribute('aria-label', 'Suggestions');
+  new MutationObserver(() => ac.querySelectorAll('.item').forEach((el, i) => { el.setAttribute('role', 'option'); el.setAttribute('aria-selected', String(el.classList.contains('on'))); })).observe(ac, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+
+  // the notes drawer on phones: announce its state, and keep the page behind it unreachable while it is open
+  const sync = () => {
+    const open = document.body.classList.contains('side-open'), narrow = matchMedia('(max-width:700px)').matches;
+    if (menu) menu.setAttribute('aria-expanded', String(open)); $('#main').inert = open && narrow;
+  };
+  new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] }); addEventListener('resize', sync); sync();
+})();
+
+
+/* ---------- keyboard shortcuts cheat-sheet (Ctrl/Cmd+/) ----------
+   Generated from the same command list as the palette (so it never goes stale), your own custom shortcuts included, plus the editor's keys. */
+const EDITOR_KEYS = [
+  ['Bold / italic', 'Ctrl/Cmd+B · Ctrl/Cmd+I'], ['Strikethrough', 'Ctrl/Cmd+Shift+X'], ['Highlight', 'Ctrl/Cmd+Alt+M'], ['Inline code', 'Ctrl/Cmd+Alt+C'], ['Cycle the heading level', 'Ctrl/Cmd+Alt+H'],
+  ['Tick or untick a task', 'Ctrl/Cmd+Enter'], ['Continue a list', 'Enter'], ['Indent / outdent a list item', 'Tab · Shift+Tab'], ['Link to a note', '[['], ['Insert block (heading, table, diagram…)', '/ at the start of a line'],
+  ['Open a note in a new tab (switcher)', 'Ctrl/Cmd+Enter'],
+];
+function showShortcuts() {
+  const rows = (list) => list.map(([name, keys]) => `<div class="sc"><span>${esc(name)}</span><span class="kb">${esc(keys)}</span></div>`).join('');
+  const groups = CMD_GROUPS.map(([g, ids]) => [g, ids.map((id) => COMMANDS.find((c) => c.id === id)).filter((c) => c && cmdHint(c)).map((c) => [c.name, cmdHint(c)])]).filter((x) => x[1].length);
+  PNUI.openDialog({ id: 'shortcuts', title: 'Keyboard shortcuts', width: '560px', className: 'dlg-sc',
+    body: `<p class="dlg-msg">Press <span class="kb">${esc(hintLabel('Ctrl/Cmd+Shift+P'))}</span> for every command. You can set your own shortcuts in Settings.</p>`
+      + `<h4>Writing</h4>${rows(EDITOR_KEYS.map(([n, k]) => [n, k.split(' · ').map(hintLabel).join(' · ')]))}`
+      + groups.map(([g, list]) => `<h4>${esc(g)}</h4>${rows(list)}`).join(''),
+    actions: [{ label: 'Close', primary: true, onClick: (c) => c(null) }] });
+}
+
+
+/* ---------- reading view: tasks you can tick, links to sections, copy buttons, footnote jumps ---------- */
+document.addEventListener('click', (e) => {
+  const cb = e.target.closest && e.target.closest('#pv input[type=checkbox][data-line]');
+  if (cb) {                                                             // tick a task right in the reading view: the line in the note is rewritten and saved
+    e.preventDefault();
+    const n = notes.get(cur); if (!n || isLocked(n)) return;
+    const L = n.text.split('\n'), line = +cb.dataset.line, m = /\[( |x|X)\]/.exec(L[line] || ''); if (!m) return;
+    L[line] = L[line].replace(/\[( |x|X)\]/, m[1] === ' ' ? '[x]' : '[ ]'); setNoteText(L.join('\n')); return;
+  }
+  const fn = e.target.closest && e.target.closest('#pv a[href^="#fn"]');
+  if (fn) {                                                             // footnotes: scroll to them without touching the address (it holds the open note's name)
+    e.preventDefault(); const t = document.getElementById(decodeURIComponent(fn.getAttribute('href').slice(1)));
+    if (t) { t.scrollIntoView({ block: 'center' }); t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 1200); }
+    return;
+  }
+  const hl = e.target.closest && e.target.closest('#pv .hlink'), cp = e.target.closest && e.target.closest('#pv .cpy');
+  const copy = async (text, done) => { try { await navigator.clipboard.writeText(text); PNUI.toast(done, { ms: 2200 }); } catch (err) { say('Could not copy: ' + err.message); } };
+  if (hl) { const h = hl.closest('[data-h]'); if (h && cur) copy(`[[${cur}#${h.dataset.h}]]`, 'Copied a link to this section'); }
+  else if (cp) { const code = cp.closest('pre').querySelector('code') || cp.closest('pre'); copy(code.textContent.replace(/\n$/, ''), 'Copied the code'); }
+});
+// buttons added to rendered notes by the app (not by the renderer), so exports and published pages stay clean
+(function () {
+  const decorate = () => {
+    for (const h of document.querySelectorAll('#pv [data-h]:not([data-hl])')) {
+      h.dataset.hl = '1'; const b = document.createElement('button'); b.type = 'button'; b.className = 'hlink'; b.textContent = '#';
+      b.setAttribute('aria-label', 'Copy a link to this section'); b.title = 'Copy a link to this section'; h.appendChild(b);
+    }
+    for (const pre of document.querySelectorAll('#pv pre:not([data-cp])')) {
+      pre.dataset.cp = '1'; const b = document.createElement('button'); b.type = 'button'; b.className = 'cpy'; b.textContent = 'Copy'; b.setAttribute('aria-label', 'Copy the code'); pre.appendChild(b);
+    }
+  };
+  new MutationObserver(decorate).observe($('#pane'), { childList: true, subtree: true }); decorate();
+})();
+
+$('#ss').addEventListener('click', () => $('#sync').click());

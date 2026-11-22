@@ -121,6 +121,15 @@ node server.js restore ~/Backups/notes.zip ~/Notes
 
 Backups are plain zip files that any unzip tool opens. One zip holds up to 4 GB and 65,535 files; beyond that, use git sync.
 
+### Everyday use
+
+- **Find anything**: ⌘/Ctrl+K jumps to (or creates) a note and matches by initials (`mn` finds *Meeting Notes*), folder and alias; ⌘/Ctrl+Enter opens it in a new tab. ⌘/Ctrl+Shift+P is the command palette, grouped, with your recent commands first. **⌘/Ctrl+/** shows every shortcut, including your own and the editor's (**bold** ⌘B, *italic* ⌘I, ~~strike~~ ⌘⇧X, ==highlight== ⌘⌥M, `code` ⌘⌥C, heading level ⌘⌥H, tick a task ⌘Enter).
+- **Nothing is lost, and mistakes are undoable**: deleting a note, a replace across all notes and a history restore each offer **Undo** instead of asking first. If a save fails, the status reads *Not saved* with a Retry button, the text stays in the window, other notes' edits are not forgotten when you switch, and Plainnote retries by itself. Closing the page makes a last-chance save.
+- **Reading view**: nested lists, tasks you can tick in place (they rewrite the line in the note), a hover button on each heading that copies a `[[Note#Heading]]` link, and a Copy button on code blocks.
+- **Settings**: list order and a text preview line, editor line spacing, and how long to wait before saving.
+- **Large vaults**: reloads fetch only the notes that changed, and the app files are compressed and revalidated. `node scripts/bench-ux.js --notes 10000` measures it on a generated vault (opening a note went from 17 s to 24 ms on 10,000 notes, and a tag filter from 41 ms to 1 ms).
+- **Accessibility and touch**: the note list, tags, tabs, palette and dialogs work from the keyboard and with a screen reader (arrow keys, Enter, Shift+F10 for the context menu); focus is trapped in dialogs and returned; colours meet WCAG AA in both themes; every touch target is at least 44 × 44, and the on-screen keyboard no longer covers the caret on an iPad.
+
 ## Desktop app (macOS)
 
 ```sh

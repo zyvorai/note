@@ -332,7 +332,7 @@
 
     function md(src) {
       const fm = frontmatter(src.replace(/\r/g, ''));
-      const out = [], L = fm.body.split('\n');
+      const out = [], L = fm.body.split('\n'), srcText = src.replace(/\r/g, ''), lineOffset = srcText.slice(0, srcText.length - fm.body.length).split('\n').length - 1, slugs = new Map();
       const metaKeys = Object.keys(fm.data);
       if (metaKeys.length) out.push(`<div class="fm">${metaKeys.map((k) => {
         const v = [].concat(fm.data[k]).filter((x) => x !== '');
@@ -340,9 +340,12 @@
         const html = k === 'tags' || k === 'tag' ? v.flatMap((x) => String(x).split(/[\s,]+/)).filter(Boolean).map((t) => t.replace(/^#/, '')).map((t) => `<a href="#" class="tag" data-tag="${esc(t.toLowerCase())}">#${esc(t)}</a>`).join(' ') : esc(v.join(', '));
         return `<span><b>${esc(k)}</b> ${html}</span>`;
       }).join('')}</div>`);
-      let list = null, para = []; const notesFn = [];
+      let para = []; const notesFn = [];
+      const lists = [];                                                // open lists, outermost first: { type, indent, li } (li = index in `out` of the last item's line)
       const flushP = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = []; };
-      const flushL = () => { if (list) out.push(`</${list}>`); list = null; };
+      const closeItem = (l) => { if (l.li === out.length - 1) out[l.li] += '</li>'; else out.push('</li>'); };       // an item with nothing nested inside closes on its own line, as before
+      const closeList = () => { const l = lists.pop(); if (l.li >= 0) closeItem(l); out.push(`</${l.type}>`); };
+      const flushL = () => { while (lists.length) closeList(); };
       for (let i = 0; i < L.length; i++) {
         const l = L[i], m = l.match(/^(#{1,6})\s+(.*)/);
         const fence = l.match(/^```\s*([\w+-]*)/);
@@ -371,7 +374,15 @@
           else out.push(`<p><a href="#" data-note="${esc(r || em[1].trim())}" class="${r ? '' : 'new'}">${esc(em[1].trim())}</a></p>`);
           continue;
         }
-        if (m) { flushP(); flushL(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
+        if (m) {
+          flushP(); flushL();
+          let idAttr = '';
+          if (depth === 0) {                                                                        // headings of the note itself get an id (embedded notes' would clash)
+            const base = m[2].replace(/\[\[|\]\]|[`*_~=]/g, '').replace(/[^\p{L}\p{N}\s-]/gu, '').trim().toLowerCase().replace(/\s+/g, '-') || 'section', k = slugs.get(base) || 0;
+            slugs.set(base, k + 1); idAttr = ` id="${esc(k ? base + '-' + (k + 1) : base)}" data-h="${esc(m[2].replace(/\[\[|\]\]/g, '').trim())}"`;
+          }
+          out.push(`<h${m[1].length}${idAttr}>${inline(m[2])}</h${m[1].length}>`); continue;
+        }
         if (/^(-{3,}|\*{3,})\s*$/.test(l)) { flushP(); flushL(); out.push('<hr>'); continue; }
         if (l.includes('|') && i + 1 < L.length && sepRe.test(L[i + 1]) && L[i + 1].includes('-')) {
           const head = splitRow(l);
@@ -384,14 +395,20 @@
             rows.map((r) => `<tr>${head.map((_, k) => cell('td', r[k] || '', k)).join('')}</tr>`).join('')}</tbody></table>`);
           continue;
         }
-        const li = l.match(/^\s*([-*+]|\d+\.)\s+(.*)/);
+        const li = l.match(/^(\s*)([-*+]|\d+\.)\s+(.*)/);
         if (li) {
-          flushP(); const t = /\d/.test(li[1]) ? 'ol' : 'ul';
-          if (list !== t) { flushL(); out.push(`<${t}>`); list = t; }
-          const task = li[2].match(/^\[( |x)\]\s+(.*)/i);
+          flushP(); const t = /\d/.test(li[2]) ? 'ol' : 'ul', ind = li[1].replace(/\t/g, '    ').length;
+          while (lists.length && ind < lists[lists.length - 1].indent) closeList();                // back out of deeper lists
+          let top = lists[lists.length - 1];
+          if (top && ind > top.indent) { out.push(`<${t}>`); top = { type: t, indent: ind, li: -1 }; lists.push(top); }          // deeper: a list inside the item that is still open
+          else if (top && top.type !== t) { closeList(); out.push(`<${t}>`); top = { type: t, indent: ind, li: -1 }; lists.push(top); }   // same level, other kind of list
+          else if (top) closeItem(top);                                                                                   // next sibling
+          else { out.push(`<${t}>`); top = { type: t, indent: ind, li: -1 }; lists.push(top); }
+          const task = li[3].match(/^\[( |x)\]\s+(.*)/i);
           out.push(task
-            ? `<li style="list-style:none;margin-left:-1.2em"><input type="checkbox" disabled ${task[1] !== ' ' ? 'checked' : ''}> ${inline(task[2])}</li>`
-            : `<li>${inline(li[2])}</li>`);
+            ? `<li style="list-style:none;margin-left:-1.2em"><input type="checkbox" ${depth === 0 ? `data-line="${lineOffset + i}" aria-label="Mark as done or not done"` : 'disabled'} ${task[1] !== ' ' ? 'checked' : ''}> ${inline(task[2])}`
+            : `<li>${inline(li[3])}`);
+          top.li = out.length - 1;
           continue;
         }
         if (/^>\s?/.test(l)) {
@@ -497,12 +514,13 @@
     return out;
   }
   const emptyQuery = (p) => !(p.terms.length || p.phrases.length || p.tags.length || p.paths.length || p.files.length || p.regex.length || p.not.length);
-  function searchMatch(p, name, text) {
-    const n = name.toLowerCase(), body = text.toLowerCase(), both = n + '\n' + body;
+  // lowerBody: the note's text already lowercased (the app caches it), so a keystroke in the search box does not re-lowercase every note
+  function searchMatch(p, name, text, lowerBody) {
+    const n = name.toLowerCase(), body = lowerBody === undefined ? text.toLowerCase() : lowerBody, inBoth = (t) => n.includes(t) || body.includes(t);
     const has = (kind, t) => kind === 'tags' ? [...tagsOf(text)].some((x) => x === t || x.startsWith(t + '/'))
-      : kind === 'paths' ? n.includes(t) : kind === 'files' ? n.split('/').pop().includes(t) : both.includes(t);
+      : kind === 'paths' ? n.includes(t) : kind === 'files' ? n.split('/').pop().includes(t) : inBoth(t);
     if (p.not.some((x) => x.re ? x.re.test(name + '\n' + text) : has(x.kind, x.t))) return false;
-    return p.terms.every((t) => both.includes(t)) && p.phrases.every((t) => both.includes(t)) && p.regex.every((re) => re.test(name + '\n' + text))
+    return p.terms.every(inBoth) && p.phrases.every(inBoth) && p.regex.every((re) => re.test(name + '\n' + text))
       && p.tags.every((t) => has('tags', t)) && p.paths.every((t) => n.includes(t)) && p.files.every((t) => n.split('/').pop().includes(t));
   }
   // where to show a snippet for a match: index of the first positive term/phrase/regex in the body, or -1
@@ -652,6 +670,10 @@
       livePreview: o.livePreview === true,
       spellcheck: o.spellcheck === true,
       autoPair: o.autoPair !== false,
+      sort: o.sort === 'name' ? 'name' : 'modified',                                   // note list order
+      listPreview: o.listPreview !== false,                                            // a line of each note's text under its name
+      lineHeight: ['compact', 'normal', 'relaxed'].includes(o.lineHeight) ? o.lineHeight : 'normal',
+      autosave: [300, 600, 1500].includes(Number(o.autosave)) ? Number(o.autosave) : 600,     // ms of quiet before a note is saved
       hotkeys,
       snippets: Array.isArray(o.snippets) ? [...new Set(o.snippets.filter((n) => typeof n === 'string' && /^\w[\w .-]*\.css$/.test(n)))] : [],
     };
