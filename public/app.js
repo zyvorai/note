@@ -178,9 +178,9 @@ function renderPane() {
   else if (settings.livePreview) lpMount(t);
   else { $('#pane').innerHTML = '<div id="edwrap"><pre id="hl" aria-hidden="true"></pre><textarea id="ed" spellcheck="' + settings.spellcheck + '" placeholder="Start writing… use [[links]] to connect notes"></textarea></div>';
     const ed = $('#ed'); ed.value = t; syncEditor(); ed.oninput = () => { onInput(); acUpdate(); caretIntoView(); }; ed.onkeydown = (e) => { edKey(e); setTimeout(caretIntoView, 0); }; ed.onblur = () => setTimeout(acHide, 150);
-    ed.onpaste = (e) => { const lk = MD.pasteLink(ed.value, ed.selectionStart, ed.selectionEnd, e.clipboardData.getData('text/plain')); if (lk) { e.preventDefault(); applyEdit(ed, lk); return; } if (attach(e.clipboardData.files)) { if ([...e.clipboardData.files].some((f) => f.type.startsWith('image/'))) e.preventDefault(); } };
-    ed.ondragover = (e) => { if ([...e.dataTransfer.items].some((i) => i.type.startsWith('image/'))) e.preventDefault(); };
-    ed.ondrop = (e) => { if ([...e.dataTransfer.files].some((f) => f.type.startsWith('image/'))) { e.preventDefault(); attach(e.dataTransfer.files); } }; if (!t) ed.focus(); }
+    ed.onpaste = (e) => { const lk = MD.pasteLink(ed.value, ed.selectionStart, ed.selectionEnd, e.clipboardData.getData('text/plain')); if (lk) { e.preventDefault(); applyEdit(ed, lk); return; } if (attach(e.clipboardData.files)) { if ([...e.clipboardData.files].some((f) => /^image\/|^application\/pdf$/.test(f.type))) e.preventDefault(); } };
+    ed.ondragover = (e) => { if ([...e.dataTransfer.items].some((i) => /^image\/|^application\/pdf$/.test(i.type))) e.preventDefault(); };
+    ed.ondrop = (e) => { if ([...e.dataTransfer.files].some((f) => /^image\/|^application\/pdf$/.test(f.type))) { e.preventDefault(); attach(e.dataTransfer.files); } }; if (!t) ed.focus(); }
 }
 /* ---------- split: a live, read-only preview of a second note beside the main pane ---------- */
 let split = null, splitTimer = 0; try { split = localStorage.getItem('split') || null; } catch {}
@@ -652,7 +652,7 @@ function edKey(e) {
 }
 
 async function attach(files) {
-  const imgs = [...files].filter((f) => f.type.startsWith('image/'));
+  const imgs = [...files].filter((f) => f.type.startsWith('image/') || f.type === 'application/pdf');
   if (!imgs.length) return false;
   const ed = $('#ed');
   for (const f of imgs) {
@@ -1496,4 +1496,14 @@ plainnote.ready = load().then(async () => {
   if (!cur) renderPane();                                           // nothing to open: show the (touch-aware) empty state
   if (/[?&]graph\b/.test(location.search)) { graphOn = true; renderPane(); }   // ?graph opens the graph view (used for screenshots)
   if (/[?&]preview\b/.test(location.search) && cur) { preview = true; renderPane(); }
+});
+
+/* Image lightbox: click an image in the reading view to see it full size (click or Esc closes) */
+document.addEventListener('click', (e) => {
+  const img = e.target.closest('#pv img'); if (!img || e.target.closest('a')) return;
+  const lb = document.createElement('div'); lb.id = 'lb';
+  const big = document.createElement('img'); big.src = img.src; big.alt = img.alt; lb.appendChild(big);
+  const close = () => { lb.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
+  lb.onclick = close; document.addEventListener('keydown', onKey, true); document.body.appendChild(lb);
 });

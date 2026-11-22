@@ -265,3 +265,30 @@ test('installable web app: manifest, icons and service worker are served', async
     assert.match(html, /rel="manifest"/); assert.match(html, /apple-touch-icon/); assert.match(html, /viewport-fit=cover/);
   } finally { s.stop(); }
 });
+
+test('pdf attachments upload and serve inline (no sandbox), other types still rejected', async () => {
+  const s = await start();
+  try {
+    const pdf = Buffer.from('%PDF-1.4\n%%EOF');
+    const up = await s.j('/api/upload?name=' + encodeURIComponent('My Report.pdf'), { method: 'POST', body: pdf });
+    assert.equal(up.status, 200); assert.match(up.body.path, /^attachments\/\d+-My-Report\.pdf$/);
+    const got = await fetch(`${s.base}/files/${up.body.path}`);
+    assert.equal(got.headers.get('content-type'), 'application/pdf');
+    assert.equal(got.headers.get('content-security-policy'), null);
+    assert.equal(got.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal((await s.j('/api/upload?name=x.exe', { method: 'POST', body: 'x' })).status, 400);
+  } finally { s.stop(); }
+});
+
+test('pdf tools validate page ranges', () => {
+  const { pages } = require('../scripts/pdf-tools');
+  assert.deepEqual(pages('1,3-4', 5), [0, 2, 3]);
+  assert.throws(() => pages('6', 5), /outside/);
+  assert.throws(() => pages('a', 5), /bad page range/);
+});
+
+test('export renders a note to HTML with local images resolved', () => {
+  const { toHtml } = require('../scripts/export-pdf');
+  const h = toHtml('/n/a.md', '# T\n\n![x](attachments/p.png)', '/n');
+  assert.match(h, /<title>a<\/title>/); assert.match(h, /src="file:\/\/\/n\/attachments\/p\.png"/);
+});

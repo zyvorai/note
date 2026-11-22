@@ -403,3 +403,13 @@ test('bullet and heading toggles for the phone keyboard bar', () => {
   assert.equal(run(MD.toggleHeading, '# Title', 7), '## Title @8');
   assert.equal(run(MD.toggleHeading, '### Title', 9), 'Title @5', 'cycles back to plain text');
 });
+
+test('pdf embeds and links, and diagram fences', () => {
+  const { md } = MD.create({ resolve: () => null, embed: () => '' });
+  assert.match(md('![Spec](attachments/a b.pdf)'), /<embed class="pdfembed" src="\/files\/attachments\/a%20b\.pdf"/);
+  assert.match(md('[Spec](attachments/a.pdf)'), /<a class="att" href="\/files\/attachments\/a\.pdf"/);
+  const d = md('```diagram\nA -> B: go\nB -> C\n```');
+  assert.match(d, /<svg class="diagram"/); assert.match(d, />go</); assert.equal((d.match(/<rect /g) || []).length, 3);
+  assert.match(md('```diagram\n```'), /<pre>/);                     // empty diagram falls back to a code block
+  assert.doesNotMatch(MD.diagramSvg('<img onerror=x> -> B'), /<img/);   // node names are escaped
+});

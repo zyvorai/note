@@ -23,6 +23,30 @@ node server.js ~/Notes          # http://localhost:4777
 
 `notesDir` defaults to `./notes` and `port` to `4777` (or `$PORT`). Requires Node.js 20+. You can point it at an existing Obsidian vault or any folder of `.md` files.
 
+### Attachments, diagrams and PDFs
+
+- **Images and PDFs**: paste or drop a `.png`, `.jpg`, `.gif`, `.webp`, `.svg` or `.pdf` into the editor. It is saved under `attachments/` and linked as `![name](attachments/…)`. In the reading view, PDFs show in an inline viewer and images open full size when clicked (Esc closes).
+- **Diagrams**: a fenced block named `diagram` draws a flow diagram as SVG (follows light/dark, prints cleanly). One chain per line, `: label` on the last arrow, and a first line of `down` for top-to-bottom:
+
+  ````
+  ```diagram
+  Browser -> Server: HTTP
+  Server -> Notes folder
+  Server -> Git: sync
+  ```
+  ````
+- **Markdown to PDF from the terminal**: `node server.js export note.md [out.pdf]` uses the app's own renderer and an installed Chrome, Edge or Chromium (set `CHROME=/path` to choose). In the app, use *Export this note as PDF*.
+- **Edit PDFs** (optional add-on; run `npm install pdf-lib --no-save` once, the app itself stays dependency-free):
+
+  ```sh
+  node server.js pdf info a.pdf
+  node server.js pdf merge out.pdf a.pdf b.pdf
+  node server.js pdf extract in.pdf 1,3-5 out.pdf      # keep these pages
+  node server.js pdf delete in.pdf 2 out.pdf
+  node server.js pdf rotate in.pdf 90 out.pdf [pages]
+  node server.js pdf stamp in.pdf "DRAFT" out.pdf [pages]
+  ```
+
 ## Desktop app (macOS)
 
 ```sh
