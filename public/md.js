@@ -497,12 +497,13 @@
     return out;
   }
   const emptyQuery = (p) => !(p.terms.length || p.phrases.length || p.tags.length || p.paths.length || p.files.length || p.regex.length || p.not.length);
-  function searchMatch(p, name, text) {
-    const n = name.toLowerCase(), body = text.toLowerCase(), both = n + '\n' + body;
+  // lowerBody: the note's text already lowercased (the app caches it), so a keystroke in the search box does not re-lowercase every note
+  function searchMatch(p, name, text, lowerBody) {
+    const n = name.toLowerCase(), body = lowerBody === undefined ? text.toLowerCase() : lowerBody, inBoth = (t) => n.includes(t) || body.includes(t);
     const has = (kind, t) => kind === 'tags' ? [...tagsOf(text)].some((x) => x === t || x.startsWith(t + '/'))
-      : kind === 'paths' ? n.includes(t) : kind === 'files' ? n.split('/').pop().includes(t) : both.includes(t);
+      : kind === 'paths' ? n.includes(t) : kind === 'files' ? n.split('/').pop().includes(t) : inBoth(t);
     if (p.not.some((x) => x.re ? x.re.test(name + '\n' + text) : has(x.kind, x.t))) return false;
-    return p.terms.every((t) => both.includes(t)) && p.phrases.every((t) => both.includes(t)) && p.regex.every((re) => re.test(name + '\n' + text))
+    return p.terms.every(inBoth) && p.phrases.every(inBoth) && p.regex.every((re) => re.test(name + '\n' + text))
       && p.tags.every((t) => has('tags', t)) && p.paths.every((t) => n.includes(t)) && p.files.every((t) => n.split('/').pop().includes(t));
   }
   // where to show a snippet for a match: index of the first positive term/phrase/regex in the body, or -1

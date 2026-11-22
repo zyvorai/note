@@ -24,7 +24,9 @@ function say(msg, opts = {}) {
   if (msg && (kind === 'error' || opts.toast || opts.action)) PNUI.toast(msg, { kind, action: opts.action });
   if (msg && kind !== 'error') sayTimer = setTimeout(() => { if (st.textContent === msg) { sayShown = ''; st.textContent = SAVE.text; st.title = SAVE.title || SAVE.text; } }, SAY_MS);
 }
-let notes = new Map();   // name -> {text, mtime}
+let notesVer = 0;                                                  // bumped whenever a note is added, removed or renamed: derived indexes rebuild when it changes
+class NoteMap extends Map { set(k, v) { notesVer++; return super.set(k, v); } delete(k) { notesVer++; return super.delete(k); } clear() { notesVer++; super.clear(); } }
+let notes = new NoteMap();   // name -> {text, mtime}
 /* Encrypted notes: the file on disk holds an armored envelope (n.cipher). While locked, n.text is '' so search, the graph, backlinks and
    find-and-replace see nothing; while unlocked n.text is the plaintext and n.enc the in-memory key (see crypto.js). */
 const keyring = new Map();                                          // note name -> unlocked session (never persisted)
@@ -52,18 +54,38 @@ const api = async (url, opt) => {
   return r.json();
 };
 const { esc, linkRe, tagsOf } = MD;
-let aliasMap = null, aliasAt = 0;                                   // frontmatter aliases -> note name (rebuilt lazily)
+/* Per-note derived data (lowercased text, tags, aliases, resolved link targets) is cached on the note object and recomputed only when that note's text changes.
+   This is what keeps search, the tag list and the backlinks panel fast on vaults with thousands of notes. */
+const lowerOf = (n) => (n._lwText === n.text ? n._lw : (n._lwText = n.text, n._lw = n.text.toLowerCase()));
+const tagsCached = (n) => (n._tgText === n.text ? n._tg : (n._tgText = n.text, n._tg = tagsOf(n.text)));
+const aliasesCached = (n) => (n._alText === n.text ? n._al : (n._alText = n.text, n._al = n.text.startsWith('---') ? MD.aliasesOf(n.text) : []));
+let aliasMap = null, aliasAt = 0, aliasVer = 0, aliasSig = '';        // frontmatter aliases -> note name (rebuilt lazily; aliasVer changes only when the set of aliases does)
 const aliases = () => {
   if (aliasMap && Date.now() - aliasAt < 2000) return aliasMap;
   aliasMap = new Map(); aliasAt = Date.now();
-  for (const n of notes.values()) if (n.text.startsWith('---')) for (const a of MD.aliasesOf(n.text)) aliasMap.set(a.toLowerCase(), n.name);
+  for (const n of notes.values()) for (const a of aliasesCached(n)) aliasMap.set(a.toLowerCase(), n.name);
+  const sig = [...aliasMap].map((e) => e.join('>')).join('|'); if (sig !== aliasSig) { aliasSig = sig; aliasVer++; }
   return aliasMap;
 };
-const resolve = (t) => { t = t.trim(); if (!t) return cur; if (notes.has(t)) return t;
-  const l = t.toLowerCase(); for (const n of notes.keys()) if (n.toLowerCase() === l || n.split('/').pop().toLowerCase() === l) return n;
-  return aliases().get(l) || null; };
+// name -> canonical name by lowercase full name or lowercase last path part: the first note in list order wins, as before, but in O(1)
+let nameIdx = null, nameIdxVer = -1, nameIdxOf = null;
+const nameIndex = () => {
+  if (nameIdx && nameIdxVer === notesVer && nameIdxOf === notes) return nameIdx;
+  nameIdx = new Map(); nameIdxVer = notesVer; nameIdxOf = notes;
+  for (const nm of notes.keys()) { const l = nm.toLowerCase(), b = l.slice(l.lastIndexOf('/') + 1); if (!nameIdx.has(l)) nameIdx.set(l, nm); if (!nameIdx.has(b)) nameIdx.set(b, nm); }
+  return nameIdx;
+};
+const resolve = (t, self = cur) => { t = t.trim(); if (!t) return self; if (notes.has(t)) return t;
+  const l = t.toLowerCase(); return nameIndex().get(l) || aliases().get(l) || null; };
 // a link target as written, e.g. "Note#Heading", "Note^id", "#Heading" (current note) or an alias -> note name or null
-const resolveLink = (t) => { const r = resolve(t); if (r) return r; const sp = MD.splitTarget(t); return sp.name ? resolve(sp.name) : (sp.heading || sp.block) ? cur : null; };
+const resolveLink = (t, self = cur) => { const r = resolve(t, self); if (r) return r; const sp = MD.splitTarget(t); return sp.name ? resolve(sp.name, self) : (sp.heading || sp.block) ? self : null; };
+// the notes a note links to (as canonical names, in order of first appearance), cached until its text, the set of notes or the aliases change
+const targetsOf = (n) => {
+  aliases(); const key = notesVer + ':' + aliasVer;                          // refresh the alias index first so the key reflects it
+  if (n._tgtText === n.text && n._tgtKey === key) return n._tgt;
+  const set = new Set(); for (const m of n.text.matchAll(linkRe)) { const r = resolveLink(m[1], n.name); if (r) set.add(r); }
+  n._tgtText = n.text; n._tgtKey = key; n._tgt = set; return set;
+};
 
 let folders = [];
 let metaOK = true;                                                   // false once we learn the server only has the full /api/notes (e.g. the iPhone app's built-in one)
@@ -77,7 +99,7 @@ async function load() {
   folders = await foldersP;
   const keep = [...unsaved].map((nm) => notes.get(nm)).filter(Boolean);      // never replace text the user typed but hasn't saved yet (in any note)
   aliasMap = null;
-  const old = notes, next = new Map(), fresh = [], need = [];
+  const old = notes, next = new NoteMap(), fresh = [], need = [];
   for (const m of list) {
     const prev = old.get(m.name);
     if (full) { const n = { ...m, base: m.mtime }; next.set(m.name, n); fresh.push(n); }
@@ -115,7 +137,7 @@ const savedSearches = () => { try { return JSON.parse(localStorage.getItem('sear
 const setSearches = (a) => { try { localStorage.setItem('searches', JSON.stringify(a.slice(0, 20))); } catch {} };
 function renderTags() {
   const counts = new Map();
-  for (const n of notes.values()) for (const t of tagsOf(n.text)) counts.set(t, (counts.get(t) || 0) + 1);
+  for (const n of notes.values()) for (const t of tagsCached(n)) counts.set(t, (counts.get(t) || 0) + 1);
   if (activeTag && !counts.has(activeTag)) activeTag = null;
   const all = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 40), cap = tagsOpen ? 40 : 8;
   let shown = all.slice(0, cap);
@@ -149,8 +171,8 @@ function renderList() {
   renderTags();
   const pq = MD.parseQuery($('#q').value), q = !MD.emptyQuery(pq);
   let rows = [...notes.values()];
-  if (activeTag) rows = rows.filter((n) => tagsOf(n.text).has(activeTag));
-  if (q) rows = rows.filter((n) => MD.searchMatch(pq, n.name, n.text));
+  if (activeTag) rows = rows.filter((n) => tagsCached(n).has(activeTag));
+  if (q) rows = rows.filter((n) => MD.searchMatch(pq, n.name, n.text, lowerOf(n)));
   if (view === 'files' && !q && !activeTag) { $('#list').innerHTML = treeHtml(MD.buildTree([...notes.keys()], folders), 0) || '<div class="empty">No notes</div>'; return; }
   rows.sort((a, b) => pins.has(b.name) - pins.has(a.name) || b.mtime - a.mtime);   // pinned first, then newest
   $('#list').innerHTML = rows.map((n) => {
@@ -164,15 +186,12 @@ function renderList() {
 }
 function renderBack() {
   if (!cur) { $('#back').innerHTML = ''; return; }
-  const hits = [];
-  for (const n of notes.values()) {
-    if (n.name === cur) continue;
-    for (const m of n.text.matchAll(linkRe)) { if (resolveLink(m[1]) === cur) { hits.push(n.name); break; } }
-  }
-  const out = [], seenOut = new Set();
-  for (const m of notes.get(cur).text.matchAll(linkRe)) { const r = resolveLink(m[1]); if (r && r !== cur && !seenOut.has(r)) { seenOut.add(r); out.push(r); } }
-  const um = MD.unlinkedMentions([...notes.values()], cur);
-  const emptyBack = !hits.length && !out.length && !MD.unlinkedMentions([...notes.values()], cur).length;
+  const me = notes.get(cur), hits = [];
+  for (const n of notes.values()) if (n.name !== cur && targetsOf(n).has(cur)) hits.push(n.name);
+  const out = me ? [...targetsOf(me)].filter((r) => r !== cur) : [];
+  const short = cur.split('/').pop().toLowerCase();                          // only notes whose text contains the name at all can mention it: a cheap filter before the regex scan
+  const um = short.length < 3 ? [] : MD.unlinkedMentions([...notes.values()].filter((n) => n.name !== cur && lowerOf(n).includes(short)), cur);
+  const emptyBack = !hits.length && !out.length && !um.length;
   $('#back').style.display = isTouch() && emptyBack ? 'none' : '';
   $('#back').innerHTML = (hits.length ? 'Linked from: ' + hits.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join('') : isTouch() ? '' : 'No backlinks')
     + (out.length ? `<span class="um" id="outgoing"><b>Links to:</b> ` + out.map((h) => `<a data-note="${esc(h)}">${esc(h)}</a>`).join(' ') + '</span>' : '')
@@ -1285,7 +1304,8 @@ document.addEventListener('click', (e) => {
     if (e.altKey && notes.has(a.dataset.note)) { openSplit(a.dataset.note); return; }
     (e.metaKey || e.ctrlKey ? openInNewTab : open)(a.dataset.note || cur, true).then(() => { if (anchor) gotoAnchor(anchor); else if (block) gotoBlock(block); }); }
 });
-$('#q').oninput = renderList;
+let listRaf = 0; const renderListSoon = () => { if (!listRaf) listRaf = requestAnimationFrame(() => { listRaf = 0; renderList(); }); };
+$('#q').oninput = renderListSoon;
 document.addEventListener('auxclick', (e) => {                      // middle-click: close a tab / open a link in a new tab
   if (e.button !== 1) return;
   const tb = e.target.closest?.('[data-tab]'), a = e.target.closest?.('[data-note]');

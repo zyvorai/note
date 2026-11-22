@@ -20,7 +20,7 @@ async function session(opts = {}) {
   const [port, dport] = [await free(), await free()];
   let server;
   const startServer = async () => {
-    server = spawn(process.execPath, [path.join(__dirname, '..', '..', 'server.js'), dir, String(port)], { stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, ...(opts.env || {}) } });
+    server = spawn(process.execPath, [path.join(opts.repo || path.join(__dirname, '..', '..'), 'server.js'), dir, String(port)], { stdio: ['pipe', 'pipe', 'inherit'], env: { ...process.env, ...(opts.env || {}) } });
     await new Promise((res, rej) => { server.stdout.on('data', (d) => /Open:/.test(d) && res()); server.once('exit', (c) => rej(new Error('the test server exited early (code ' + c + '); is its port still in use?'))); });
   };
   await startServer();

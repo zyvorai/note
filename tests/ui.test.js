@@ -245,16 +245,19 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))`);
     assert.equal(await ev(`getComputedStyle(document.querySelector('#hp')).display`), 'none', 'preview hides');
     // search operators and saved searches
-    const listed = () => ev(`[...document.querySelectorAll('#list .item')].map((i) => i.dataset.note).sort().join(',')`);
+    const frames = () => ev(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);                // the list repaints on the next frame while typing in the search box
+    const listed = async () => { await frames(); return ev(`[...document.querySelectorAll('#list .item')].map((i) => i.dataset.note).sort().join(',')`); };
     await ev(`(() => { const q = document.querySelector('#q'); q.value = 'setup -steps'; q.dispatchEvent(new Event('input')); })()`);
     assert.equal(await listed(), 'Linker', 'words and exclusions');
     await ev(`document.querySelector('#sssave').click()`);
     await ev(`(() => { const q = document.querySelector('#q'); q.value = ''; q.dispatchEvent(new Event('input')); })()`);
+    await frames();
     assert.equal(await ev(`document.querySelectorAll('#tags .chip.ss').length`), 1, 'saved search chip');
     await ev(`document.querySelector('#tags .chip.ss').click()`);
     assert.equal(await ev(`document.querySelector('#q').value`), 'setup -steps', 'chip restores the query');
     await ev(`document.querySelector('[data-ssdel="0"]').click()`);
     await ev(`(() => { const q = document.querySelector('#q'); q.value = ''; q.dispatchEvent(new Event('input')); })()`);
+    await frames();
     assert.equal(await ev(`document.querySelectorAll('#tags .chip.ss').length`), 0, 'saved search removed');
     await ev(`(async () => { graphOn = false; await open('Home', false); })()`);
 
