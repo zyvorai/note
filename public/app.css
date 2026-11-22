@@ -406,3 +406,12 @@ button.danger{color:var(--danger)}button.pri.danger{background:var(--danger);col
 #swl mark{background:none;color:inherit;font-weight:700;text-decoration:underline;text-underline-offset:2px}
 .dlg-sc h4{margin:14px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}.dlg-sc .sc{display:flex;justify-content:space-between;gap:12px;padding:3px 0;font-size:13.5px}
 .kb{font:12px ui-monospace,Menlo,monospace;background:var(--field);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--fg)}
+
+/* reading view extras */
+#pv h1,#pv h2,#pv h3,#pv h4,#pv h5,#pv h6{position:relative}
+#pv .hlink{opacity:0;margin-left:.45em;padding:0 .35em;font-size:.65em;font-weight:400;color:var(--mute);vertical-align:middle}#pv [data-h]:hover .hlink,#pv .hlink:focus-visible{opacity:1}
+#pv pre{position:relative}#pv .cpy{position:absolute;top:6px;right:6px;opacity:0;font-size:12px;padding:2px 8px}#pv pre:hover .cpy,#pv .cpy:focus-visible{opacity:1}
+@media (hover:none){#pv .cpy{opacity:1}#pv .hlink{opacity:.6}}
+#pv li > ul,#pv li > ol{margin:.2em 0}#pv input[type=checkbox][data-line]{cursor:pointer}
+#pv .flash{background:var(--sel);transition:background 1s}
+@media print{#pv .hlink,#pv .cpy{display:none!important}}

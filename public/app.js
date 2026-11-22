@@ -2160,3 +2160,38 @@ function showShortcuts() {
       + groups.map(([g, list]) => `<h4>${esc(g)}</h4>${rows(list)}`).join(''),
     actions: [{ label: 'Close', primary: true, onClick: (c) => c(null) }] });
 }
+
+
+/* ---------- reading view: tasks you can tick, links to sections, copy buttons, footnote jumps ---------- */
+document.addEventListener('click', (e) => {
+  const cb = e.target.closest && e.target.closest('#pv input[type=checkbox][data-line]');
+  if (cb) {                                                             // tick a task right in the reading view: the line in the note is rewritten and saved
+    e.preventDefault();
+    const n = notes.get(cur); if (!n || isLocked(n)) return;
+    const L = n.text.split('\n'), line = +cb.dataset.line, m = /\[( |x|X)\]/.exec(L[line] || ''); if (!m) return;
+    L[line] = L[line].replace(/\[( |x|X)\]/, m[1] === ' ' ? '[x]' : '[ ]'); setNoteText(L.join('\n')); return;
+  }
+  const fn = e.target.closest && e.target.closest('#pv a[href^="#fn"]');
+  if (fn) {                                                             // footnotes: scroll to them without touching the address (it holds the open note's name)
+    e.preventDefault(); const t = document.getElementById(decodeURIComponent(fn.getAttribute('href').slice(1)));
+    if (t) { t.scrollIntoView({ block: 'center' }); t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 1200); }
+    return;
+  }
+  const hl = e.target.closest && e.target.closest('#pv .hlink'), cp = e.target.closest && e.target.closest('#pv .cpy');
+  const copy = async (text, done) => { try { await navigator.clipboard.writeText(text); PNUI.toast(done, { ms: 2200 }); } catch (err) { say('Could not copy: ' + err.message); } };
+  if (hl) { const h = hl.closest('[data-h]'); if (h && cur) copy(`[[${cur}#${h.dataset.h}]]`, 'Copied a link to this section'); }
+  else if (cp) { const code = cp.closest('pre').querySelector('code') || cp.closest('pre'); copy(code.textContent.replace(/\n$/, ''), 'Copied the code'); }
+});
+// buttons added to rendered notes by the app (not by the renderer), so exports and published pages stay clean
+(function () {
+  const decorate = () => {
+    for (const h of document.querySelectorAll('#pv [data-h]:not([data-hl])')) {
+      h.dataset.hl = '1'; const b = document.createElement('button'); b.type = 'button'; b.className = 'hlink'; b.textContent = '#';
+      b.setAttribute('aria-label', 'Copy a link to this section'); b.title = 'Copy a link to this section'; h.appendChild(b);
+    }
+    for (const pre of document.querySelectorAll('#pv pre:not([data-cp])')) {
+      pre.dataset.cp = '1'; const b = document.createElement('button'); b.type = 'button'; b.className = 'cpy'; b.textContent = 'Copy'; b.setAttribute('aria-label', 'Copy the code'); pre.appendChild(b);
+    }
+  };
+  new MutationObserver(decorate).observe($('#pane'), { childList: true, subtree: true }); decorate();
+})();
