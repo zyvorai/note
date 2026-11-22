@@ -378,3 +378,8 @@ html.touch #outline{display:none!important}
 .lockcard{max-width:26rem;margin:12vh auto 0;text-align:center;padding:0 16px}.lockcard .lki{font-size:42px}.lockcard h2{margin:6px 0}.lockcard p{color:var(--mute);line-height:1.5}
 .lockcard form{display:flex;gap:8px;justify-content:center;margin-top:14px}.lockcard input{flex:1;max-width:16rem;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}#lke{color:#c0392b;min-height:1.4em;margin-top:8px;font-size:13.5px}
 @media print{#passdlg{display:none!important}}
+#bakdlg{position:fixed;inset:0;z-index:98;background:#0006;display:flex;align-items:center;justify-content:center}
+#bakdlg>div{background:var(--bg);border:1px solid var(--line);border-radius:10px;width:min(540px,94vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+#bakdlg header{padding:10px 14px;display:flex;justify-content:space-between;align-items:center}#bakdlg .cbody{padding:4px 16px 16px;line-height:1.55;overflow:auto}
+#bakdlg .bkrow{display:flex;gap:8px;align-items:center;margin:10px 0;flex-wrap:wrap}#bakdlg #bksum{margin:10px 0}#bakdlg .bkw{margin:6px 0;padding-left:18px;color:var(--mute);font-size:13px}#bakdlg .bad{color:#c0392b}
+@media print{#bakdlg{display:none!important}}

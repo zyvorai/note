@@ -104,6 +104,23 @@ IV: <base64, 12 bytes>
 
 `key = PBKDF2-HMAC-SHA256(NFKC(passphrase) as UTF-8, Salt, Iterations, 32 bytes)`, decrypt with AES-256-GCM using `IV`, with the additional authenticated data `plainnote-enc-v1`; the plaintext is the note's UTF-8 text. (`tests/crypto.test.js` opens a note with Node's `crypto` module alone, and the reverse.)
 
+### Backup and restore
+
+Run *Back up all notes (.zip)…* from the command palette to download one `.zip` of everything Plainnote stores: your notes, attachments (images and PDFs), custom CSS snippets and version history. It leaves out the trash, git data, the remote-access token and any other files. It streams, so a very large folder does not use much memory (a 600 MB folder took about 90 MB). In the Mac app, where a window cannot download files, the backup is written to your Downloads folder instead. The iPhone app has no server; its notes are plain files in Files / iCloud Drive and back up with your phone.
+
+*Restore notes from a backup…* shows what a restore would do before it does anything, then **only adds**: a file you already have is never overwritten. A note that differs from the backup's version is kept as a separate `Note (restored 2026-11-22).md` next to it, and restoring again does not pile up copies. Files in a backup are checked (paths, types, sizes and checksums), so a damaged or hostile zip cannot write outside your folder, and a damaged file is skipped without stopping the rest. Encrypted notes are backed up as the encrypted text they already are.
+
+From the terminal (a good fit for cron or a scheduled task):
+
+```sh
+node server.js backup ~/Notes ~/Backups/ --keep 14      # a dated .zip in that folder, keeping the newest 14
+node server.js backup ~/Notes ~/Backups/notes.zip       # or one named file
+node server.js restore ~/Backups/notes.zip ~/Notes --dry-run
+node server.js restore ~/Backups/notes.zip ~/Notes
+```
+
+Backups are plain zip files that any unzip tool opens. One zip holds up to 4 GB and 65,535 files; beyond that, use git sync.
+
 ## Desktop app (macOS)
 
 ```sh
