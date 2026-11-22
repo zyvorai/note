@@ -82,6 +82,7 @@ const body = (req) => new Promise((res, rej) => {
 });
 
 const IMG = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
+const ATTACH = { ...IMG, '.pdf': 'application/pdf' };      // uploadable and servable attachments
 const rawBody = (req, max = 20e6) => new Promise((res, rej) => {
   const chunks = []; let n = 0;
   req.on('data', (c) => { n += c.length; if (n > max) { rej(new Error('file too large (20MB max)')); req.destroy(); } else chunks.push(c); });
@@ -264,7 +265,7 @@ return http.createServer(async (req, res) => {
     if (url.pathname === '/api/upload' && req.method === 'POST') {
       const base = path.basename(url.searchParams.get('name') || 'image.png');
       const ext = path.extname(base).toLowerCase();
-      if (!IMG[ext]) return send(res, 400, { error: 'unsupported image type' });
+      if (!ATTACH[ext]) return send(res, 400, { error: 'unsupported attachment type' });
       const safe = base.slice(0, -ext.length).replace(/[^\w.-]+/g, '-').slice(0, 60) || 'image';
       const rel = `attachments/${Date.now()}-${safe}${ext}`;
       await fs.mkdir(path.join(ROOT, 'attachments'), { recursive: true });
@@ -273,9 +274,11 @@ return http.createServer(async (req, res) => {
     }
     if (url.pathname.startsWith('/files/') && req.method === 'GET') {
       const f = path.resolve(ROOT, decodeURIComponent(url.pathname.slice(7)));
-      const type = IMG[path.extname(f).toLowerCase()];
+      const type = ATTACH[path.extname(f).toLowerCase()];
       if (!f.startsWith(ROOT + path.sep) || !type) return send(res, 404, { error: 'not found' });
-      res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'");   // SVG can't run scripts
+      // SVG can't run scripts; PDFs are shown by the browser's viewer, which a CSP sandbox would block
+      if (type !== 'application/pdf') res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'");
+      else res.setHeader('Content-Disposition', 'inline');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       return send(res, 200, await fs.readFile(f), type);
     }
@@ -321,7 +324,12 @@ async function listen(root, port, hooks, opts = {}) {
 
 module.exports = { createServer, listen };
 
-if (require.main === module) {
+if (require.main === module && process.argv[2] === 'export') {
+  // node server.js export <note.md> [out.pdf]  — render a note to PDF with an installed Chrome/Edge/Chromium (no npm deps)
+  require('./scripts/export-pdf').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
+} else if (require.main === module && process.argv[2] === 'pdf') {
+  require('./scripts/pdf-tools').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
+} else if (require.main === module) {
   // node server.js [notesDir] [port] [--remote] [--host 0.0.0.0]
   const args = process.argv.slice(2), pos = [], opts = {};
   for (let i = 0; i < args.length; i++) {
