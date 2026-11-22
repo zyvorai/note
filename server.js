@@ -30,6 +30,22 @@ function createServer(ROOT, hooks = {}, opts = {}) {
 ROOT = path.resolve(ROOT);
 const TRASH = path.join(ROOT, '.trash');
 const SNIPPETS = path.join(ROOT, '.plainnote', 'snippets');
+const HISTORY = path.join(ROOT, '.plainnote', 'history');
+const HIST_EVERY = 2 * 60e3, HIST_KEEP = 60;       // snapshot at most every 2 minutes per note, keep the newest 60
+const histDir = (name) => path.join(HISTORY, encodeURIComponent(name.replace(/\.md$/i, '')));
+// Keep the previous text of a note before it is overwritten (plain files, independent of git).
+async function snapshot(name, p) {
+  try {
+    const prev = await fs.readFile(p, 'utf8'); if (!prev.trim()) return;
+    const dir = histDir(name), files = (await fs.readdir(dir).catch(() => [])).filter((f) => /^\d+\.md$/.test(f)).sort();
+    const last = files.length ? Number(files[files.length - 1].slice(0, -3)) : 0;
+    if (Date.now() - last < HIST_EVERY) return;
+    if (files.length && await fs.readFile(path.join(dir, files[files.length - 1]), 'utf8').then((t) => t === prev, () => false)) return;
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, Date.now() + '.md'), prev, 'utf8');
+    for (const f of files.slice(0, Math.max(0, files.length + 1 - HIST_KEEP))) await fs.rm(path.join(dir, f), { force: true });
+  } catch {}
+}
 const SNIPPET = /^\w[\w .-]*\.css$/;       // plain file names only: no slashes, so nothing outside the snippets folder is reachable
 
 // Resolve a note name ("folder/idea") to a safe absolute .md path inside ROOT.
@@ -217,7 +233,9 @@ return http.createServer(async (req, res) => {
           if (st && st.mtimeMs > base + 1) return send(res, 409, { error: 'conflict' });
         }
         await fs.mkdir(path.dirname(p), { recursive: true });
-        await fs.writeFile(p, await body(req), 'utf8');
+        const text = await body(req);
+        await snapshot(url.searchParams.get('name'), p);
+        await fs.writeFile(p, text, 'utf8');
         return send(res, 200, { ok: true, mtime: (await fs.stat(p)).mtimeMs });
       }
       if (req.method === 'DELETE') {                     // move to .trash instead of destroying
@@ -226,6 +244,16 @@ return http.createServer(async (req, res) => {
         await fs.rename(p, path.join(TRASH, `${Date.now()}__${encodeURIComponent(name)}.md`));
         return send(res, 200, { ok: true });
       }
+    }
+    if (url.pathname === '/api/history' && req.method === 'GET') {          // versions of one note, newest first; ?id=<timestamp> returns that version's text
+      const name = url.searchParams.get('name'); notePath(name);
+      const dir = histDir(name), id = url.searchParams.get('id');
+      if (id !== null) {
+        if (!/^\d+$/.test(id)) return send(res, 400, { error: 'bad id' });
+        return send(res, 200, { id: Number(id), text: await fs.readFile(path.join(dir, id + '.md'), 'utf8') });
+      }
+      const files = (await fs.readdir(dir).catch(() => [])).filter((f) => /^\d+\.md$/.test(f)).sort().reverse();
+      return send(res, 200, await Promise.all(files.map(async (f) => ({ id: Number(f.slice(0, -3)), size: (await fs.stat(path.join(dir, f))).size }))));
     }
     if (url.pathname === '/api/append' && req.method === 'POST') {      // quick capture / URL scheme: append a block to a note (created if missing)
       const { name, text } = JSON.parse(await body(req));
@@ -327,6 +355,8 @@ module.exports = { createServer, listen };
 if (require.main === module && process.argv[2] === 'export') {
   // node server.js export <note.md> [out.pdf]  — render a note to PDF with an installed Chrome/Edge/Chromium (no npm deps)
   require('./scripts/export-pdf').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
+} else if (require.main === module && process.argv[2] === 'publish') {
+  require('./scripts/publish').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
 } else if (require.main === module && process.argv[2] === 'pdf') {
   require('./scripts/pdf-tools').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
 } else if (require.main === module) {

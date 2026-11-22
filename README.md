@@ -47,6 +47,11 @@ node server.js ~/Notes          # http://localhost:4777
   node server.js pdf stamp in.pdf "DRAFT" out.pdf [pages]
   ```
 
+### Version history and publishing
+
+- **Version history**: Plainnote keeps earlier versions of each note in `.plainnote/history/` (at most one every 2 minutes, newest 60 kept; plain files, no git needed). Run *Version history of this note…* from the command palette to preview a version and restore it. Restoring is an ordinary edit, so you can undo it from history too. Not in the iPhone app yet.
+- **Publish a website**: `node server.js publish ~/Notes ./site --title "My notes"` writes one HTML page per note plus an index and the attachments you used. `[[links]]` become real links, light/dark follow the visitor's system, and `diagram` blocks and PDFs come along. Put `publish: false` in a note's frontmatter to keep it out (links to it become plain text). The output folder must be empty or a previous publish, and inside your notes it must be a dot-folder, so nothing of yours is overwritten. Push the folder to GitHub Pages or any static host.
+
 ## Desktop app (macOS)
 
 ```sh

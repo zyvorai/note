@@ -966,6 +966,7 @@ const COMMANDS = [
   { id: 'graph', name: 'Toggle graph view', hint: 'Ctrl/Cmd+G', run: () => $('#gr').click() },
   { id: 'localgraph', name: 'Graph of this note and its links', run: async () => { if (!cur) return; await flush(); graphScope = 1; graphOn = true; renderPane(); } },
   { id: 'pin', name: 'Pin / unpin this note', run: () => $('#pin').click() },
+  { id: 'history', name: 'Version history of this note…', run: () => openHistory() },
   { id: 'pdf', name: 'Export this note as PDF / Print…', run: () => exportPdf() },
   { id: 'gfind', name: 'Find and replace in all notes', hint: 'Ctrl/Cmd+Shift+H', run: () => openGlobalFind() },
   { id: 'export', name: 'Export this note as HTML', run: () => exportHtml() },
@@ -1507,3 +1508,30 @@ document.addEventListener('click', (e) => {
   const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
   lb.onclick = close; document.addEventListener('keydown', onKey, true); document.body.appendChild(lb);
 });
+
+/* Version history: the server keeps earlier versions of each note (every 2 minutes at most); pick one to preview, then restore it */
+async function openHistory() {
+  if (!cur) return; await flush();
+  const name = cur; let list = [];
+  try { list = await api('/api/history?name=' + encodeURIComponent(name)); } catch (e) { $('#status').textContent = 'History failed: ' + e.message; return; }
+  const box = document.createElement('div'); box.id = 'hist';
+  const when = (t) => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  box.innerHTML = `<div><header><b>History: ${esc(name.split('/').pop())}</b><button id="hx" aria-label="Close">×</button></header><div class="hbody"><ul>${list.map((v) => `<li data-id="${v.id}" tabindex="0">${esc(when(v.id))}<small>${v.size} B</small></li>`).join('') || '<li class="none">No earlier versions yet. They appear after you edit this note.</li>'}</ul><pre id="hpre">Pick a version to preview it.</pre></div><footer><button id="hr" disabled>Restore this version</button></footer></div>`;
+  document.body.appendChild(box);
+  let sel = null; const close = () => { box.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  const pick = async (li) => {
+    box.querySelectorAll('li.on').forEach((x) => x.classList.remove('on')); li.classList.add('on');
+    const v = await api('/api/history?name=' + encodeURIComponent(name) + '&id=' + li.dataset.id);
+    sel = v.text; $('#hpre').textContent = v.text; $('#hr').disabled = false;
+  };
+  box.onclick = (e) => { const li = e.target.closest('li[data-id]'); if (li) pick(li); else if (e.target.id === 'hist' || e.target.id === 'hx') close(); };
+  box.onkeydown = (e) => { if (e.key === 'Enter' && e.target.matches('li[data-id]')) pick(e.target); };
+  $('#hr').onclick = () => {
+    if (sel === null || !notes.get(name)) return;
+    notes.get(name).text = sel; close();
+    if (cur === name) { renderPane(); afterTextChange(); }          // saved like any edit; the version it replaced is kept in history
+    $('#status').textContent = 'Restored an earlier version';
+  };
+}
