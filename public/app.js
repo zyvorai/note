@@ -1001,6 +1001,8 @@ const COMMANDS = [
   { id: 'lockall', name: 'Lock all encrypted notes', run: () => lockAll() },
   { id: 'chpass', name: 'Change this note’s passphrase…', run: () => changePassphrase() },
   { id: 'decrypt', name: 'Remove encryption from this note…', run: () => removeEncryption() },
+  { id: 'backup', name: 'Back up all notes (.zip)…', run: () => downloadBackup() },
+  { id: 'restore', name: 'Restore notes from a backup…', run: () => openRestore() },
   { id: 'pdf', name: 'Export this note as PDF / Print…', run: () => exportPdf() },
   { id: 'gfind', name: 'Find and replace in all notes', hint: 'Ctrl/Cmd+Shift+H', run: () => openGlobalFind() },
   { id: 'export', name: 'Export this note as HTML', run: () => exportHtml() },
@@ -1789,3 +1791,54 @@ const IDLE_MIN = 10; let lastAct = Date.now();
 for (const ev of ['keydown', 'pointerdown', 'wheel', 'touchstart']) document.addEventListener(ev, () => { lastAct = Date.now(); }, { capture: true, passive: true });
 const idleCheck = () => { if (keyring.size && Date.now() - lastAct > IDLE_MIN * 60000) lockAll(); };
 setInterval(idleCheck, 15000);
+
+/* ---------- Backup and restore ---------- */
+// A backup is one .zip of your notes, attachments, CSS snippets and version history. A restore only ever adds files.
+async function downloadBackup() {
+  const st = (t) => { $('#status').textContent = t; };
+  if (document.documentElement.classList.contains('ios')) { st('Backup is not built into the iPhone app: your notes are plain files in Files / iCloud Drive, which back up with your phone'); return; }
+  await flush();
+  if (window.webkit && webkit.messageHandlers && webkit.messageHandlers.mac) {      // the Mac app's window can't download links: the server writes the zip to your Downloads folder
+    st('Backing up…');
+    try { const r = await api('/api/backup/save', { method: 'POST' }); st(`Backup saved to ${r.path} (${r.files} files)`); } catch (e) { st('Backup failed: ' + e.message); }
+    return;
+  }
+  const a = document.createElement('a'); a.href = '/api/backup'; a.download = ''; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); a.remove(); st('Preparing your backup… your browser will ask where to save it');
+}
+function openRestore() {
+  const box = document.createElement('div'); box.id = 'bakdlg';
+  box.innerHTML = `<div role="dialog" aria-label="Restore from a backup"><header><b>Restore from a backup</b><button id="bkx" aria-label="Close">×</button></header><div class="cbody">
+<p>Choose a Plainnote backup (<code>.zip</code>). Restoring only <b>adds</b> files: anything you already have is left exactly as it is. A note that differs from the backup's version is kept as a separate “(restored …)” copy next to it.</p>
+<div class="bkrow"><button id="bkf" class="pri">Choose a backup…</button></div><input id="bkfi" type="file" accept=".zip,application/zip" hidden>
+<div id="bksum" aria-live="polite"></div><div class="bkrow" id="bkgo" hidden><button id="bkgo2" class="pri">Restore</button><span id="bkst" role="status"></span></div></div></div>`;
+  document.body.appendChild(box);
+  let file = null, busy = false;
+  const close = () => { if (busy) return; box.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  box.onclick = (e) => { if (e.target.id === 'bakdlg' || e.target.id === 'bkx') close(); };
+  const sum = (h) => { $('#bksum').innerHTML = h; };
+  const plural = (n, w) => `<b>${n}</b> ${w}${n === 1 ? '' : 's'}`;
+  const post = (mode) => api('/api/backup/restore?mode=' + mode, { method: 'POST', body: file });
+  $('#bkf').onclick = () => $('#bkfi').click();
+  $('#bkfi').onchange = async (e) => {
+    file = e.target.files[0]; if (!file) return;
+    sum('Checking the backup…'); $('#bkgo').hidden = true;
+    try {
+      const r = await post('dry');
+      sum(`This backup holds ${plural(r.files, 'file')}. Restoring would add ${plural(r.added, 'new file')}, find ${r.same} already identical${r.copies ? `, and keep ${plural(r.copies, 'differing file')} as separate copies` : ''}${r.skipped ? `. ${r.skipped} entr${r.skipped === 1 ? 'y' : 'ies'} will be skipped (not note data)` : ''}.`);
+      $('#bkgo').hidden = false; $('#bkgo2').disabled = !r.added && !r.copies;
+      if (!r.added && !r.copies) sum($('#bksum').innerHTML + '<p>Everything in this backup is already in your notes.</p>');
+    } catch (err) { sum(`<span class="bad">Could not read that backup: ${esc(err.message)}</span>`); }
+  };
+  $('#bkgo2').onclick = async () => {
+    if (busy || !file) return; busy = true; $('#bkgo2').disabled = true; $('#bkst').textContent = 'Restoring…';
+    try {
+      const r = await post('apply'); await load(); renderList(); busy = false;
+      sum(`<b>Restored.</b> Added ${plural(r.added, 'file')}${r.copies ? `, kept ${plural(r.copies, 'differing file')} as separate copies` : ''}.` + (r.errors.length ? `<ul class="bkw">${r.errors.slice(0, 6).map((x) => `<li>${esc(x)}</li>`).join('')}</ul><p class="bad">${r.errors.length} file${r.errors.length === 1 ? '' : 's'} could not be restored (damaged in the backup); the rest were.</p>` : ''));
+      $('#bkgo').hidden = true; file = null;
+    } catch (err) { busy = false; $('#bkgo2').disabled = false; $('#bkst').textContent = 'Stopped: ' + err.message; await load().catch(() => {}); renderList(); }
+  };
+  $('#bkf').focus();
+}

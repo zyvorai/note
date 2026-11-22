@@ -24,6 +24,176 @@ async function readPublic(rel) {
   return fs.readFile(f);
 }
 
+// ---- Backup and restore: a .zip of your notes, written and read without any dependency ----
+// A backup holds Plainnote's own data only: notes (*.md), attachments (images, PDFs), custom CSS snippets and version history. It leaves out
+// the trash, git data, the remote-access token and anything else. A restore only ever ADDS files: an existing file is never overwritten.
+const fsSync = require('fs'), os = require('os'), zlib = require('zlib');
+const { pipeline, finished } = require('stream/promises');
+const { once } = require('events');
+const { Transform, Readable } = require('stream');
+
+const BK_ATTACH = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf']);
+const BK_MAX_FILES = 65535, BK_MAX_BYTES = 0xffffffff, BK_MAX_TOTAL = 20e9;
+// What a path inside a backup may be: returns a kind, or null for anything that must not be written or saved.
+function backupKind(rel) {
+  const parts = String(rel).split('/');
+  if (parts.some((p) => !p || p === '.' || p === '..' || p.includes('\0') || p.includes('\\') || /^[A-Za-z]:$/.test(p))) return null;
+  const base = parts[parts.length - 1], ext = path.extname(base).toLowerCase();
+  if (parts[0] === '.plainnote') {
+    if (parts[1] === 'snippets' && parts.length === 3 && /^\w[\w .-]*\.css$/.test(base)) return 'snippet';
+    if (parts[1] === 'history' && parts.length === 4 && /^\d+\.md$/.test(base) && !parts[2].startsWith('.')) return 'history';
+    return null;                                                                   // .plainnote/token and everything else in there stays out
+  }
+  if (parts.some((p) => p.startsWith('.') || p === 'node_modules')) return null;   // .git, .trash, hidden files
+  if (ext === '.md') return 'note';
+  return BK_ATTACH.has(ext) ? 'attachment' : null;
+}
+async function collectBackup(root, rel = '', out = []) {
+  for (const e of await fs.readdir(path.join(root, rel), { withFileTypes: true })) {
+    if (e.isSymbolicLink()) continue;                                              // never follow links out of the folder
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) { if (e.name === '.plainnote' || !e.name.startsWith('.')) await collectBackup(root, r, out); }
+    else if (e.isFile() && backupKind(r)) out.push({ name: r, file: path.join(root, r) });
+  }
+  return out;
+}
+const crcTable = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = (buf, prev = 0) => { let c = ~prev >>> 0; for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 255] ^ (c >>> 8); return ~c >>> 0; };
+const dosTime = (ms) => { const d = new Date(Math.max(ms, 315532800000)); return { time: (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), date: ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate() }; };
+const fromDos = (time, date) => new Date(1980 + (date >> 9), ((date >> 5) & 15) - 1, date & 31 || 1, time >> 11, (time >> 5) & 63, (time & 31) * 2);
+const stamp = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// Streams the zip to `out` (an HTTP response or a file) one file at a time, so memory stays small however large the notes folder is.
+async function writeBackup(out, root) {
+  const files = await collectBackup(root);
+  if (files.length + 1 > BK_MAX_FILES) throw new Error('Too many files for one zip (65,535). Use git sync, or back up a smaller folder.');
+  let offset = 0; const central = [], skipped = [];
+  const emit = async (buf) => {
+    if (out.destroyed) throw new Error('the connection closed');
+    offset += buf.length;
+    if (!out.write(buf)) await Promise.race([once(out, 'drain'), once(out, 'close').then(() => { throw new Error('the connection closed'); })]);
+  };
+  const addEntry = async (name, mtimeMs, body) => {                                // body: a readable file handle stream (deflated) or a Buffer (stored)
+    const nameBuf = Buffer.from(name, 'utf8'), { time, date } = dosTime(mtimeMs), start = offset, stored = Buffer.isBuffer(body);
+    const lh = Buffer.alloc(30); lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(stored ? 0x0800 : 0x0808, 6); lh.writeUInt16LE(stored ? 0 : 8, 8);
+    lh.writeUInt16LE(time, 10); lh.writeUInt16LE(date, 12); lh.writeUInt16LE(nameBuf.length, 26);
+    let crc = 0, usize = 0, csize = 0;
+    if (stored) { crc = crc32(body); usize = csize = body.length; lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(csize, 18); lh.writeUInt32LE(usize, 22); }
+    await emit(lh); await emit(nameBuf);
+    if (stored) await emit(body);
+    else {
+      const defl = zlib.createDeflateRaw({ level: 6 });
+      body.on('data', (c) => { crc = crc32(c, crc); usize += c.length; }); body.on('error', (e) => defl.destroy(e)); body.pipe(defl);
+      for await (const chunk of defl) { csize += chunk.length; await emit(chunk); }
+      if (usize > BK_MAX_BYTES || csize > BK_MAX_BYTES) throw new Error(`${name} is too large for the zip format (4 GB)`);
+      const dd = Buffer.alloc(16); dd.writeUInt32LE(0x08074b50, 0); dd.writeUInt32LE(crc, 4); dd.writeUInt32LE(csize, 8); dd.writeUInt32LE(usize, 12); await emit(dd);
+    }
+    central.push({ nameBuf, time, date, crc, csize, usize, start, flags: stored ? 0x0800 : 0x0808, method: stored ? 0 : 8 });
+  };
+  let count = 0;
+  for (const f of files) {
+    let fh; try { fh = await fs.open(f.file, 'r'); } catch (e) { skipped.push(`${f.name}: ${e.code || e.message}`); continue; }   // vanished or unreadable: leave it out, keep going
+    try { const st = await fh.stat(); await addEntry(f.name, st.mtimeMs, fh.createReadStream({ autoClose: false })); count++; } finally { await fh.close().catch(() => {}); }
+  }
+  const info = `Plainnote backup\nCreated: ${new Date().toISOString()}\nFiles: ${count}\n${skipped.length ? `Left out (could not be read):\n${skipped.join('\n')}\n` : ''}\nRestore with: Plainnote > command palette > "Restore notes from a backup", or\n  node server.js restore <this file> <notes folder>\nA restore only adds files; it never overwrites an existing one.\n`;
+  await addEntry('PLAINNOTE-BACKUP.txt', Date.now(), Buffer.from(info));
+  const cdStart = offset;
+  for (const c of central) {
+    const h = Buffer.alloc(46); h.writeUInt32LE(0x02014b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(20, 6); h.writeUInt16LE(c.flags, 8); h.writeUInt16LE(c.method, 10);
+    h.writeUInt16LE(c.time, 12); h.writeUInt16LE(c.date, 14); h.writeUInt32LE(c.crc, 16); h.writeUInt32LE(c.csize, 20); h.writeUInt32LE(c.usize, 24); h.writeUInt16LE(c.nameBuf.length, 28); h.writeUInt32LE(c.start, 42);
+    await emit(h); await emit(c.nameBuf);
+  }
+  if (offset > BK_MAX_BYTES) throw new Error('This backup is over 4 GB, which one zip cannot hold. Use git sync, or back up in parts.');
+  const eocd = Buffer.alloc(22); eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(central.length, 8); eocd.writeUInt16LE(central.length, 10); eocd.writeUInt32LE(offset - cdStart, 12); eocd.writeUInt32LE(cdStart, 16);
+  await emit(eocd); out.end(); await finished(out);
+  return { files: count, bytes: offset, skipped };
+}
+async function backupZip(root, outPath) {
+  const tmp = `${outPath}.partial`, ws = fsSync.createWriteStream(tmp);
+  try { const r = await writeBackup(ws, path.resolve(root)); await fs.rename(tmp, outPath); return { ...r, path: outPath }; }
+  catch (e) { ws.destroy(); await fs.rm(tmp, { force: true }); throw e; }
+}
+
+// ---- restore ----
+async function readZipDirectory(fh, size) {
+  const tailLen = Math.min(size, 65557), tail = Buffer.alloc(tailLen); await fh.read(tail, 0, tailLen, size - tailLen);
+  let e = -1; for (let i = tailLen - 22; i >= 0; i--) if (tail.readUInt32LE(i) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('That is not a Plainnote backup (it is not a zip file)');
+  const count = tail.readUInt16LE(e + 10), cdSize = tail.readUInt32LE(e + 12), cdOff = tail.readUInt32LE(e + 16);
+  if (count === 0xffff || cdSize === 0xffffffff || cdOff === 0xffffffff) throw new Error('This zip uses zip64, which Plainnote backups never do');
+  if (cdOff + cdSize > size || cdSize > 64e6) throw new Error('The backup file is damaged');
+  const cd = Buffer.alloc(cdSize); await fh.read(cd, 0, cdSize, cdOff);
+  const entries = []; let p = 0;
+  for (let i = 0; i < count; i++) {
+    if (p + 46 > cd.length || cd.readUInt32LE(p) !== 0x02014b50) throw new Error('The backup file is damaged');
+    const flags = cd.readUInt16LE(p + 8), nl = cd.readUInt16LE(p + 28), el = cd.readUInt16LE(p + 30), cl = cd.readUInt16LE(p + 32);
+    if (p + 46 + nl > cd.length) throw new Error('The backup file is damaged');
+    entries.push({ flags, method: cd.readUInt16LE(p + 10), time: cd.readUInt16LE(p + 12), date: cd.readUInt16LE(p + 14), crc: cd.readUInt32LE(p + 16), csize: cd.readUInt32LE(p + 20), usize: cd.readUInt32LE(p + 24), offset: cd.readUInt32LE(p + 42), name: cd.toString('utf8', p + 46, p + 46 + nl) });
+    p += 46 + nl + el + cl;
+  }
+  return entries;
+}
+async function fileCrc(file) { let c = 0; for await (const chunk of fsSync.createReadStream(file)) c = crc32(chunk, c); return c; }
+
+// Returns { files, added, same, copies, skipped, notes, errors }. With dry: true nothing is written, it only reports what a restore would do.
+async function restoreBackup(zipPath, root, { dry = false } = {}) {
+  root = path.resolve(root); await fs.mkdir(root, { recursive: true });
+  const realRoot = await fs.realpath(root), fh = await fs.open(zipPath, 'r');
+  const sum = { files: 0, added: 0, same: 0, copies: 0, skipped: 0, notes: 0, errors: [] };
+  try {
+    const size = (await fh.stat()).size, entries = await readZipDirectory(fh, size); let declared = 0;
+    for (const e of entries) {
+      if (e.name === 'PLAINNOTE-BACKUP.txt') continue;                                // the backup's own description, not part of your notes
+      sum.files++;
+      const rel = e.name.replace(/\\/g, '/').replace(/^\/+/, ''), kind = (e.flags & 1) || (e.method !== 0 && e.method !== 8) ? null : backupKind(rel);
+      const dest = kind && path.resolve(root, ...rel.split('/'));
+      if (!kind || !dest.startsWith(root + path.sep)) { sum.skipped++; continue; }
+      if ((declared += e.usize) > BK_MAX_TOTAL) throw new Error('This backup claims to hold far more data than a notes folder; refusing to restore it');
+      const st = await fs.lstat(dest).catch(() => null);
+      let target = dest, action = 'add';
+      if (st) {
+        if (!st.isFile()) { sum.skipped++; continue; }
+        if (st.size === e.usize && await fileCrc(dest) === e.crc) { sum.same++; continue; }
+        if (kind === 'history') { sum.skipped++; continue; }
+        const ext = path.extname(dest), stem = dest.slice(0, dest.length - ext.length), bn = path.basename(stem);
+        let have = false;                                                              // restoring twice must not pile up copies: an identical "(restored …)" file counts as already there
+        for (const f of await fs.readdir(path.dirname(dest))) {
+          if (!f.startsWith(bn + ' (restored ') || !f.endsWith(')' + ext)) continue;
+          const full = path.join(path.dirname(dest), f), st2 = await fs.lstat(full).catch(() => null);
+          if (st2 && st2.isFile() && st2.size === e.usize && await fileCrc(full) === e.crc) { have = true; break; }
+        }
+        if (have) { sum.same++; continue; }
+        for (let n = 1; ; n++) { target = `${stem} (restored ${stamp()}${n > 1 ? ' ' + n : ''})${ext}`; if (!(await fs.lstat(target).catch(() => null))) break; }
+        action = 'copy';
+      }
+      if (dry) { if (action === 'add') sum.added++; else sum.copies++; if (kind === 'note') sum.notes++; continue; }
+      try {
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        const realDir = await fs.realpath(path.dirname(target));
+        if (realDir !== realRoot && !realDir.startsWith(realRoot + path.sep)) { sum.skipped++; continue; }       // a folder here is a link that leads outside
+        await extractEntry(fh, e, target);
+        if (action === 'add') sum.added++; else sum.copies++; if (kind === 'note') sum.notes++;
+      } catch (err) { sum.errors.push(`${rel}: ${err.message}`); }
+    }
+  } finally { await fh.close().catch(() => {}); }
+  return sum;
+}
+async function extractEntry(fh, e, target) {
+  const lh = Buffer.alloc(30); await fh.read(lh, 0, 30, e.offset);
+  if (lh.readUInt32LE(0) !== 0x04034b50) throw new Error('damaged entry');
+  const start = e.offset + 30 + lh.readUInt16LE(26) + lh.readUInt16LE(28), part = `${target}.partial-${process.pid}`;
+  let bytes = 0, crc = 0;
+  const guard = new Transform({ transform(c, _, cb) { bytes += c.length; if (bytes > e.usize) return cb(new Error('larger than the backup says')); crc = crc32(c, crc); cb(null, c); } });   // a lying size header cannot inflate a bomb
+  const src = e.csize ? fh.createReadStream({ start, end: start + e.csize - 1, autoClose: false }) : Readable.from([]);
+  try {
+    await pipeline(src, ...(e.method === 8 ? [zlib.createInflateRaw()] : []), guard, fsSync.createWriteStream(part, { flags: 'wx' }));
+    if (bytes !== e.usize || crc !== e.crc) throw new Error('the file in the backup is damaged (checksum mismatch)');
+    if (await fs.lstat(target).catch(() => null)) throw new Error('appeared while restoring; left alone');
+    await fs.rename(part, target);
+    const t = fromDos(e.time, e.date); await fs.utimes(target, t, t).catch(() => {});
+  } catch (err) { await fs.rm(part, { force: true }); throw err; }
+}
+
 // opts.remote = { token }: remote mode for phones and other devices. Every request must then carry the secret token
 // (cookie or Authorization header); without it the server behaves exactly as before: localhost only, no login.
 function createServer(ROOT, hooks = {}, opts = {}) {
@@ -311,6 +481,27 @@ return http.createServer(async (req, res) => {
       res.setHeader('X-Content-Type-Options', 'nosniff');
       return send(res, 200, await fs.readFile(f), type);
     }
+    if (url.pathname === '/api/backup' && req.method === 'GET') {            // download a zip of all notes, streamed
+      if (req.headers['sec-fetch-site'] === 'cross-site') return send(res, 403, { error: 'forbidden' });     // another website must not be able to start a download
+      res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="plainnote-backup-${stamp()}.zip"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      try { await writeBackup(res, ROOT); } catch (e) { res.destroy(e); }
+      return;
+    }
+    if (url.pathname === '/api/backup/save' && req.method === 'POST') {      // for the desktop app, where a download link is not available: write to the Downloads folder (a fixed place, never a path from the client)
+      const dir = process.env.PLAINNOTE_BACKUP_DIR || (fsSync.existsSync(path.join(os.homedir(), 'Downloads')) ? path.join(os.homedir(), 'Downloads') : os.homedir());
+      let file = path.join(dir, `plainnote-backup-${stamp()}.zip`);
+      for (let n = 2; fsSync.existsSync(file); n++) file = path.join(dir, `plainnote-backup-${stamp()} ${n}.zip`);
+      const r = await backupZip(ROOT, file);
+      return send(res, 200, { path: r.path, files: r.files, bytes: r.bytes });
+    }
+    if (url.pathname === '/api/backup/restore' && req.method === 'POST') {   // ?mode=dry reports what would happen; ?mode=apply adds the missing files (never overwrites)
+      const dry = url.searchParams.get('mode') !== 'apply', tmp = path.join(os.tmpdir(), `plainnote-restore-${crypto.randomBytes(6).toString('hex')}.zip`);
+      let n = 0;
+      try {
+        await pipeline(req, new Transform({ transform(c, _, cb) { n += c.length; n > 4 * 1024 ** 3 ? cb(new Error('That file is too large for a Plainnote backup')) : cb(null, c); } }), fsSync.createWriteStream(tmp));
+        return send(res, 200, await restoreBackup(tmp, ROOT, { dry }));
+      } finally { await fs.rm(tmp, { force: true }); }
+    }
     if (url.pathname === '/api/sync/status' && req.method === 'GET') return send(res, 200, await gitStatus());
     if (url.pathname === '/api/sync/setup' && req.method === 'POST') {
       try { await gitSetup(JSON.parse(await body(req)).url); return send(res, 200, { ok: true }); }
@@ -351,13 +542,36 @@ async function listen(root, port, hooks, opts = {}) {
   return { server, port: server.address().port, root, token };
 }
 
-module.exports = { createServer, listen };
+module.exports = { createServer, listen, backupZip, restoreBackup };
 
 if (require.main === module && process.argv[2] === 'export') {
   // node server.js export <note.md> [out.pdf]  — render a note to PDF with an installed Chrome/Edge/Chromium (no npm deps)
   require('./scripts/export-pdf').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
 } else if (require.main === module && process.argv[2] === 'publish') {
   require('./scripts/publish').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
+} else if (require.main === module && process.argv[2] === 'backup') {
+  // node server.js backup <notesDir> [out.zip | folder/] [--keep N]
+  (async () => {
+    const a = process.argv.slice(3), pos = []; let keep = 0;
+    for (let i = 0; i < a.length; i++) { if (a[i] === '--keep') keep = Math.max(0, parseInt(a[++i], 10) || 0); else pos.push(a[i]); }
+    if (!pos[0]) throw new Error('usage: node server.js backup <notesDir> [out.zip | folder/] [--keep N]');
+    const root = path.resolve(pos[0]); if (!fsSync.existsSync(root)) throw new Error(`${root} does not exist`);
+    let out = pos[1] ? path.resolve(pos[1]) : process.cwd(), dirMode = !pos[1] || /[\\/]$/.test(pos[1]) || (fsSync.existsSync(out) && fsSync.statSync(out).isDirectory());
+    if (dirMode) { await fs.mkdir(out, { recursive: true }); const d = new Date(); out = path.join(out, `plainnote-backup-${stamp(d)}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}.zip`); }
+    if (out.startsWith(root + path.sep)) throw new Error('Write the backup outside the notes folder');
+    const r = await backupZip(root, out);
+    if (dirMode && keep) { const dir = path.dirname(out), old = (await fs.readdir(dir)).filter((f) => /^plainnote-backup-.*\.zip$/.test(f)).sort().reverse().slice(keep); for (const f of old) await fs.rm(path.join(dir, f), { force: true }); if (old.length) r.pruned = old.length; }
+    return `Backed up ${r.files} file${r.files === 1 ? '' : 's'} (${(r.bytes / 1048576).toFixed(1)} MB) to ${r.path}` + (r.pruned ? `\nRemoved ${r.pruned} older backup${r.pruned === 1 ? '' : 's'}` : '') + (r.skipped.length ? '\n' + r.skipped.map((x) => '  ! ' + x).join('\n') : '');
+  })().then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
+} else if (require.main === module && process.argv[2] === 'restore') {
+  // node server.js restore <backup.zip> <notesDir> [--dry-run]
+  (async () => {
+    const a = process.argv.slice(3).filter((x) => x !== '--dry-run'), dry = process.argv.includes('--dry-run');
+    if (a.length < 2) throw new Error('usage: node server.js restore <backup.zip> <notesDir> [--dry-run]');
+    if (!fsSync.existsSync(a[0])) throw new Error(`${a[0]} does not exist`);
+    const r = await restoreBackup(path.resolve(a[0]), path.resolve(a[1]), { dry });
+    return `${dry ? 'Would restore' : 'Restored'}: ${r.added} new file${r.added === 1 ? '' : 's'}, ${r.same} already identical, ${r.copies} kept as separate "(restored …)" cop${r.copies === 1 ? 'y' : 'ies'}, ${r.skipped} skipped` + (r.errors.length ? '\n' + r.errors.map((x) => '  ! ' + x).join('\n') : '');
+  })().then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
 } else if (require.main === module && process.argv[2] === 'import') {
   require('./scripts/import').run(process.argv.slice(3)).then((o) => console.log(o), (e) => { console.error(e.message); process.exit(1); });
 } else if (require.main === module && process.argv[2] === 'pdf') {
