@@ -1,6 +1,6 @@
 #!/bin/sh
 # Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-# SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 # Captures the App Store screenshots from the iPhone 17 simulator (6.3-inch, 1206x2622: the size App Store Connect asks for first) into ios/appstore/screenshots/.
 #   ./ios/appstore/screenshots.sh

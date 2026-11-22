@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 // Talks to the rest of macOS: plainnote:// URLs, opening .md files and folders, the Services menu,
 // Share, notifications, the menu-bar item and the global quick-capture hotkey.

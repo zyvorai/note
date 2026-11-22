@@ -1,6 +1,6 @@
 # Contributing to Plainnote
 
-Plainnote is under the [Zyvor Production License v1.0](LICENSE). Please contact sales@zyvor.dev before sending a contribution; contributions are accepted only under the terms of that license.
+Plainnote is under the [Zyvor Production Licence v2.0](LICENSE). Please contact sales@zyvor.dev before sending a contribution; contributions are accepted only under the terms of that license.
 
 Plainnote is a small, fast, local-first notes app and we want to keep it that way.
 
@@ -45,4 +45,4 @@ The browser test needs Chrome, Edge or Chromium and is skipped if none is found.
 
 Please don't file security problems as public issues. See [SECURITY.md](SECURITY.md).
 
-By contributing you agree your work is licensed under the [Zyvor Production License v1.0](LICENSE).
+By contributing you agree your work is licensed under the [Zyvor Production Licence v2.0](LICENSE).

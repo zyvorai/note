@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 // Renders the marketing screenshots in docs/assets/ from a fixed set of sample notes (headless Chrome, no dependencies).
 // Usage: node scripts/screenshots.js [outDir]

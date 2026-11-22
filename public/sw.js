@@ -1,5 +1,5 @@
 // Copyright 2026 Zyvor AI Labs · https://zyvor.dev
-// SPDX-License-Identifier: LicenseRef-Zyvor-Production-1.0
+// SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
 
 // Service worker for the installable web app: keeps the app shell available offline. Notes themselves always come from the
 // server, so /api/* and /files/* are never cached (an offline note list would silently show stale or partial data).
