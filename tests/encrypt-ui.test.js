@@ -39,7 +39,7 @@ test('encrypted notes: encrypt, edit, lock, unlock, and nothing leaks or is lost
     const answer = async (a, b) => { await until("!!document.querySelector('#passdlg')", 'passphrase dialog'); await ev(`document.querySelector('#pd1').value=${JSON.stringify(a)};const p2=document.querySelector('#pd2');if(p2)p2.value=${JSON.stringify(b ?? a)};document.querySelector('#passdlg form').requestSubmit()`); };
     const type = async (text) => { await ev(`(()=>{const e=document.querySelector('#ed');e.value=${JSON.stringify(text)};onInput();})()`); await ev('flush()'); };
     await cdp('Runtime.enable'); await cdp('Page.enable');
-    await cdp('Page.navigate', { url: `http://localhost:${port}/` }); await sleep(1500); await ev("localStorage.tourSeen='1'");
+    await cdp('Page.navigate', { url: `http://localhost:${port}/` }); for (let i = 0; i < 150; i++) { try { if (await ev("typeof plainnote !== 'undefined'")) break; } catch {} await sleep(100); } await ev('plainnote.ready.then(() => true)'); await ev("localStorage.tourSeen='1'");
     await ev("open('Diary', false)"); await until("cur==='Diary' && !!document.querySelector('#ed')", 'diary open');
 
     // encrypt: validation first, then success
@@ -104,7 +104,7 @@ test('encrypted notes: encrypt, edit, lock, unlock, and nothing leaks or is lost
     assert.equal((await C.decrypt(disk('Diary copy'), 'longenough1')).text.includes('correcthorse'), true);
 
     // after a reload every encrypted note is locked again; the key lived only in memory
-    await cdp('Page.navigate', { url: `http://localhost:${port}/` }); await sleep(1500);
+    await cdp('Page.navigate', { url: `http://localhost:${port}/` }); for (let i = 0; i < 150; i++) { try { if (await ev("typeof plainnote !== 'undefined'")) break; } catch {} await sleep(100); } await ev('plainnote.ready.then(() => true)');
     assert.ok(await ev("isLocked(notes.get('Diary'))")); assert.equal(await ev("keyring.size"), 0);
 
     // changing the passphrase, renaming while unlocked, idle lock

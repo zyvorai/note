@@ -2,7 +2,6 @@
 
 # Plainnote
 
-[![test](https://github.com/zyvorai/note/actions/workflows/test.yml/badge.svg)](https://github.com/zyvorai/note/actions/workflows/test.yml)
 [![release](https://img.shields.io/github/v/release/zyvorai/note?color=5b5bd6)](https://github.com/zyvorai/note/releases/latest)
 [![license: Zyvor Production](https://img.shields.io/badge/license-Zyvor%20Production%201.0-5b5bd6)](LICENSE)
 ![dependencies: 0](https://img.shields.io/badge/dependencies-0-5b5bd6)
@@ -264,6 +263,8 @@ npm test        # node --test: markdown/editor unit tests, server API tests, and
 ```
 
 The UI test drives the real app through the Chrome DevTools protocol (no dependencies) and is skipped if Chrome isn't installed. `UI_SHOTS=dir npm test` saves screenshots.
+
+Tests run on your own machine rather than on GitHub: `npm run setup-hooks` (once per clone) installs a `pre-push` hook that runs `npm test` before every push and stops the push if it fails. Skip it for one push with `SKIP_TESTS=1 git push`. The website and release workflows still run on GitHub; the `test` workflow is switched off.
 
 ```
 server.js          zero-dependency HTTP server + file/git API

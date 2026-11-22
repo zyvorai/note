@@ -1023,13 +1023,16 @@ async function renameNote(from, to) {
   tabs.forEach((t) => { if (t.name === from) t.name = to; }); renderTabs(); saveTabs();
   if (split === from) { split = to; try { localStorage.setItem('split', to); } catch {} renderSplit(); }
   const re = new RegExp(`\\[\\[(\\s*)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s*)(?=[|\\]#^])`, 'g');
+  const linkSaves = [];
   for (const o of notes.values()) if (o.text.match(re)) {            // keep links working, including [[Note#Heading]] and [[Note^id]]
     o.text = o.text.replace(re, `[[$1${to}$2`);
-    putNote(o, o.text).then((r) => { o.base = r.mtime; }, () => {}); }
+    linkSaves.push(putNote(o, o.text).then((r) => { o.base = r.mtime; return true; }, () => false)); }
   if (pins.delete(from)) { pins.add(to); savePins(); }
   if (to.includes('/')) { const d = to.slice(0, to.lastIndexOf('/')); for (let i = d.indexOf('/'); i >= 0; i = d.indexOf('/', i + 1)) openFolders.add(d.slice(0, i)); openFolders.add(d); saveOpenFolders(); }
   if (cur === from) { cur = to; location.hash = encodeURIComponent(to); $('#title').value = to.split('/').pop(); }
   renderList(); renderBack(); if (cur === to) renderPane();
+  const failed = (await Promise.all(linkSaves)).filter((ok) => !ok).length;                // the rename is only finished once the links in other notes are saved; say so if some could not be
+  if (failed) say(`Renamed, but ${failed} note${failed === 1 ? '' : 's'} could not be updated and still link${failed === 1 ? 's' : ''} to “${from}”`, { kind: 'error' });
   return true;
 }
 async function rename() {

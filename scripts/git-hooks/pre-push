@@ -1,0 +1,27 @@
+#!/bin/sh
+# Copyright 2026 Zyvor AI Labs · https://zyvor.dev
+# SPDX-License-Identifier: LicenseRef-Zyvor-Production-2.0
+#
+# Runs the test suite on this machine before anything is pushed, so what reaches GitHub has already passed here.
+# Install once per clone:   npm run setup-hooks
+# Skip it for one push:     SKIP_TESTS=1 git push      (or: git push --no-verify)
+# PRE_PUSH_TEST_CMD overrides the command (default: npm test).
+
+if [ -n "$SKIP_TESTS" ]; then echo "pre-push: SKIP_TESTS is set, not running the tests"; exit 0; fi
+
+# git feeds one line per ref being pushed: <local ref> <local sha> <remote ref> <remote sha>.
+# Only pushes that send commits need testing; deleting a branch or pushing only tags does not.
+zero=0000000000000000000000000000000000000000; need=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_ref" in refs/tags/*) continue ;; esac
+  [ "$local_sha" = "$zero" ] && continue
+  need=1
+done
+[ "$need" = 0 ] && exit 0
+
+cmd="${PRE_PUSH_TEST_CMD:-npm test}"
+echo "pre-push: running the tests ($cmd). Skip once with SKIP_TESTS=1."
+cd "$(git rev-parse --show-toplevel)" || exit 1
+if sh -c "$cmd"; then exit 0; fi
+echo "pre-push: the tests failed, so nothing was pushed."
+exit 1
