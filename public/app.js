@@ -1551,6 +1551,7 @@ document.addEventListener('click', (e) => {
 /* Version history: the server keeps earlier versions of each note (every 2 minutes at most); pick one to preview, then restore it */
 async function openHistory() {
   if (!cur) return; await flush();
+  if (isLocked(notes.get(cur))) { $('#status').textContent = 'Unlock this note to see its history'; return; }
   const name = cur; let list = [];
   try { list = await api('/api/history?name=' + encodeURIComponent(name)); } catch (e) { $('#status').textContent = 'History failed: ' + e.message; return; }
   const box = document.createElement('div'); box.id = 'hist';
@@ -1563,7 +1564,12 @@ async function openHistory() {
   const pick = async (li) => {
     box.querySelectorAll('li.on').forEach((x) => x.classList.remove('on')); li.classList.add('on');
     const v = await api('/api/history?name=' + encodeURIComponent(name) + '&id=' + li.dataset.id);
-    sel = v.text; $('#hpre').textContent = v.text; $('#hr').disabled = false;
+    let text = v.text;
+    if (PNCrypto.isEnvelope(text)) {                                  // a version saved while the note was encrypted: show and restore the plain text, never the envelope
+      try { text = (await PNCrypto.decrypt(text, notes.get(name).enc)).text; }
+      catch { sel = null; $('#hpre').textContent = 'This version was encrypted with a different passphrase, so it cannot be shown or restored here.'; $('#hr').disabled = true; return; }
+    }
+    sel = text; $('#hpre').textContent = text; $('#hr').disabled = false;
   };
   box.onclick = (e) => { const li = e.target.closest('li[data-id]'); if (li) pick(li); else if (e.target.id === 'hist' || e.target.id === 'hx') close(); };
   box.onkeydown = (e) => { if (e.key === 'Enter' && e.target.matches('li[data-id]')) pick(e.target); };

@@ -57,6 +57,22 @@ test('encrypted notes: encrypt, edit, lock, unlock, and nothing leaks or is lost
     assert.ok(!/correcthorse/.test(disk('Diary'))); assert.notEqual(/IV: (.*)/.exec(disk('Diary'))[1], iv1);
     assert.equal((await C.decrypt(disk('Diary'), 'longenough1')).text, '# Diary\n\nthe zebra password is now correcthorse\n');
 
+    // version history: encrypted versions are decrypted for preview and restore (never restored as an envelope); foreign-passphrase ones are refused
+    const hist = path.join(vault, '.plainnote', 'history', 'Diary'); fs.mkdirSync(hist, { recursive: true });
+    const olderPlain = '# Diary\n\nthe zebra password is now correcthorse\n';
+    fs.writeFileSync(path.join(hist, '1000000000001.md'), (await C.encryptWithPassphrase('x', 'some other passphrase')).envelope);        // different passphrase
+    fs.writeFileSync(path.join(hist, '1000000000002.md'), disk('Diary'));                                                                  // same key as the open note
+    await type('# Diary\n\nnewer text after the snapshot\n');
+    await ev('void openHistory()'); await until("document.querySelectorAll('#hist li[data-id]').length >= 2", 'history list');
+    await ev("document.querySelector('#hist li[data-id=\"1000000000001\"]').click()"); await until("document.querySelector('#hpre').textContent.includes('different passphrase')", 'foreign version message');
+    assert.equal(await ev("document.querySelector('#hr').disabled"), true);
+    await ev("document.querySelector('#hist li[data-id=\"1000000000002\"]').click()"); await until("document.querySelector('#hpre').textContent.includes('correcthorse')", 'decrypted preview');
+    assert.ok(!(await ev("document.querySelector('#hpre').textContent")).includes('BEGIN PLAINNOTE'));
+    await ev("document.querySelector('#hr').click()");
+    await until("!dirty && document.querySelector('#status').textContent === 'Saved'", 'restored version saved');       // wait for the autosave rather than racing it
+    assert.equal(await ev("notes.get('Diary').text"), olderPlain);
+    assert.equal((await C.decrypt(disk('Diary'), 'longenough1')).text, olderPlain);                                                         // encrypted once, not twice
+
     // while unlocked the app can search it; embeds elsewhere never show it
     await ev("document.querySelector('#q').value='correcthorse';document.querySelector('#q').dispatchEvent(new Event('input'))"); await sleep(200);
     assert.ok(await ev("[...document.querySelectorAll('#list .item')].some(i=>i.dataset.note==='Diary')"));
@@ -80,6 +96,7 @@ test('encrypted notes: encrypt, edit, lock, unlock, and nothing leaks or is lost
     // a locked note can never be overwritten by a stray save, find-and-replace or duplicate
     await ev("lockNote('Diary')"); await until("!!document.querySelector('.lockcard')", 'locked again');
     const before = disk('Diary');
+    await ev('void openHistory()'); await sleep(300); assert.ok(!(await ev("!!document.querySelector('#hist')")), 'no history panel for a locked note');
     await ev("(async()=>{try{await putNote(notes.get('Diary'),'oops',0)}catch(e){window.__e=e.message}})()"); assert.match(await ev('window.__e'), /locked/); assert.equal(disk('Diary'), before);
     await ev("document.querySelector('#gfq').value='zebra';gfRender();"); assert.ok(!(await ev("gfHits.some(h=>h.name==='Diary')")));
     await ev("duplicateNote('Diary')"); await until("cur==='Diary copy'", 'duplicate'); assert.equal(disk('Diary copy'), before);      // an identical, still-encrypted copy

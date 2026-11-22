@@ -26,7 +26,7 @@ function* walk(dir, base = '') {
     else if (e.isFile() && /\.md$/i.test(e.name)) yield rel.replace(/\.md$/i, '');
   }
 }
-const isPrivate = (text) => /^---\r?\n[\s\S]*?^publish:\s*(false|no)\s*$[\s\S]*?^---/mi.test(text);
+const isPrivate = (text) => /^\s*-----BEGIN PLAINNOTE ENCRYPTED NOTE-----/.test(text) || /^---\r?\n[\s\S]*?^publish:\s*(false|no)\s*$[\s\S]*?^---/mi.test(text);   // encrypted notes are never published
 const titleOf = (name, body) => (body.match(/^#\s+(.+)$/m) || [])[1] || name.split('/').pop();
 
 function build(root, out, opts = {}) {
