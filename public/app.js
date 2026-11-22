@@ -88,8 +88,11 @@ const targetsOf = (n) => {
 };
 
 let folders = [];
+// Reloads run one after another: overlapping ones (a window-focus reload plus an explicit one) could finish out of order and let an older, staler result overwrite a newer one.
+let loadChain = Promise.resolve();
+function load() { const p = loadChain.then(loadNow, loadNow); loadChain = p.catch(() => {}); return p; }
 let metaOK = true;                                                   // false once we learn the server only has the full /api/notes (e.g. the iPhone app's built-in one)
-async function load() {
+async function loadNow() {
   const foldersP = api('/api/folders').catch(() => folders);
   let list = null;
   if (metaOK) { try { list = await api('/api/notes?meta=1'); } catch { list = null; } }
@@ -741,6 +744,10 @@ function edKey(e) {
     const x = MD.listEnter(v, s); if (x) { e.preventDefault(); applyEdit(ed, x); }
   } else if (e.key === 'Tab' && !mod) {
     e.preventDefault(); applyEdit(ed, MD.indentLines(v, s, en, e.shiftKey));
+  } else if (mod && e.shiftKey && !e.altKey && e.code === 'KeyX') { e.preventDefault(); applyEdit(ed, MD.wrap(v, s, en, '~~'));                 // strikethrough
+  } else if (mod && e.altKey && !e.shiftKey && e.code === 'KeyM') { e.preventDefault(); applyEdit(ed, MD.wrap(v, s, en, '=='));                 // highlight ("mark"; Ctrl/Cmd+Shift+H is find-and-replace)
+  } else if (mod && e.altKey && !e.shiftKey && e.code === 'KeyC') { e.preventDefault(); applyEdit(ed, MD.wrap(v, s, en, '`'));                  // inline code
+  } else if (mod && e.altKey && !e.shiftKey && e.code === 'KeyH') { e.preventDefault(); applyEdit(ed, MD.toggleHeading(v, s));                  // cycle the heading level
   } else if (mod && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'i')) {
     e.preventDefault(); applyEdit(ed, MD.wrap(v, s, en, e.key === 'b' ? '**' : '*'));
   }
@@ -1132,6 +1139,7 @@ const COMMANDS = [
   { id: 'history', name: 'Version history of this note…', run: () => openHistory() },
   { id: 'clipper', name: 'Web clipper: get the Clip bookmark…', run: () => openClipper() },
   { id: 'import', name: 'Import notes from another app…', run: () => openImport() },
+  { id: 'shortcuts', name: 'Keyboard shortcuts', hint: 'Ctrl/Cmd+/', run: () => showShortcuts() },
   { id: 'tour', name: 'Take the Plainnote tour', run: () => PNTour.start() },
   { id: 'samples', name: 'Add the sample notes', run: () => PNTour.createSamples(true) },
   { id: 'encrypt', name: 'Encrypt this note…', run: () => encryptNote() },
@@ -1261,30 +1269,68 @@ function allTasks() {
   for (const n of notes.values()) for (const t of MD.tasksOf(n.text)) if (!t.done) out.push({ ...t, name: n.name });
   return out;
 }
+/* Command palette and quick switcher: fuzzy matching with highlighted letters, grouped commands, recent commands first, shortcut hints for this platform */
+const CMD_GROUPS = [
+  ['Notes', ['new', 'today', 'pin', 'history', 'splitcur', 'splitclose', 'trash', 'starter', 'samples']],
+  ['View', ['toggle', 'graph', 'localgraph', 'focus', 'livepreview', 'theme', 'bigger', 'smaller', 'reset', 'tasks']],
+  ['Find', ['find', 'gfind']],
+  ['Share and back up', ['pdf', 'export', 'backup', 'restore', 'sync', 'import', 'clipper']],
+  ['Privacy', ['encrypt', 'lock', 'lockall', 'chpass', 'decrypt']],
+  ['Tabs and navigation', ['newtab', 'closetab', 'nexttab', 'prevtab', 'back', 'forward']],
+  ['Help and settings', ['settings', 'tour', 'shortcuts']],
+];
+const CMD_GROUP = new Map(); for (const [g, ids] of CMD_GROUPS) ids.forEach((id) => CMD_GROUP.set(id, g));
+const hintLabel = (h) => (!h ? '' : h.split('+').map((k) => (isMac ? { 'Ctrl/Cmd': '⌘', Cmd: '⌘', Ctrl: '⌃', Shift: '⇧', Alt: '⌥' }[k] || k : k === 'Ctrl/Cmd' ? 'Ctrl' : k)).join(isMac ? '' : '+'));
+const cmdHint = (c) => (c.id && settings.hotkeys && settings.hotkeys[c.id] ? MD.comboLabel(settings.hotkeys[c.id], isMac) : hintLabel(c.hint));       // your own shortcut wins over the built-in one
+const recentCmds = () => { try { return JSON.parse(localStorage.getItem('recentCmds') || '[]').filter((x) => typeof x === 'string'); } catch { return []; } };
+const pushRecentCmd = (id) => { try { localStorage.setItem('recentCmds', JSON.stringify([id, ...recentCmds().filter((x) => x !== id)].slice(0, 6))); } catch {} };
+const rowKb = (c) => { const h = cmdHint(c); return h ? `<span class="kb">${esc(h)}</span>` : ''; };
 function swRender() {
   if (swMode === 'tasks') {
     const l = $('#swq').value.trim().toLowerCase();
     swRows = allTasks().filter((t) => !l || (t.text + ' ' + t.name).toLowerCase().includes(l)).slice(0, 50);
     swSel = Math.min(swSel, Math.max(0, swRows.length - 1));
-    $('#swl').innerHTML = swRows.map((t, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}"><input type="checkbox" class="tk" data-tk="${i}" title="Mark done">${esc(t.text)}<span class="snip" style="float:right">${esc(t.name)}</span></div>`).join('') || '<div class="empty">No open tasks 🎉</div>';
+    $('#swl').innerHTML = swRows.map((t, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}"><input type="checkbox" class="tk" data-tk="${i}" title="Mark done">${esc(t.text)}<span class="snip" style="float:right">${esc(t.name)}</span></div>`).join('') || '<div class="empty">No open tasks</div>';
     return;
   }
   if (swMode === 'cmds') {
-    const l = $('#swq').value.trim().toLowerCase();
-    const tpls = [...notes.keys()].filter((n) => /^templates\//i.test(n)).sort().map((n) => ({ name: 'New note from template: ' + n.slice(10), run: () => newFromTemplate(n) }));
-    swRows = [...COMMANDS, ...tpls].filter((c) => !l || c.name.toLowerCase().includes(l) || l.split(/\s+/).every((w) => c.name.toLowerCase().includes(w)));
-    swSel = Math.min(swSel, Math.max(0, swRows.length - 1));
-    $('#swl').innerHTML = swRows.map((r, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${esc(r.name)}${r.hint ? `<span class="snip" style="float:right">${esc(r.hint)}</span>` : ''}</div>`).join('') || '<div class="empty">No matching command</div>';
+    const v = $('#swq').value.trim();
+    const tpls = [...notes.keys()].filter((n) => /^templates\//i.test(n)).sort().map((n) => ({ name: 'New note from template: ' + n.slice(10), run: () => newFromTemplate(n), group: 'Notes' }));
+    const all = [...COMMANDS, ...tpls].map((c) => ({ ...c, group: c.group || CMD_GROUP.get(c.id) || 'Other' }));
+    let html = '';
+    if (!v) {                                                                         // nothing typed: recent commands, then everything by group
+      const recent = recentCmds().map((id) => all.find((c) => c.id === id)).filter(Boolean).slice(0, 5);
+      const order = [...CMD_GROUPS.map((g) => g[0]), 'Notes', 'Other'], seen = new Set(), sections = [];
+      if (recent.length) sections.push(['Recent', recent]);
+      for (const g of order) if (!seen.has(g)) { seen.add(g); const list = all.filter((c) => c.group === g && !recent.includes(c)); if (list.length) sections.push([g, list]); }
+      swRows = sections.flatMap((x) => x[1]); swSel = Math.min(swSel, Math.max(0, swRows.length - 1));
+      let k = 0;
+      $('#swl').innerHTML = sections.map(([label, list]) => `<div class="gh" role="presentation">${esc(label)}</div>` + list.map((c) => { const i = k++; return `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${esc(c.name)}${rowKb(c)}</div>`; }).join('')).join('');
+      return;
+    }
+    const scored = all.map((c) => ({ c, m: PNUI.fuzzy(v, c.name) })).filter((x) => x.m).sort((a, b) => b.m.score - a.m.score);
+    swRows = scored.map((x) => x.c); swSel = Math.min(swSel, Math.max(0, swRows.length - 1));
+    $('#swl').innerHTML = scored.map((x, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${PNUI.highlight(x.c.name, x.m.idx)}${rowKb(x.c)}</div>`).join('') || '<div class="empty">No matching command</div>';
     return;
   }
-  const v = $('#swq').value.trim(), l = v.toLowerCase();
-  // most recently edited first; names that start with the query beat names that merely contain it
-  const rank = (n) => (l && n.toLowerCase().startsWith(l) ? 0 : 1);
-  swRows = [...notes.keys()].filter((n) => n.toLowerCase().includes(l))
-    .sort((a, b) => rank(a) - rank(b) || (notes.get(b).mtime || 0) - (notes.get(a).mtime || 0)).slice(0, 8);
+  const v = $('#swq').value.trim();
+  const scored = [];
+  for (const n of notes.values()) {
+    let m = v ? PNUI.fuzzy(v, n.name) : { score: 0, idx: [] }, via = '';
+    if (v && !m) for (const a of aliasesCached(n)) { const am = PNUI.fuzzy(v, a); if (am) { m = { score: am.score - 40, idx: [] }; via = a; break; } }   // a note is also found by its alias
+    if (m) scored.push({ n, m, via });
+  }
+  scored.sort((a, b) => b.m.score - a.m.score || (b.n.mtime || 0) - (a.n.mtime || 0));                     // best match first, then most recently edited
+  swRows = scored.slice(0, 12).map((x) => x.n.name);
+  const extra = scored.slice(0, 12);
   if (v && !notes.has(v)) swRows.push({ create: v });
   swSel = Math.min(swSel, swRows.length - 1);
-  $('#swl').innerHTML = swRows.map((r, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${r.create ? `Create “${esc(r.create)}”` : esc(r)}</div>`).join('');
+  $('#swl').innerHTML = swRows.map((r, i) => {
+    if (r.create) return `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">Create “${esc(r.create)}”</div>`;
+    const x = extra[i], k = r.lastIndexOf('/') + 1, folder = r.slice(0, k), base = r.slice(k);
+    const idx = (x.m.idx || []).filter((p) => p >= k).map((p) => p - k);
+    return `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${folder ? `<span class="fp">${esc(folder)}</span>` : ''}${PNUI.highlight(base, idx)}${x.via ? `<span class="kb">alias: ${esc(x.via)}</span>` : (notes.get(r).cipher ? '<span class="kb">🔒</span>' : '')}</div>`;
+  }).join('');
 }
 function swOpen(mode) { if (!swModal) swModal = PNUI.modal($('#sw'), {}); swMode = mode || 'notes'; $('#swq').placeholder = swMode === 'cmds' ? 'Type a command…' : swMode === 'tasks' ? 'Filter open tasks…' : 'Jump to or create a note…'; $('#sw').style.display = 'flex'; $('#swq').value = ''; swSel = 0; swRender(); $('#swq').focus(); }
 function swClose() { $('#sw').style.display = 'none'; if (swModal) { swModal.release(); swModal = null; } }
@@ -1300,7 +1346,7 @@ async function toggleTask(t) {
   } catch (e) { say('Could not update task: ' + e.message); }
   swRender();
 }
-function swPick(i) { const r = swRows[i]; swClose(); if (!r) return; if (swMode === 'tasks') { open(r.name, false); return; } if (r.run) setTimeout(r.run, 0); else open(r.create || r, !!r.create); }
+function swPick(i, o = {}) { const r = swRows[i]; swClose(); if (!r) return; if (swMode === 'cmds' && r.id) pushRecentCmd(r.id); if (swMode === 'tasks') { open(r.name, false); return; } if (r.run) setTimeout(r.run, 0); else if (o.newTab && !r.create) openInNewTab(r, false); else open(r.create || r, !!r.create); }
 
 /* events */
 document.addEventListener('click', (e) => {
@@ -1674,7 +1720,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') swClose();
     else if (e.key === 'ArrowDown') { e.preventDefault(); swSel = Math.min(swSel + 1, swRows.length - 1); swRender(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); swSel = Math.max(swSel - 1, 0); swRender(); }
-    else if (e.key === 'Enter') swPick(swSel);
+    else if (e.key === 'Enter') swPick(swSel, { newTab: e.metaKey || e.ctrlKey });
     return;
   }
   if (e.key === 'Escape' && document.body.classList.contains('focus') && !frOpen()) { toggleFocus(); return; }
@@ -1702,6 +1748,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '[') { e.preventDefault(); history.back(); }
   else if (e.key === ']') { e.preventDefault(); history.forward(); }
   else if (k === 'l' && e.shiftKey) { e.preventDefault(); $('#theme').click(); }
+  else if (e.key === '/' && !e.shiftKey && !e.altKey) { e.preventDefault(); showShortcuts(); }
 });
 window.addEventListener('focus', async () => {
   if (dirty) return;
@@ -2095,3 +2142,21 @@ function openRestore() {
   };
   new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['class'] }); addEventListener('resize', sync); sync();
 })();
+
+
+/* ---------- keyboard shortcuts cheat-sheet (Ctrl/Cmd+/) ----------
+   Generated from the same command list as the palette (so it never goes stale), your own custom shortcuts included, plus the editor's keys. */
+const EDITOR_KEYS = [
+  ['Bold / italic', 'Ctrl/Cmd+B · Ctrl/Cmd+I'], ['Strikethrough', 'Ctrl/Cmd+Shift+X'], ['Highlight', 'Ctrl/Cmd+Alt+M'], ['Inline code', 'Ctrl/Cmd+Alt+C'], ['Cycle the heading level', 'Ctrl/Cmd+Alt+H'],
+  ['Tick or untick a task', 'Ctrl/Cmd+Enter'], ['Continue a list', 'Enter'], ['Indent / outdent a list item', 'Tab · Shift+Tab'], ['Link to a note', '[['], ['Insert block (heading, table, diagram…)', '/ at the start of a line'],
+  ['Open a note in a new tab (switcher)', 'Ctrl/Cmd+Enter'],
+];
+function showShortcuts() {
+  const rows = (list) => list.map(([name, keys]) => `<div class="sc"><span>${esc(name)}</span><span class="kb">${esc(keys)}</span></div>`).join('');
+  const groups = CMD_GROUPS.map(([g, ids]) => [g, ids.map((id) => COMMANDS.find((c) => c.id === id)).filter((c) => c && cmdHint(c)).map((c) => [c.name, cmdHint(c)])]).filter((x) => x[1].length);
+  PNUI.openDialog({ id: 'shortcuts', title: 'Keyboard shortcuts', width: '560px', className: 'dlg-sc',
+    body: `<p class="dlg-msg">Press <span class="kb">${esc(hintLabel('Ctrl/Cmd+Shift+P'))}</span> for every command. You can set your own shortcuts in Settings.</p>`
+      + `<h4>Writing</h4>${rows(EDITOR_KEYS.map(([n, k]) => [n, k.split(' · ').map(hintLabel).join(' · ')]))}`
+      + groups.map(([g, list]) => `<h4>${esc(g)}</h4>${rows(list)}`).join(''),
+    actions: [{ label: 'Close', primary: true, onClick: (c) => c(null) }] });
+}

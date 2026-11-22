@@ -15,6 +15,9 @@ test('fuzzy: substring beats scattered, word starts and runs score higher, no ma
   const f = (q, t) => U.fuzzy(q, t);
   assert.equal(f('zzz', 'Toggle graph view'), null); assert.equal(f('gx', 'graph'), null);
   assert.deepEqual(f('', 'anything'), { score: 0, idx: [] });
+  assert.equal(f('theme', 'Add the sample notes'), null);                              // loose letters picked from the middle of words are not a match
+  assert.ok(f('theme', 'Cycle theme (auto / light / dark)'));                         // …but the real substring is
+  assert.ok(f('mn', 'Meeting Notes') && f('tg', 'Toggle graph view') && f('gv', 'Toggle graph view'));   // abbreviations of word starts work
   assert.deepEqual(f('TG', 'Toggle graph view').idx, [0, 7]);                       // case-insensitive, word starts
   assert.ok(f('graph', 'Toggle graph view').score > f('tgv', 'Toggle graph view').score);          // exact substring wins
   assert.ok(f('ex', 'Export this note as PDF').score > f('ex', 'Text file').score);                 // start of string/word beats the middle of a word

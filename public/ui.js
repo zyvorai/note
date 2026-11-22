@@ -27,14 +27,15 @@
         if (preferStart) for (let k = t.indexOf(ch, pos); k >= 0; k = t.indexOf(ch, k + 1)) if (isStart(k)) { i = k; break; }
         if (i < 0) i = t.indexOf(ch, pos);
         if (i < 0) return null;
+        if (idx.length && i !== prev + 1 && !isStart(i)) return null;                // a scattered match reads as an abbreviation: after the first letter, each one continues a run or starts a word
         score += 10 + (i === prev + 1 ? 15 : 0) + (isStart(i) ? 20 : 0) - Math.min(i - pos, 8);
         idx.push(i); prev = i; pos = i + 1;
       }
       return { score: score - Math.floor(t.length / 8), idx };
     };
-    const a = walk(false); if (!a) return null;
-    const b = walk(true);
-    return b && b.score > a.score ? b : a;
+    const a = walk(false), b = walk(true);
+    if (!a && !b) return null;
+    return !a ? b : !b ? a : b.score > a.score ? b : a;
   }
   // The text with matched characters wrapped in <mark>, safely escaped.
   function highlight(text, idx) {

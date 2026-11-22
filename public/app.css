@@ -398,3 +398,11 @@ button.danger{color:var(--danger)}button.pri.danger{background:var(--danger);col
 #status.err{cursor:pointer}
 #gc{touch-action:none}
 #list .item.more{color:var(--acc);font-size:13px;text-align:center}
+
+/* palette: group headings, key caps, matched letters */
+#swl .gh{padding:8px 10px 3px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}
+#swl .item{display:flex;align-items:baseline;gap:8px}#swl .item .kb{margin-left:auto;font-size:12px;color:var(--mute);white-space:nowrap}#swl .item.on .kb{color:inherit;opacity:.85}
+#swl .fp{color:var(--mute);font-size:12.5px}#swl .item.on .fp{color:inherit;opacity:.8}
+#swl mark{background:none;color:inherit;font-weight:700;text-decoration:underline;text-underline-offset:2px}
+.dlg-sc h4{margin:14px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute)}.dlg-sc .sc{display:flex;justify-content:space-between;gap:12px;padding:3px 0;font-size:13.5px}
+.kb{font:12px ui-monospace,Menlo,monospace;background:var(--field);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--fg)}
