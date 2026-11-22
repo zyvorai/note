@@ -56,7 +56,7 @@ test('in-app import: Notion zip and Evernote .enex, with conflicts, attachments 
     const until = async (expr, what) => { for (let i = 0; i < 80; i++) { if (await ev(expr)) return; await sleep(150); } throw new Error('timeout: ' + what); };
     const pick = async (sel, file) => { const doc = (await cdp('DOM.getDocument')).result.root.nodeId, n = (await cdp('DOM.querySelector', { nodeId: doc, selector: sel })).result.nodeId; await cdp('DOM.setFileInputFiles', { nodeId: n, files: [file] }); };
     await cdp('Runtime.enable'); await cdp('Page.enable'); await cdp('DOM.enable');
-    await cdp('Page.navigate', { url: `http://localhost:${port}/` }); await sleep(1500);
+    await cdp('Page.navigate', { url: `http://localhost:${port}/` }); for (let i = 0; i < 150; i++) { try { if (await ev("typeof plainnote !== 'undefined'")) break; } catch {} await sleep(100); } await ev('plainnote.ready.then(() => true)');
     await ev("localStorage.tourSeen='1'");
 
     // 1. Notion zip into the "Imported" folder, where a note of the same name already exists

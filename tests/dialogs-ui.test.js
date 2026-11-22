@@ -38,7 +38,7 @@ test('dialogs: overlays trap focus and restore it, prompts validate, folder pick
     const key = async (k, shift = false) => { for (const type of ['keyDown', 'keyUp']) await cdp('Input.dispatchKeyEvent', { type, key: k, code: k, windowsVirtualKeyCode: { Tab: 9, Escape: 27, Enter: 13, ArrowDown: 40 }[k], modifiers: shift ? 8 : 0, text: type === 'keyDown' && k === 'Enter' ? '\r' : undefined }); };
     const typeInto = async (sel, text) => { await ev(`(()=>{const i=document.querySelector(${JSON.stringify(sel)});i.value=${JSON.stringify(text)};i.dispatchEvent(new Event('input',{bubbles:true}))})()`); };
     await cdp('Runtime.enable'); await cdp('Page.enable');
-    await cdp('Page.navigate', { url: `http://localhost:${port}/` }); await sleep(1500); await ev("localStorage.tourSeen='1'");
+    await cdp('Page.navigate', { url: `http://localhost:${port}/` }); for (let i = 0; i < 150; i++) { try { if (await ev("typeof plainnote !== 'undefined'")) break; } catch {} await sleep(100); } await ev('plainnote.ready.then(() => true)'); await ev("localStorage.tourSeen='1'");
     const inert = () => ev("document.getElementById('app').hasAttribute('inert') && document.getElementById('tabbar').hasAttribute('inert')");
 
     // the command palette: inert background while open, focus returns to the search box when it closes

@@ -34,7 +34,7 @@ test('first-run tour: auto-starts only for an empty folder, adds sample notes sa
     const ev = async (expr) => { const r = await cdp('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true, userGesture: true }); if (r.result.exceptionDetails) throw new Error(JSON.stringify(r.result.exceptionDetails.exception?.description)); return r.result.result.value; };
     const key = async (k) => { for (const type of ['keyDown', 'keyUp']) await cdp('Input.dispatchKeyEvent', { type, key: k, windowsVirtualKeyCode: { Escape: 27, ArrowRight: 39, ArrowLeft: 37 }[k] }); };
     const state = () => ev("(()=>{const t=document.querySelector('#tour');return t?{title:t.querySelector('#ttl').textContent,buttons:[...t.querySelectorAll('.tact button')].map(b=>b.textContent),spot:getComputedStyle(t.querySelector('.thl')).display==='block'}:null})()");
-    const go = async (port) => { await cdp('Page.navigate', { url: `http://localhost:${port}/` }); await sleep(1500); };
+    const go = async (port) => { await cdp('Page.navigate', { url: `http://localhost:${port}/` }); for (let i = 0; i < 150; i++) { try { if (await ev("typeof plainnote !== 'undefined'")) break; } catch {} await sleep(100); } await ev('plainnote.ready.then(() => true)'); };
     await cdp('Runtime.enable'); await cdp('Page.enable');
 
     await go(pe);                                                      // empty folder, never seen: starts by itself

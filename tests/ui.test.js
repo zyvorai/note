@@ -42,7 +42,7 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     };
     const cdp = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
     const ev = async (expr) => { const r = await cdp('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }); if (r.result.exceptionDetails) throw new Error(JSON.stringify(r.result.exceptionDetails.exception?.description)); return r.result.result.value; };
-    const until = async (expr, what) => { for (let i = 0; i < 60; i++) { if (await ev(expr)) return; await sleep(100); } throw new Error('timeout: ' + what); };
+    const until = async (expr, what) => { for (let i = 0; i < 150; i++) { if (await ev(expr)) return; await sleep(100); } throw new Error('timeout: ' + what); };
     const key = async (k, mods = 0) => { for (const type of ['keyDown', 'keyUp']) await cdp('Input.dispatchKeyEvent', { type, key: k, code: k === 'Enter' ? 'Enter' : k === 'Tab' ? 'Tab' : '', windowsVirtualKeyCode: { Enter: 13, Tab: 9 }[k] || 0, modifiers: mods, text: type === 'keyDown' && k === 'Enter' ? '\r' : undefined }); };
     const shot = async (name) => { if (!process.env.UI_SHOTS) return; fs.mkdirSync(process.env.UI_SHOTS, { recursive: true }); fs.writeFileSync(path.join(process.env.UI_SHOTS, name + '.png'), Buffer.from((await cdp('Page.captureScreenshot')).result.data, 'base64')); };
     await cdp('Runtime.enable'); await cdp('Page.enable');
@@ -51,6 +51,7 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     fs.writeFileSync(path.join(dir, 'Home.md'), '# Home\nSee [[Ideas]] and [[Missing]] #start\n\n| A | B |\n|---|--:|\n| 1 | 2 |\n\n```js\nconst x = 1; // hi\n```\n');
     fs.writeFileSync(path.join(dir, 'Ideas.md'), 'Back to [[Home]] #idea #start\n');
     await cdp('Page.navigate', { url: `http://127.0.0.1:${port}/` });
+    for (let i = 0; i < 150; i++) { try { if (await ev("typeof plainnote !== 'undefined'")) break; } catch {} await sleep(100); } await ev('plainnote.ready.then(() => true)');
     await until(`document.querySelectorAll('#list .item').length === 2`, 'two notes listed');
     assert.equal(await ev(`document.querySelectorAll('#tags .chip').length`), 2);
 
