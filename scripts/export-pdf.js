@@ -25,6 +25,8 @@ async function run(args) {
   const [input, output] = args;
   if (!input) throw new Error('usage: node server.js export <note.md> [out.pdf]');
   const file = path.resolve(input), out = path.resolve(output || file.replace(/\.md$/i, '') + '.pdf');
+  if (!fs.existsSync(file)) throw new Error(`${file} does not exist`);
+  if (/^\s*-----BEGIN PLAINNOTE ENCRYPTED NOTE-----/.test(fs.readFileSync(file, 'utf8'))) throw new Error('This note is encrypted. Unlock it in Plainnote and use Export there, or remove its encryption first.');
   const browser = BROWSERS.find((b) => fs.existsSync(b));
   if (!browser) throw new Error('No Chrome/Edge/Chromium found. Install one, or set CHROME=/path/to/browser.');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plainnote-'));

@@ -261,6 +261,7 @@ return http.createServer(async (req, res) => {
       const p = notePath(name);
       await fs.mkdir(path.dirname(p), { recursive: true });
       const prev = await fs.readFile(p, 'utf8').catch(() => '');
+      if (/^\s*-----BEGIN PLAINNOTE ENCRYPTED NOTE-----/.test(prev)) return send(res, 409, { error: 'this note is encrypted' });     // appending plain text would corrupt it
       await fs.writeFile(p, prev + (prev && !prev.endsWith('\n') ? '\n' : '') + text.replace(/\n*$/, '\n'), 'utf8');
       return send(res, 200, { ok: true, mtime: (await fs.stat(p)).mtimeMs });
     }

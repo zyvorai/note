@@ -331,3 +331,26 @@ test('publish builds a static site: links, attachments, privacy and safe output 
   const other = fsx.mkdtempSync(pth.join(os.tmpdir(), 'pn-other-')); fsx.writeFileSync(pth.join(other, 'keep.txt'), 'x');
   assert.throws(() => build(src, other), /not empty/); assert.ok(fsx.existsSync(pth.join(other, 'keep.txt')));
 });
+
+test('append refuses to touch an encrypted note', async () => {
+  const s = await start();
+  try {
+    const env = '-----BEGIN PLAINNOTE ENCRYPTED NOTE-----\nVersion: 1\n\nAAAA\n-----END PLAINNOTE ENCRYPTED NOTE-----\n';
+    await s.put('vault', env);
+    const r = await s.j('/api/append', { method: 'POST', body: JSON.stringify({ name: 'vault', text: 'plain capture' }) });
+    assert.equal(r.status, 409); assert.match(r.body.error, /encrypted/);
+    assert.equal(await (await fetch(`${s.base}/api/notes`)).json().then((l) => l.find((n) => n.name === 'vault').text), env);      // untouched
+    assert.equal((await s.j('/api/append', { method: 'POST', body: JSON.stringify({ name: 'normal', text: 'ok' }) })).status, 200);
+  } finally { s.stop(); }
+});
+
+test('publish and PDF export refuse encrypted notes', async () => {
+  const fsx = require('fs'), os = require('os'), pth = require('path');
+  const { build } = require('../scripts/publish'), pdf = require('../scripts/export-pdf');
+  const env = '-----BEGIN PLAINNOTE ENCRYPTED NOTE-----\nVersion: 1\n\nAAAA\n-----END PLAINNOTE ENCRYPTED NOTE-----\n';
+  const src = fsx.mkdtempSync(pth.join(os.tmpdir(), 'pn-enc-src-')), out = pth.join(fsx.mkdtempSync(pth.join(os.tmpdir(), 'pn-enc-out-')), 'site');
+  fsx.writeFileSync(pth.join(src, 'Public.md'), '# Public'); fsx.writeFileSync(pth.join(src, 'Vault.md'), env);
+  const r = build(src, out); assert.equal(r.pages, 1); assert.deepEqual(r.skipped, ['Vault']);
+  assert.ok(!fsx.existsSync(pth.join(out, 'Vault.html'))); assert.ok(!fsx.readFileSync(pth.join(out, 'index.html'), 'utf8').includes('Vault'));
+  await assert.rejects(pdf.run([pth.join(src, 'Vault.md')]), /encrypted/);
+});
