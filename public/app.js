@@ -3,6 +3,22 @@
 
 const $ = (s) => document.querySelector(s);
 let notes = new Map();   // name -> {text, mtime}
+/* Encrypted notes: the file on disk holds an armored envelope (n.cipher). While locked, n.text is '' so search, the graph, backlinks and
+   find-and-replace see nothing; while unlocked n.text is the plaintext and n.enc the in-memory key (see crypto.js). */
+const keyring = new Map();                                          // note name -> unlocked session (never persisted)
+const isLocked = (n) => !!(n && n.cipher && !n.enc);
+// Every save of an existing note goes through here, so an encrypted note is never written as plaintext, and a locked one is never overwritten.
+async function noteBody(n, text) {
+  if (!n.cipher) return text;
+  if (!n.enc) throw new Error('this note is locked');
+  return PNCrypto.encrypt(text, n.enc);
+}
+async function putNote(n, text, base) {
+  const body = await noteBody(n, text);
+  const r = await api('/api/note?name=' + encodeURIComponent(n.name), { method: 'PUT', body, headers: base === undefined ? undefined : { 'x-base-mtime': String(base) } });
+  if (n.cipher) n.cipher = body;
+  return r;
+}
 let activeTag = null;
 let graphOn = false, gRaf = 0, graphScope = 0;   // graphScope: 0 = all notes, 1/2 = neighbourhood of the open note
 let cur = null, preview = false, timer = null, dirty = false;
@@ -33,12 +49,19 @@ async function load() {
   const keep = dirty && cur ? notes.get(cur) : null;      // never replace text the user typed but hasn't saved yet
   aliasMap = null;
   notes = new Map(fresh.map((n) => [n.name, { ...n, base: n.mtime }]));
+  for (const n of notes.values()) {
+    if (!PNCrypto.isEnvelope(n.text)) { keyring.delete(n.name); continue; }
+    n.cipher = n.text; n.text = '';
+    const sess = keyring.get(n.name);
+    if (sess) { try { n.text = (await PNCrypto.decrypt(n.cipher, sess)).text; n.enc = sess; } catch { keyring.delete(n.name); } }   // changed elsewhere with another passphrase: lock it
+  }
   if (keep) notes.set(keep.name, keep);
   renderList();
 }
 
 const { md, inline: mdInline } = MD.create({ resolve: (t) => resolve(t), embed: (name, h) => {
   const n = notes.get(name); if (!n) return null;
+  if (n.cipher) return '*🔒 Encrypted note*';
   const body = MD.frontmatter(n.text).body;
   return h ? MD.section(body, h) : body;
 } });
@@ -91,8 +114,8 @@ function renderList() {
     let snip = '';
     if (q) { const i = MD.searchSnippetAt(pq, n.text);
       if (i >= 0) snip = `<span class="snip">${esc(n.text.slice(Math.max(0, i - 20), i + 50).replace(/\n/g, ' '))}</span>`; }
-    if (isTouch() && !snip) snip = `<span class="snip">${esc(notePreview(n.text, n.name))}</span>`;
-    const inner = isTouch() ? `<div class="r1"><span class="nm">${pins.has(n.name) ? '📌 ' : ''}${esc(n.name.split('/').pop())}</span><span class="tm">${esc(relTime(n.mtime))}</span></div>` : `${pins.has(n.name) ? '📌 ' : ''}${esc(n.name)}`;
+    if (isTouch() && !snip) snip = `<span class="snip">${n.cipher && !n.enc ? 'Encrypted' : esc(notePreview(n.text, n.name))}</span>`;
+    const inner = isTouch() ? `<div class="r1"><span class="nm">${pins.has(n.name) ? '📌 ' : ''}${n.cipher ? '🔒 ' : ''}${esc(n.name.split('/').pop())}</span><span class="tm">${esc(relTime(n.mtime))}</span></div>` : `${pins.has(n.name) ? '📌 ' : ''}${n.cipher ? '🔒 ' : ''}${esc(n.name)}`;
     return `<div class="item${n.name === cur ? ' on' : ''}" data-note="${esc(n.name)}">${inner}${snip}</div>`;
   }).join('') || '<div class="empty">No notes</div>';
 }
@@ -118,7 +141,7 @@ async function linkMention(from) {
   const short = cur.split('/').pop(), orig = n.text.slice(um.index, um.index + short.length);
   const link = n.text.slice(0, um.index) + (cur === orig ? `[[${cur}]]` : `[[${cur}|${orig}]]`) + n.text.slice(um.index + short.length);
   try {
-    const r = await api('/api/note?name=' + encodeURIComponent(from), { method: 'PUT', body: link, headers: { 'x-base-mtime': String(n.base ?? 0) } });
+    const r = await putNote(n, link, n.base ?? 0);
     n.text = link; n.base = r.mtime; $('#status').textContent = `Linked in ${from}`; renderBack();
   } catch (e) { $('#status').textContent = 'Could not link: ' + e.message; }
 }
@@ -172,6 +195,7 @@ function renderPane() {
       : '<div class="empty">Ctrl/Cmd+K to jump or create · Ctrl/Cmd+N for a new note · Ctrl/Cmd+E to preview</div>';
     return;
   }
+  if (isLocked(notes.get(cur))) return renderLocked();
   const t = notes.get(cur).text;
   setIcon('#tog', preview ? 'pencil' : 'eye', preview ? 'Edit' : 'Preview');
   if (preview) $('#pane').innerHTML = `<div id="pv">${md(t)}</div>`;
@@ -189,7 +213,7 @@ function renderSplit() {
   if (!n) { if (split) { split = null; try { localStorage.removeItem('split'); } catch {} } el.style.display = 'none'; return; }
   el.style.display = 'flex'; $('#sptitle').textContent = n.name.split('/').pop(); $('#sptitle').title = `Open “${n.name}” in the main pane`;
   const pv = $('#sppv'), top = pv.scrollTop;
-  pv.innerHTML = md(n.text); pv.scrollTop = top;
+  pv.innerHTML = isLocked(n) ? '<p style="padding:12px;opacity:.7">🔒 Encrypted note. Unlock it in the main pane to read it here.</p>' : md(n.text); pv.scrollTop = top;
 }
 const renderSplitSoon = () => { clearTimeout(splitTimer); splitTimer = setTimeout(renderSplit, 250); };
 function openSplit(name) { if (!notes.has(name)) return; split = name; try { localStorage.setItem('split', name); } catch {} renderSplit(); }
@@ -709,13 +733,13 @@ async function flush() {
   dirty = false;
   const name = cur, n = notes.get(name), text = n.text;
   try {
-    const r = await api('/api/note?name=' + encodeURIComponent(name), { method: 'PUT', body: text, headers: { 'x-base-mtime': String(n.base ?? 0) } });
+    const r = await putNote(n, text, n.base ?? 0);
     n.base = r.mtime; $('#status').textContent = 'Saved'; renderList();
   } catch (e) {
     if (e.message !== 'conflict') { dirty = true; $('#status').textContent = 'Save failed: ' + e.message; return; }
     // The file changed on disk (sync, another window…). Keep both versions: ours as a conflict copy.
     const copy = `${name} (conflict ${new Date().toTimeString().slice(0, 8).replace(/:/g, '-')})`;
-    try { await api('/api/note?name=' + encodeURIComponent(copy), { method: 'PUT', body: text }); } catch {}
+    try { await api('/api/note?name=' + encodeURIComponent(copy), { method: 'PUT', body: await noteBody(n, text) }); } catch {}     // an encrypted note's conflict copy is encrypted too
     const was = cur; await load();
     if (was === name && notes.has(name)) { cur = name; renderPane(); renderBack(); }
     $('#status').textContent = `Changed elsewhere — your version saved as “${copy}”`;
@@ -836,12 +860,13 @@ async function renameNote(from, to) {
   try { await api('/api/rename', { method: 'POST', body: JSON.stringify({ from, to }) }); }
   catch (e) { $('#status').textContent = 'Rename failed: ' + (e.message === 'exists' ? 'a note with that name already exists' : e.message); return false; }
   const n = notes.get(from); notes.delete(from); n.name = to; notes.set(to, n); aliasMap = null;
+  if (keyring.has(from)) { keyring.set(to, keyring.get(from)); keyring.delete(from); }
   tabs.forEach((t) => { if (t.name === from) t.name = to; }); renderTabs(); saveTabs();
   if (split === from) { split = to; try { localStorage.setItem('split', to); } catch {} renderSplit(); }
   const re = new RegExp(`\\[\\[(\\s*)${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s*)(?=[|\\]#^])`, 'g');
   for (const o of notes.values()) if (o.text.match(re)) {            // keep links working, including [[Note#Heading]] and [[Note^id]]
     o.text = o.text.replace(re, `[[$1${to}$2`);
-    api('/api/note?name=' + encodeURIComponent(o.name), { method: 'PUT', body: o.text }).then((r) => { o.base = r.mtime; }, () => {}); }
+    putNote(o, o.text).then((r) => { o.base = r.mtime; }, () => {}); }
   if (pins.delete(from)) { pins.add(to); savePins(); }
   if (to.includes('/')) { const d = to.slice(0, to.lastIndexOf('/')); for (let i = d.indexOf('/'); i >= 0; i = d.indexOf('/', i + 1)) openFolders.add(d.slice(0, i)); openFolders.add(d); saveOpenFolders(); }
   if (cur === from) { cur = to; location.hash = encodeURIComponent(to); $('#title').value = to.split('/').pop(); }
@@ -971,6 +996,11 @@ const COMMANDS = [
   { id: 'import', name: 'Import notes from another app…', run: () => openImport() },
   { id: 'tour', name: 'Take the Plainnote tour', run: () => PNTour.start() },
   { id: 'samples', name: 'Add the sample notes', run: () => PNTour.createSamples(true) },
+  { id: 'encrypt', name: 'Encrypt this note…', run: () => encryptNote() },
+  { id: 'lock', name: 'Lock this note now', run: () => cur && notes.get(cur)?.enc && lockNote(cur) },
+  { id: 'lockall', name: 'Lock all encrypted notes', run: () => lockAll() },
+  { id: 'chpass', name: 'Change this note’s passphrase…', run: () => changePassphrase() },
+  { id: 'decrypt', name: 'Remove encryption from this note…', run: () => removeEncryption() },
   { id: 'pdf', name: 'Export this note as PDF / Print…', run: () => exportPdf() },
   { id: 'gfind', name: 'Find and replace in all notes', hint: 'Ctrl/Cmd+Shift+H', run: () => openGlobalFind() },
   { id: 'export', name: 'Export this note as HTML', run: () => exportHtml() },
@@ -1057,7 +1087,7 @@ async function gfApply() {
   for (const h of chosen) {
     const n = notes.get(h.name); if (!n) continue;
     const { text } = MD.replaceAll(n.text, q, r);
-    try { const res = await api('/api/note?name=' + encodeURIComponent(h.name), { method: 'PUT', body: text, headers: { 'x-base-mtime': String(n.base ?? 0) } }); n.text = text; n.base = res.mtime; done++; }
+    try { const res = await putNote(n, text, n.base ?? 0); n.text = text; n.base = res.mtime; done++; }
     catch { failed++; }
   }
   if (cur && notes.get(cur)) { const ed = $('#ed'); if (ed) { ed.value = notes.get(cur).text; syncEditor(); } else renderPane(); }
@@ -1112,7 +1142,7 @@ async function toggleTask(t) {
   const L = n.text.split('\n'); if (!/\[ \]/.test(L[t.line] || '')) return;
   L[t.line] = L[t.line].replace('[ ]', '[x]'); const text = L.join('\n');
   try {
-    const r = await api('/api/note?name=' + encodeURIComponent(t.name), { method: 'PUT', body: text, headers: { 'x-base-mtime': String(n.base ?? 0) } });
+    const r = await putNote(n, text, n.base ?? 0);
     n.text = text; n.base = r.mtime;
     if (cur === t.name) { const ed = $('#ed'); if (ed) { ed.value = text; syncEditor(); } else renderPane(); }
     $('#status').textContent = 'Task done';
@@ -1226,8 +1256,11 @@ async function deleteFolder(path) {
 async function duplicateNote(name) {
   const n = notes.get(name); if (!n) return; await flush();
   const copy = uniqueName(name + ' copy');
-  const r = await api('/api/note?name=' + encodeURIComponent(copy), { method: 'PUT', body: n.text, headers: { 'x-base-mtime': '0' } });
-  notes.set(copy, { name: copy, text: n.text, mtime: Date.now(), base: r.mtime }); await open(copy, false);
+  const body = n.cipher ? (n.enc ? await PNCrypto.encrypt(n.text, n.enc) : n.cipher) : n.text;      // a copy of an encrypted note stays encrypted (and locked unless this one is open)
+  const r = await api('/api/note?name=' + encodeURIComponent(copy), { method: 'PUT', body, headers: { 'x-base-mtime': '0' } });
+  const dup = { name: copy, text: n.text, mtime: Date.now(), base: r.mtime };
+  if (n.cipher) { dup.cipher = body; if (n.enc) { dup.enc = n.enc; keyring.set(copy, n.enc); } }
+  notes.set(copy, dup); await open(copy, false);
 }
 $('#list').addEventListener('contextmenu', (e) => {
   if (trashMode) return;
@@ -1257,7 +1290,7 @@ try {
 } catch {}
 function renderProps(force) {
   const el = $('#props');
-  if (!cur || graphOn || !notes.get(cur)) { el.style.display = 'none'; propsSig = ''; return; }
+  if (!cur || graphOn || !notes.get(cur) || isLocked(notes.get(cur))) { el.style.display = 'none'; propsSig = ''; return; }
   const ps = MD.properties(notes.get(cur).text), sig = JSON.stringify([cur, ps, propsOpen, addingProp]);
   if (!force && sig === propsSig) return;
   if (!force && el.contains(document.activeElement)) return;
@@ -1412,6 +1445,7 @@ $('#gr').onclick = async () => { await flush(); graphOn = !graphOn; renderPane()
 $('#tog').onclick = () => { if (!cur) return; graphOn = false; preview = !preview; flush(); renderPane(); };
 $('#del').onclick = async () => {
   if (!cur || !confirm(`Move “${cur}” to the trash?`)) return;
+  keyring.delete(cur);
   await api('/api/note?name=' + encodeURIComponent(cur), { method: 'DELETE' });
   const gone = cur, keep = tabs[ti]; tabs = tabs.filter((t) => t === keep || t.name !== gone); keep.name = null; ti = tabs.indexOf(keep); renderTabs(); saveTabs();
   notes.delete(cur); cur = null; dirty = false; if (split === gone) closeSplit(); $('#status').textContent = ''; $('#title').value = ''; $('#title').disabled = true;
@@ -1650,3 +1684,102 @@ function openImport() {
   new MutationObserver(decorate).observe($('#pane'), { childList: true, subtree: true });
   decorate();
 })();
+/* ---------- Encrypted notes (the crypto itself is in crypto.js) ---------- */
+// A small passphrase dialog (the browser's prompt() can't hide typing and doesn't exist in every WebView). Resolves to the passphrase or null.
+function askPass({ title, message, confirm: twice, ok = 'OK', warn }) {
+  return new Promise((resolve) => {
+    const box = document.createElement('div'); box.id = 'passdlg';
+    box.innerHTML = `<form role="dialog" aria-modal="true" aria-labelledby="pdt"><h3 id="pdt">${esc(title)}</h3>${message ? `<p>${esc(message)}</p>` : ''}${warn ? `<p class="pdw">${esc(warn)}</p>` : ''}
+<label>Passphrase<input id="pd1" type="password" autocomplete="off" spellcheck="false"></label>${twice ? '<label>Again<input id="pd2" type="password" autocomplete="off" spellcheck="false"></label>' : ''}
+<label class="pdshow"><input id="pds" type="checkbox"> Show</label><div id="pde" role="alert"></div><div class="pdact"><button type="button" id="pdc">Cancel</button><button type="submit" class="pri">${esc(ok)}</button></div></form>`;
+    document.body.appendChild(box);
+    const done = (v) => { document.removeEventListener('keydown', onKey, true); box.remove(); resolve(v); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
+    document.addEventListener('keydown', onKey, true);
+    $('#pds').onchange = (e) => { for (const i of box.querySelectorAll('input[type=password],input[data-pw]')) { i.type = e.target.checked ? 'text' : 'password'; i.dataset.pw = '1'; } };
+    $('#pdc').onclick = () => done(null);
+    box.addEventListener('mousedown', (e) => { if (e.target === box) done(null); });
+    box.firstElementChild.onsubmit = (e) => {
+      e.preventDefault(); const a = $('#pd1').value;
+      if ([...a].length < PNCrypto.MIN_PASS) { $('#pde').textContent = `Use at least ${PNCrypto.MIN_PASS} characters (a few random words work well).`; return; }
+      if (twice && $('#pd2').value !== a) { $('#pde').textContent = 'The two passphrases are different.'; return; }
+      done(a);
+    };
+    $('#pd1').focus();
+  });
+}
+const say = (s) => { $('#status').textContent = s; };
+
+const NO_CRYPTO = 'Encryption needs a secure connection: open Plainnote on localhost or over https (for example with Tailscale Serve).';
+function renderLocked() {
+  const n = notes.get(cur);
+  if (!PNCrypto.available()) { $('#pane').innerHTML = `<div class="lockcard"><div class="lki" aria-hidden="true">🔒</div><h2>This note is encrypted</h2><p>${NO_CRYPTO}</p></div>`; return; }
+  $('#pane').innerHTML = `<div class="lockcard"><div class="lki" aria-hidden="true">🔒</div><h2>This note is encrypted</h2>
+<p>Enter its passphrase to read and edit it. It is decrypted only in this window, and locks again after ${IDLE_MIN} minutes of inactivity.</p>
+<form id="lkf"><input id="lkp" type="password" autocomplete="off" spellcheck="false" aria-label="Passphrase" placeholder="Passphrase"><button class="pri" type="submit">Unlock</button></form><div id="lke" role="alert"></div></div>`;
+  $('#lkf').onsubmit = async (e) => {
+    e.preventDefault(); const b = $('#lkf button'); b.disabled = true; $('#lke').textContent = '';
+    try { await unlockNote(n.name, $('#lkp').value); }
+    catch (err) { $('#lke').textContent = err.message; b.disabled = false; $('#lkp').select(); }
+  };
+  $('#lkp').focus();
+}
+async function unlockNote(name, pass) {
+  const n = notes.get(name); if (!n || !n.cipher) return;
+  const { text, session } = await PNCrypto.decrypt(n.cipher, pass);
+  n.text = text; n.enc = session; keyring.set(name, session); aliasMap = null;
+  if (cur === name) { renderPane(); renderOutline(); renderProps(true); updateWC(); if (!isTouch()) $('#ed')?.focus(); }
+  if (split === name) renderSplit();
+  renderList(); renderBack(); say('Unlocked');
+}
+async function lockNote(name) {
+  const n = notes.get(name); if (!n || !n.enc) return true;
+  if (cur === name) { await flush(); if (dirty) { say('Could not save, so the note was not locked'); return false; } }
+  n.enc = null; n.text = ''; keyring.delete(name); aliasMap = null;
+  if (cur === name) { renderPane(); renderOutline(); renderProps(true); updateWC(); }
+  if (split === name) renderSplit();
+  renderList(); renderBack(); say('Locked ' + name.split('/').pop()); return true;
+}
+async function lockAll() { let k = 0; for (const name of [...keyring.keys()]) if (await lockNote(name)) k++; if (!k) say('No unlocked notes'); }
+
+async function encryptNote() {
+  if (!cur) return; const n = notes.get(cur); await flush();
+  if (!PNCrypto.available()) { say(NO_CRYPTO); return; }
+  if (n.cipher) { say(n.enc ? 'This note is already encrypted' : 'This note is already encrypted: unlock it first'); return; }
+  const pass = await askPass({ title: 'Encrypt this note', ok: 'Encrypt', confirm: true,
+    message: 'Choose a passphrase. It never leaves this device, and the note is stored as encrypted text.',
+    warn: 'There is no recovery: if you forget the passphrase, nobody can open this note. Earlier plain-text copies may remain in version history, git history, backups or the trash; the note’s name, size and dates stay visible.' });
+  if (pass === null) return;
+  try {
+    const { envelope, session } = await PNCrypto.encryptWithPassphrase(n.text, pass);
+    const r = await api('/api/note?name=' + encodeURIComponent(n.name), { method: 'PUT', body: envelope, headers: { 'x-base-mtime': String(n.base ?? 0) } });
+    n.cipher = envelope; n.enc = session; n.base = r.mtime; keyring.set(n.name, session);
+    renderList(); renderPane(); say('Encrypted. It stays unlocked until you lock it or go idle.');
+  } catch (e) { say('Could not encrypt: ' + e.message); }
+}
+async function changePassphrase() {
+  const n = cur && notes.get(cur); if (!n || !n.cipher) { say('Open an encrypted note first'); return; }
+  if (!n.enc) { say('Unlock the note first'); return; }
+  const pass = await askPass({ title: 'Change passphrase', ok: 'Change', confirm: true, message: 'Choose a new passphrase for this note.' });
+  if (pass === null) return;
+  try {
+    const session = await PNCrypto.newSession(pass), body = await PNCrypto.encrypt(n.text, session);
+    const r = await api('/api/note?name=' + encodeURIComponent(n.name), { method: 'PUT', body, headers: { 'x-base-mtime': String(n.base ?? 0) } });
+    n.cipher = body; n.enc = session; n.base = r.mtime; keyring.set(n.name, session); say('Passphrase changed. Older copies (history, backups) still need the old one.');
+  } catch (e) { say('Could not change it: ' + e.message); }
+}
+async function removeEncryption() {
+  const n = cur && notes.get(cur); if (!n || !n.cipher) { say('This note is not encrypted'); return; }
+  if (!n.enc) { say('Unlock the note first'); return; }
+  if (!window.confirm(`Remove encryption from “${n.name.split('/').pop()}”? It will be stored as plain text.`)) return;
+  try {
+    const r = await api('/api/note?name=' + encodeURIComponent(n.name), { method: 'PUT', body: n.text, headers: { 'x-base-mtime': String(n.base ?? 0) } });
+    delete n.cipher; n.enc = null; n.base = r.mtime; keyring.delete(n.name); renderList(); renderPane(); say('Encryption removed');
+  } catch (e) { say('Could not remove it: ' + e.message); }
+}
+
+// Unlocked notes lock themselves after a quiet spell, so walking away does not leave them open.
+const IDLE_MIN = 10; let lastAct = Date.now();
+for (const ev of ['keydown', 'pointerdown', 'wheel', 'touchstart']) document.addEventListener(ev, () => { lastAct = Date.now(); }, { capture: true, passive: true });
+const idleCheck = () => { if (keyring.size && Date.now() - lastAct > IDLE_MIN * 60000) lockAll(); };
+setInterval(idleCheck, 15000);

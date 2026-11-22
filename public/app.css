@@ -370,3 +370,11 @@ html.touch #outline{display:none!important}
 #tour .tact{display:flex;gap:8px;justify-content:flex-end}#tour .tskip{margin-right:auto;border:0;background:none;color:var(--mute)}
 #tour .tdots{display:flex;gap:5px;justify-content:center;margin-top:12px}#tour .tdots span{width:6px;height:6px;border-radius:50%;background:var(--line)}#tour .tdots .on{background:var(--acc)}
 @media print{#tour{display:none!important}}
+#passdlg{position:fixed;inset:0;z-index:101;background:#0006;display:flex;align-items:center;justify-content:center}
+#passdlg form{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:12px;box-shadow:var(--elev);padding:18px 20px;width:min(400px,92vw);box-sizing:border-box}
+#passdlg h3{margin:0 0 6px;font-size:16px}#passdlg p{margin:6px 0;font-size:13.5px;line-height:1.5;color:var(--mute)}#passdlg .pdw{color:#c0392b}
+#passdlg label{display:block;margin:10px 0 0;font-size:13px;color:var(--mute)}#passdlg label input[type=password],#passdlg label input[data-pw]{display:block;width:100%;box-sizing:border-box;margin-top:4px;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:14px ui-monospace,Menlo,monospace}
+#passdlg .pdshow{display:flex;gap:6px;align-items:center}#passdlg #pde{min-height:1.3em;margin-top:6px;color:#c0392b;font-size:13px}#passdlg .pdact{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+.lockcard{max-width:26rem;margin:12vh auto 0;text-align:center;padding:0 16px}.lockcard .lki{font-size:42px}.lockcard h2{margin:6px 0}.lockcard p{color:var(--mute);line-height:1.5}
+.lockcard form{display:flex;gap:8px;justify-content:center;margin-top:14px}.lockcard input{flex:1;max-width:16rem;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}#lke{color:#c0392b;min-height:1.4em;margin-top:8px;font-size:13.5px}
+@media print{#passdlg{display:none!important}}

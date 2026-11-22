@@ -81,6 +81,28 @@ Run *Import notes from another app…* from the command palette (or `node server
 | **Bear** and others | Export as Markdown or TextBundle | the folder or .zip |
 
 Notion's long id suffixes are removed from names, links between pages become `[[wikilinks]]`, database CSVs become tables, and images are saved into `attachments/`. Imported notes go into an `Imported` folder by default (leave the name empty to merge into your notes). **Nothing is ever overwritten**: a name that is taken gets a number, and the preview tells you what was found and what was skipped (for example `.docx` or audio files, which Plainnote does not keep). Zips are checked before they are read: unsafe paths, hidden files, password-protected and oversized archives are refused or skipped. Evernote and HTML need the in-app importer; the terminal command handles Markdown, CSV and images.
+### Encrypted notes
+
+Run *Encrypt this note…* from the command palette and choose a passphrase. The note is then stored as encrypted text (AES-256-GCM, key from your passphrase with PBKDF2-SHA256, 600,000 rounds, done by the browser's own crypto, nothing to install). It is still an ordinary file in your folder, so git sync and backups keep working. Opening it asks for the passphrase; it stays unlocked in memory only, and locks again after 10 minutes of inactivity or with *Lock this note now* / *Lock all encrypted notes*. *Change this note's passphrase…* and *Remove encryption from this note…* are in the palette too.
+
+While a note is locked, Plainnote sees none of its text: search, the graph, backlinks, find-and-replace and embeds in other notes skip it, and nothing can save over it. **There is no recovery**: forget the passphrase and the note is gone. What is *not* protected: the note's name, size and dates; earlier plain-text copies that already exist (version history, git history, backups, the trash, Spotlight); and anything on a machine that has malware or a keylogger. Quick capture and the URL scheme refuse to append to an encrypted note. Encryption needs a secure connection (localhost or https), so over plain `http` on a LAN it is unavailable. The iPhone app shows the same lock screen but its quick-capture route does not yet refuse to append.
+
+You never depend on Plainnote to read your notes. The file is:
+
+```
+-----BEGIN PLAINNOTE ENCRYPTED NOTE-----
+Version: 1
+KDF: PBKDF2-SHA256
+Iterations: 600000
+Cipher: AES-256-GCM
+Salt: <base64, 16 bytes>
+IV: <base64, 12 bytes>
+
+<base64 of ciphertext followed by the 16-byte GCM tag>
+-----END PLAINNOTE ENCRYPTED NOTE-----
+```
+
+`key = PBKDF2-HMAC-SHA256(NFKC(passphrase) as UTF-8, Salt, Iterations, 32 bytes)`, decrypt with AES-256-GCM using `IV`, with the additional authenticated data `plainnote-enc-v1`; the plaintext is the note's UTF-8 text. (`tests/crypto.test.js` opens a note with Node's `crypto` module alone, and the reverse.)
 
 ## Desktop app (macOS)
 
