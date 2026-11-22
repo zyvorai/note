@@ -336,3 +336,7 @@ html.touch #outline{display:none!important}
 #lb img{max-width:94vw;max-height:94vh;border-radius:6px;cursor:zoom-out}
 @media print{#lb{display:none!important}#pv .pdfembed{display:none}}
 #pv .diagram-wrap{margin:1em 0;overflow-x:auto}
+#clipdlg{position:fixed;inset:0;z-index:98;background:#0006;display:flex;align-items:center;justify-content:center}
+#clipdlg>div{background:var(--bg);border:1px solid var(--line);border-radius:10px;width:min(560px,94vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+#clipdlg header{padding:10px 14px;display:flex;justify-content:space-between;align-items:center}#clipdlg .cbody{padding:6px 16px 16px;line-height:1.6;overflow:auto}
+@media print{#clipdlg{display:none!important}}

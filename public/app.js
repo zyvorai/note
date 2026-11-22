@@ -966,6 +966,7 @@ const COMMANDS = [
   { id: 'graph', name: 'Toggle graph view', hint: 'Ctrl/Cmd+G', run: () => $('#gr').click() },
   { id: 'localgraph', name: 'Graph of this note and its links', run: async () => { if (!cur) return; await flush(); graphScope = 1; graphOn = true; renderPane(); } },
   { id: 'pin', name: 'Pin / unpin this note', run: () => $('#pin').click() },
+  { id: 'clipper', name: 'Web clipper: get the Clip bookmark…', run: () => openClipper() },
   { id: 'pdf', name: 'Export this note as PDF / Print…', run: () => exportPdf() },
   { id: 'gfind', name: 'Find and replace in all notes', hint: 'Ctrl/Cmd+Shift+H', run: () => openGlobalFind() },
   { id: 'export', name: 'Export this note as HTML', run: () => exportHtml() },
@@ -1507,3 +1508,19 @@ document.addEventListener('click', (e) => {
   const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
   lb.onclick = close; document.addEventListener('keydown', onKey, true); document.body.appendChild(lb);
 });
+
+/* Web clipper: a bookmark that saves the page you're reading (or your selection) here as a Markdown note */
+function openClipper() {
+  const box = document.createElement('div'); box.id = 'clipdlg';
+  box.innerHTML = `<div><header><b>Web clipper</b><button id="hx" aria-label="Close">×</button></header><div class="cbody">
+<p>Drag this to your bookmarks bar: <a id="clipbm" class="att" style="padding:3px 10px;border:1px solid var(--line);border-radius:6px;text-decoration:none">Clip to Plainnote</a></p>
+<p>Then, on any page, select some text (or select nothing to take the whole article) and click the bookmark. A small window shows the page as Markdown to edit and save into <b>Clippings/</b>, tagged <code>#clipping</code>, with the source link.</p>
+<p style="color:var(--mute);font-size:13px">The bookmark points at <code>${esc(location.origin)}</code>, so it only works while Plainnote is running at that address: use <code>node server.js ~/Notes 4777</code> for a fixed one. The Mac app picks a new port each launch. Allow pop-ups when asked. A few sites block bookmarks with a strict security policy.</p></div></div>`;
+  document.body.appendChild(box);
+  $('#clipbm').setAttribute('href', PNClip.bookmarklet(location.origin));
+  $('#clipbm').onclick = (e) => e.preventDefault();                 // drag it, don't run it here
+  const close = () => { box.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  box.onclick = (e) => { if (e.target.id === 'clipdlg' || e.target.id === 'hx') close(); };
+}

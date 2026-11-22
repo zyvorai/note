@@ -35,6 +35,7 @@ node server.js ~/Notes          # http://localhost:4777
   Server -> Git: sync
   ```
   ````
+- **Web clipper**: run *Web clipper: get the Clip bookmark…* from the command palette and drag the link to your bookmarks bar. On any page, select some text (or nothing, to take the main article) and click it: a small window opens on your own server showing the page as Markdown (headings, links, lists, tables, code and images kept; menus, ads and scripts dropped) to edit and save into `Clippings/`, with the source link and a `#clipping` tag. Nothing is sent anywhere else, and it never overwrites an existing note. The bookmark points at the address Plainnote is running on, so use a fixed port (`node server.js ~/Notes 4777`); the Mac app picks a new port each launch.
 - **Markdown to PDF from the terminal**: `node server.js export note.md [out.pdf]` uses the app's own renderer and an installed Chrome, Edge or Chromium (set `CHROME=/path` to choose). In the app, use *Export this note as PDF*.
 - **Edit PDFs** (optional add-on; run `npm install pdf-lib --no-save` once, the app itself stays dependency-free):
 
