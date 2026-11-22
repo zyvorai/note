@@ -20,7 +20,7 @@ test('fuzzy: substring beats scattered, word starts and runs score higher, no ma
   assert.ok(f('ex', 'Export this note as PDF').score > f('ex', 'Text file').score);                 // start of string/word beats the middle of a word
   assert.ok(f('exp', 'Export').score > f('exp', 'e-x-p').score);                                    // contiguous beats scattered even at word starts
   assert.ok(f('pdf', 'Export this note as PDF').score > f('pdf', 'Printing documents for friends').score);   // a run beats scattered letters
-  assert.deepEqual(f('a b', 'alpha beta').idx.length, 2);                            // spaces in the query are ignored for scattering
+  assert.equal(f('p t', 'Export this').idx.length, 2); assert.equal(f('a b', 'alpha beta').idx.length, 3);     // spaces are ignored when scattering; a literal "a b" is still found as a substring
   assert.ok(f('note', 'Notes').score > f('note', 'Daily notes folder for all my notes').score);       // shorter, tighter target ranks first
 });
 
