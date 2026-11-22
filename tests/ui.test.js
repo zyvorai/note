@@ -276,8 +276,10 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await ev(`[...document.querySelectorAll('#ctx button')].find((b) => b.textContent === 'Duplicate').click()`);
     await until(`notes.has('Archive/Moveme copy') && cur === 'Archive/Moveme copy'`, 'duplicate opened');
     assert.equal(await ev(`getComputedStyle(document.querySelector('#ctx')).display`), 'none', 'menu closes');
-    await ev(`window.confirm = () => true; document.querySelector('#list [data-folder="Archive"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }))`);
+    await ev(`document.querySelector('#list [data-folder="Archive"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }))`);
     await ev(`[...document.querySelectorAll('#ctx button')].find((b) => /Delete empty folder/.test(b.textContent)).click()`);
+    await until(`!!document.querySelector('#dlg-ok')`, 'folder delete asks first');
+    await ev(`document.querySelector('#dlg-ok').click()`);
     await until(`/not empty/.test(document.querySelector('#status').textContent)`, 'non-empty folder is refused');
     await ev(`document.querySelector('#vlist').click()`);
     assert.equal(await ev(`document.querySelectorAll('#list [data-folder]').length`), 0, 'list view has no folder rows');
@@ -527,7 +529,11 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     assert.equal(fs.readFileSync(path.join(dir, untitled), 'utf8'), 'changed on disk');
 
     // delete -> trash -> restore
-    await ev(`window.confirm = () => true; document.querySelector('#del').click()`);
+    await ev(`document.querySelector('#del').click()`);
+    await until(`!!document.querySelector('#dlg-ok')`, 'trash confirmation');
+    assert.equal(await ev(`document.querySelector('.dlg h3').textContent`), 'Move to the trash?');
+    assert.equal(await ev(`document.activeElement.id`), 'dlg-ok', 'the confirm button has focus, so Enter confirms');
+    await ev(`document.querySelector('#dlg-ok').click()`);
     await until(`document.querySelectorAll('#list .item').length >= 2 && !document.querySelector('[data-note="${untitled.slice(0, -3)}"]')`, 'note removed');
     await ev(`document.querySelector('#trash').click()`);
     await until(`document.querySelector('[data-restore]')`, 'trash lists note');

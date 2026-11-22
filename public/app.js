@@ -287,8 +287,9 @@ function renderSettings() {
     ${snippetList.map((x) => `<div class="strow"><label><input type="checkbox" data-snip="${esc(x.name)}"${S.snippets.includes(x.name) ? ' checked' : ''}> ${esc(x.name)}</label></div>`).join('') || '<div class="hint">No snippets found.</div>'}
     <div class="strow"><button id="st-reload">Reload snippets</button></div>`;
 }
-async function openSettings() { $('#st').style.display = 'flex'; await loadSnippets(); renderSettings(); }
-function closeSettings() { hkCapture = null; $('#st').style.display = 'none'; }
+let stModal = null, gfModal = null, swModal = null;           // PNUI.modal handles: while one is open the page behind it is inert and Tab stays inside
+async function openSettings() { if (!stModal) stModal = PNUI.modal($('#st'), {}); $('#st').style.display = 'flex'; await loadSnippets(); renderSettings(); }
+function closeSettings() { hkCapture = null; $('#st').style.display = 'none'; if (stModal) { stModal.release(); stModal = null; } }
 $('#stx').onclick = closeSettings;
 $('#st').addEventListener('mousedown', (e) => { if (e.target.id === 'st') closeSettings(); });
 const setSetting = (patch) => { settings = MD.normalizeSettings({ ...settings, ...patch }); saveSettings(); applySettings(); };
@@ -1079,8 +1080,8 @@ function gfRender() {
   $('#gfc').textContent = q ? `${total} match${total === 1 ? '' : 'es'} in ${gfHits.length} note${gfHits.length === 1 ? '' : 's'}` : '';
   $('#gfa').disabled = !gfHits.length;
 }
-function openGlobalFind() { $('#gf').style.display = 'flex'; $('#gfq').focus(); $('#gfq').select(); gfRender(); }
-function closeGlobalFind() { $('#gf').style.display = 'none'; }
+function openGlobalFind() { if (!gfModal) gfModal = PNUI.modal($('#gf'), {}); $('#gf').style.display = 'flex'; $('#gfq').focus(); $('#gfq').select(); gfRender(); }
+function closeGlobalFind() { $('#gf').style.display = 'none'; if (gfModal) { gfModal.release(); gfModal = null; } }
 async function gfApply() {
   const q = $('#gfq').value, r = $('#gfr').value;
   const chosen = [...document.querySelectorAll('#gfl [data-gf]')].filter((c) => c.checked).map((c) => gfHits[+c.dataset.gf]);
@@ -1137,8 +1138,8 @@ function swRender() {
   swSel = Math.min(swSel, swRows.length - 1);
   $('#swl').innerHTML = swRows.map((r, i) => `<div class="item${i === swSel ? ' on' : ''}" data-i="${i}">${r.create ? `Create “${esc(r.create)}”` : esc(r)}</div>`).join('');
 }
-function swOpen(mode) { swMode = mode || 'notes'; $('#swq').placeholder = swMode === 'cmds' ? 'Type a command…' : swMode === 'tasks' ? 'Filter open tasks…' : 'Jump to or create a note…'; $('#sw').style.display = 'flex'; $('#swq').value = ''; swSel = 0; swRender(); $('#swq').focus(); }
-function swClose() { $('#sw').style.display = 'none'; }
+function swOpen(mode) { if (!swModal) swModal = PNUI.modal($('#sw'), {}); swMode = mode || 'notes'; $('#swq').placeholder = swMode === 'cmds' ? 'Type a command…' : swMode === 'tasks' ? 'Filter open tasks…' : 'Jump to or create a note…'; $('#sw').style.display = 'flex'; $('#swq').value = ''; swSel = 0; swRender(); $('#swq').focus(); }
+function swClose() { $('#sw').style.display = 'none'; if (swModal) { swModal.release(); swModal = null; } }
 async function toggleTask(t) {
   const n = notes.get(t.name); if (!n) return;
   const L = n.text.split('\n'); if (!/\[ \]/.test(L[t.line] || '')) return;
@@ -1156,7 +1157,7 @@ function swPick(i) { const r = swRows[i]; swClose(); if (!r) return; if (swMode 
 /* events */
 document.addEventListener('click', (e) => {
   if (document.body.classList.contains('side-open') && !e.target.closest('#side, #menu')) document.body.classList.remove('side-open');
-  if (e.target.id === 'emptytrash') { if (confirm('Permanently delete everything in the trash?')) api('/api/trash', { method: 'DELETE' }).then(() => { trashMode = true; showTrash(); }); return; }
+  if (e.target.id === 'emptytrash') { PNUI.askConfirm({ title: 'Empty the trash?', message: 'Everything in the trash is deleted for good.', ok: 'Delete forever', danger: true }).then((yes) => { if (yes) api('/api/trash', { method: 'DELETE' }).then(() => { trashMode = true; showTrash(); }); }); return; }
   const rs = e.target.closest('[data-restore]');
   if (rs) { api('/api/restore', { method: 'POST', body: JSON.stringify({ id: rs.dataset.restore }) }).then(async (r) => { await load(); trashMode = false; trashIcon(false); renderList(); open(r.name, false); }); return; }
   const tcl = e.target.closest('[data-tabclose]');
@@ -1243,14 +1244,51 @@ $('#ctx').addEventListener('click', (e) => { const b = e.target.closest('[data-c
 document.addEventListener('mousedown', (e) => { if (!e.target.closest?.('#ctx')) hideCtx(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideCtx(); });
 const uniqueName = (base) => { let i = 0, n; do { n = i ? `${base} ${i + 1}` : base; i++; } while (notes.has(n)); return n; };
+// Names of notes and folders may not contain these characters (the server and other file systems reject them).
+const NAME_BAD = /[\\:*?"<>|]/;
+const nameCheck = (v) => (!v.trim() ? 'Enter a name' : NAME_BAD.test(v) ? 'These characters are not allowed:  \\ : * ? " < > |' : '');
+// A folder chooser: type to filter (fuzzy), arrow keys + Enter, or type a new folder path. Resolves to a folder ('' = the top level) or null.
+function pickFolder({ title, current = '' }) {
+  return new Promise((resolve) => {
+    const body = document.createElement('div');
+    body.innerHTML = '<label class="dlg-lbl">Folder<input type="text" id="pfq" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="pfl" placeholder="Type to search, or a new folder name"></label><div class="dlg-err" role="alert"></div><ul class="pf-list" id="pfl" role="listbox" aria-label="Folders"></ul>';
+    const q = body.querySelector('input'), ul = body.querySelector('ul'), err = body.querySelector('.dlg-err'), all = ['', ...[...folders].sort()]; let rows = [], sel = 0;
+    const label = (f) => (f === '' ? 'Top level' : f);
+    const paint = () => {
+      const v = q.value.trim().replace(/^\/+|\/+$/g, '');
+      rows = all.map((f) => ({ f, m: v ? PNUI.fuzzy(v, label(f)) : { score: 0, idx: [] } })).filter((r) => r.m).sort((a, b) => b.m.score - a.m.score).slice(0, 60);
+      if (v && !all.includes(v)) rows.push({ f: v, create: true });
+      sel = Math.max(0, Math.min(sel, rows.length - 1)); err.textContent = '';
+      ul.innerHTML = rows.map((r, i) => `<li role="option" id="pf${i}" data-i="${i}" aria-selected="${i === sel}" class="${i === sel ? 'on' : ''}">${r.create ? `Create “${PNUI.esc(r.f)}”` : PNUI.highlight(label(r.f), r.m.idx)}${r.f === current && !r.create ? ' <small>current</small>' : ''}</li>`).join('') || '<li class="none">No folders</li>';
+      q.setAttribute('aria-activedescendant', rows.length ? 'pf' + sel : '');
+    };
+    const choose = (close) => {
+      const r = rows[sel]; if (!r) return;
+      if (r.create && r.f.split('/').some((x) => !x.trim() || NAME_BAD.test(x))) { err.textContent = 'Folder names cannot be empty or contain  \\ : * ? " < > |'; return; }
+      close(r.f);
+    };
+    let dlg; const close = (v) => dlg.close(v);
+    dlg = PNUI.openDialog({ title, width: '440px', body, focus: '#pfq', actions: [{ label: 'Cancel', onClick: (c) => c(null) }, { label: 'Move here', primary: true, onClick: (c) => choose(c) }] });
+    q.oninput = () => { sel = 0; paint(); };
+    q.onkeydown = (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(sel + 1, rows.length - 1); paint(); ul.querySelector('.on')?.scrollIntoView({ block: 'nearest' }); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(sel - 1, 0); paint(); ul.querySelector('.on')?.scrollIntoView({ block: 'nearest' }); }
+      else if (e.key === 'Enter') { e.preventDefault(); choose(close); }
+    };
+    ul.onclick = (e) => { const li = e.target.closest('li[data-i]'); if (li) { sel = +li.dataset.i; choose(close); } };
+    q.value = current; paint(); q.select();
+    dlg.closed.then((r) => resolve(typeof r === 'string' ? r : null));
+  });
+}
 async function newFolder(parent) {
-  const sub = (prompt('New folder name', '') || '').trim().replace(/[\\:*?"<>|]/g, ''); if (!sub) return;
+  const typed = await PNUI.askText({ title: parent ? `New folder in “${parent}”` : 'New folder', label: 'Folder name', ok: 'Create', validate: nameCheck });
+  const sub = typed === null ? '' : typed.trim(); if (!sub) return;
   const name = parent ? parent + '/' + sub : sub;
   try { await api('/api/folder', { method: 'POST', body: JSON.stringify({ name }) }); } catch (e) { $('#status').textContent = 'Could not create folder: ' + e.message; return; }
   openFolders.add(parent || name); openFolders.add(name); saveOpenFolders(); folders = await api('/api/folders').catch(() => folders); setView('files');
 }
 async function deleteFolder(path) {
-  if (!confirm(`Delete the empty folder “${path}”?`)) return;
+  if (!(await PNUI.askConfirm({ title: 'Delete this folder?', message: `The empty folder “${path}” will be removed.`, ok: 'Delete folder', danger: true }))) return;
   try { await api('/api/folder?name=' + encodeURIComponent(path), { method: 'DELETE' }); }
   catch (e) { $('#status').textContent = e.message === 'not empty' ? 'Folder is not empty' : 'Could not delete: ' + e.message; return; }
   folders = await api('/api/folders').catch(() => folders); renderList();
@@ -1271,9 +1309,9 @@ $('#list').addEventListener('contextmenu', (e) => {
   if (n) {
     const name = n.dataset.note, dir = name.includes('/') ? name.slice(0, name.lastIndexOf('/') + 1) : '';
     showCtx([['Open', () => open(name, false)], ['Open in new tab', () => openInNewTab(name, false)], ['Open to the right', () => openSplit(name)], null,
-      ['Rename…', async () => { const v = (prompt('Rename note', name.split('/').pop()) || '').trim().replace(/[\\:*?"<>|]/g, ''); if (v && dir + v !== name) await renameNote(name, dir + v); }],
+      ['Rename…', async () => { const typed = await PNUI.askText({ title: 'Rename note', label: 'Name', value: name.split('/').pop(), ok: 'Rename', validate: nameCheck }); const v = typed === null ? '' : typed.trim(); if (v && dir + v !== name) await renameNote(name, dir + v); }],
       ['Duplicate', () => duplicateNote(name)],
-      ['Move to folder…', async () => { const v = prompt('Move to folder (empty for the top level)', dir.replace(/\/$/, '')); if (v !== null) await moveNote(name, v.trim().replace(/^\/+|\/+$/g, '')); }],
+      ['Move to folder…', async () => { const v = await pickFolder({ title: `Move “${name.split('/').pop()}”`, current: dir.replace(/\/$/, '') }); if (v !== null) await moveNote(name, v); }],
       [pins.has(name) ? 'Unpin' : 'Pin to top', () => { pins.has(name) ? pins.delete(name) : pins.add(name); savePins(); renderPin(); renderList(); }],
       ['Copy link', () => { try { navigator.clipboard.writeText(`[[${name}]]`); } catch {} }], null,
       ['Move to trash…', async () => { await open(name, false); $('#del').click(); }]], e.clientX, e.clientY);
@@ -1370,7 +1408,8 @@ async function doSync(auto) {
     let s = await syncStatus();
     if (!s?.isRepo || !s.remote) {
       if (auto) return;
-      const url = prompt('Git remote URL for syncing (https://…, ssh://… or git@host:user/repo.git).\nCreate an empty private repo first.', s?.remote || '');
+      const url = await PNUI.askText({ title: 'Sync with git', message: 'Create an empty private repository first, then paste its address.', label: 'Repository address', value: s?.remote || '', placeholder: 'git@github.com:you/notes.git', ok: 'Connect',
+        validate: (v) => (!v.trim() ? 'Enter the repository address' : /^(https:\/\/|ssh:\/\/|git@)\S+$/.test(v.trim()) ? '' : 'Use an https://, ssh:// or git@host:user/repo.git address') });
       if (!url) return;
       await api('/api/sync/setup', { method: 'POST', body: JSON.stringify({ url: url.trim() }) });
     }
@@ -1446,7 +1485,7 @@ $('#pin').onclick = () => { if (!cur) return; pins.has(cur) ? pins.delete(cur) :
 $('#gr').onclick = async () => { await flush(); graphOn = !graphOn; renderPane(); };
 $('#tog').onclick = () => { if (!cur) return; graphOn = false; preview = !preview; flush(); renderPane(); };
 $('#del').onclick = async () => {
-  if (!cur || !confirm(`Move “${cur}” to the trash?`)) return;
+  if (!cur || !(await PNUI.askConfirm({ title: 'Move to the trash?', message: `“${cur}” can be restored from the trash.`, ok: 'Move to trash' }))) return;
   keyring.delete(cur);
   await api('/api/note?name=' + encodeURIComponent(cur), { method: 'DELETE' });
   const gone = cur, keep = tabs[ti]; tabs = tabs.filter((t) => t === keep || t.name !== gone); keep.name = null; ti = tabs.indexOf(keep); renderTabs(); saveTabs();
@@ -1543,11 +1582,10 @@ plainnote.ready = load().then(async () => {
 /* Image lightbox: click an image in the reading view to see it full size (click or Esc closes) */
 document.addEventListener('click', (e) => {
   const img = e.target.closest('#pv img'); if (!img || e.target.closest('a')) return;
-  const lb = document.createElement('div'); lb.id = 'lb';
+  const lb = document.createElement('div'); lb.id = 'lb'; lb.setAttribute('role', 'dialog'); lb.setAttribute('aria-modal', 'true'); lb.setAttribute('aria-label', img.alt || 'Image'); lb.tabIndex = -1;
   const big = document.createElement('img'); big.src = img.src; big.alt = img.alt; lb.appendChild(big);
-  const close = () => { lb.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
-  lb.onclick = close; document.addEventListener('keydown', onKey, true); document.body.appendChild(lb);
+  let m; const close = () => { lb.remove(); m.release(); };
+  lb.onclick = close; document.body.appendChild(lb); m = PNUI.modal(lb, { onEscape: close }); lb.focus();
 });
 
 /* Version history: the server keeps earlier versions of each note (every 2 minutes at most); pick one to preview, then restore it */
@@ -1556,13 +1594,11 @@ async function openHistory() {
   if (isLocked(notes.get(cur))) { $('#status').textContent = 'Unlock this note to see its history'; return; }
   const name = cur; let list = [];
   try { list = await api('/api/history?name=' + encodeURIComponent(name)); } catch (e) { $('#status').textContent = 'History failed: ' + e.message; return; }
-  const box = document.createElement('div'); box.id = 'hist';
   const when = (t) => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-  box.innerHTML = `<div><header><b>History: ${esc(name.split('/').pop())}</b><button id="hx" aria-label="Close">×</button></header><div class="hbody"><ul>${list.map((v) => `<li data-id="${v.id}" tabindex="0">${esc(when(v.id))}<small>${v.size} B</small></li>`).join('') || '<li class="none">No earlier versions yet. They appear after you edit this note.</li>'}</ul><pre id="hpre">Pick a version to preview it.</pre></div><footer><button id="hr" disabled>Restore this version</button></footer></div>`;
-  document.body.appendChild(box);
-  let sel = null; const close = () => { box.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
-  document.addEventListener('keydown', onKey, true);
+  const d = PNUI.openDialog({ id: 'hist', className: 'dlg-hist', width: '760px', title: `History: ${name.split('/').pop()}`, body: `<div class="hbody"><ul>${list.map((v) => `<li data-id="${v.id}" tabindex="0">${esc(when(v.id))}<small>${v.size} B</small></li>`).join('') || '<li class="none">No earlier versions yet. They appear after you edit this note.</li>'}</ul><pre id="hpre">Pick a version to preview it.</pre></div>`,
+    actions: [{ label: 'Restore this version', id: 'hr', primary: true, disabled: true, onClick: () => {} }] });
+  const box = d.box, close = () => d.close();
+  let sel = null;
   const pick = async (li) => {
     box.querySelectorAll('li.on').forEach((x) => x.classList.remove('on')); li.classList.add('on');
     const v = await api('/api/history?name=' + encodeURIComponent(name) + '&id=' + li.dataset.id);
@@ -1573,7 +1609,7 @@ async function openHistory() {
     }
     sel = text; $('#hpre').textContent = text; $('#hr').disabled = false;
   };
-  box.onclick = (e) => { const li = e.target.closest('li[data-id]'); if (li) pick(li); else if (e.target.id === 'hist' || e.target.id === 'hx') close(); };
+  box.onclick = (e) => { const li = e.target.closest('li[data-id]'); if (li) pick(li); };
   box.onkeydown = (e) => { if (e.key === 'Enter' && e.target.matches('li[data-id]')) pick(e.target); };
   $('#hr').onclick = () => {
     if (sel === null || !notes.get(name)) return;
@@ -1585,37 +1621,26 @@ async function openHistory() {
 
 /* Web clipper: a bookmark that saves the page you're reading (or your selection) here as a Markdown note */
 function openClipper() {
-  const box = document.createElement('div'); box.id = 'clipdlg';
-  box.innerHTML = `<div><header><b>Web clipper</b><button id="hx" aria-label="Close">×</button></header><div class="cbody">
+  const d = PNUI.openDialog({ id: 'clipdlg', width: '560px', title: 'Web clipper', body: `
 <p>Drag this to your bookmarks bar: <a id="clipbm" class="att" style="padding:3px 10px;border:1px solid var(--line);border-radius:6px;text-decoration:none">Clip to Plainnote</a></p>
 <p>Then, on any page, select some text (or select nothing to take the whole article) and click the bookmark. A small window shows the page as Markdown to edit and save into <b>Clippings/</b>, tagged <code>#clipping</code>, with the source link.</p>
-<p style="color:var(--mute);font-size:13px">The bookmark points at <code>${esc(location.origin)}</code>, so it only works while Plainnote is running at that address: use <code>node server.js ~/Notes 4777</code> for a fixed one. The Mac app picks a new port each launch. Allow pop-ups when asked. A few sites block bookmarks with a strict security policy.</p></div></div>`;
-  document.body.appendChild(box);
+<p style="color:var(--mute);font-size:13px">The bookmark points at <code>${esc(location.origin)}</code>, so it only works while Plainnote is running at that address: use <code>node server.js ~/Notes 4777</code> for a fixed one. The Mac app picks a new port each launch. Allow pop-ups when asked. A few sites block bookmarks with a strict security policy.</p>` });
   $('#clipbm').setAttribute('href', PNClip.bookmarklet(location.origin));
   $('#clipbm').onclick = (e) => e.preventDefault();                 // drag it, don't run it here
-  const close = () => { box.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
-  document.addEventListener('keydown', onKey, true);
-  box.onclick = (e) => { if (e.target.id === 'clipdlg' || e.target.id === 'hx') close(); };
 }
 
 /* Import: bring notes in from Obsidian, Notion, Evernote, Bear or any folder/zip of Markdown. Nothing is overwritten. */
 function openImport() {
-  const box = document.createElement('div'); box.id = 'impdlg';
-  box.innerHTML = `<div role="dialog" aria-label="Import notes"><header><b>Import notes</b><button id="impx" aria-label="Close">×</button></header><div class="cbody">
+  const d = PNUI.openDialog({ id: 'impdlg', width: '580px', title: 'Import notes', canClose: () => !busy, body: `
 <p>Choose what you exported. Everything becomes plain Markdown files, with links, images and folders kept.</p>
 <ul class="impl"><li><b>Obsidian, Bear or a Markdown folder</b>: choose the folder (or a .zip of it).</li><li><b>Notion</b>: Export as <i>Markdown &amp; CSV</i> (or HTML), then choose the .zip.</li><li><b>Evernote</b>: File → Export Notes… as .enex, then choose the file.</li></ul>
 <div class="improw"><button id="impf" class="pri">Choose files or a .zip…</button><button id="impd">Choose a folder…</button></div>
 <input id="impfi" type="file" multiple hidden accept=".zip,.md,.markdown,.txt,.html,.htm,.enex,.csv,.png,.jpg,.jpeg,.gif,.webp,.svg,.pdf"><input id="impdi" type="file" webkitdirectory multiple hidden>
 <div id="impsum" aria-live="polite"></div>
 <div id="impgo" hidden><label>Put the imported notes in the folder <input id="impto" value="Imported" placeholder="(leave empty to merge into your notes)" spellcheck="false"></label>
-<div class="improw"><button id="impgo2" class="pri">Import</button><span id="impst" role="status"></span></div></div></div></div>`;
-  document.body.appendChild(box);
+<div class="improw"><button id="impgo2" class="pri">Import</button><span id="impst" role="status"></span></div></div>` });
+  const box = d.box, close = () => d.close(); box.querySelector('.dlg-x').id = 'impx';
   let prepared = null, busy = false;
-  const close = () => { if (busy) return; box.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
-  document.addEventListener('keydown', onKey, true);
-  box.onclick = (e) => { if (e.target.id === 'impdlg' || e.target.id === 'impx') close(); };
   const sum = (html) => { $('#impsum').innerHTML = html; };
   const prefix = () => $('#impto').value.trim().replace(/^\/+|\/+$/g, '');
   const planNow = () => PNImport.plan(prepared.files, { existing: new Set(notes.keys()), prefix: prefix(), html2md: PNClip.clip });
@@ -1635,7 +1660,7 @@ function openImport() {
   }
   $('#impf').onclick = () => $('#impfi').click(); $('#impd').onclick = () => $('#impdi').click();
   $('#impfi').onchange = (e) => chosen(e.target.files); $('#impdi').onchange = (e) => chosen(e.target.files);
-  box.addEventListener('dragover', (e) => e.preventDefault()); box.addEventListener('drop', (e) => { e.preventDefault(); chosen(e.dataTransfer.files); });
+  const zone = box.parentElement; zone.addEventListener('dragover', (e) => e.preventDefault()); zone.addEventListener('drop', (e) => { e.preventDefault(); chosen(e.dataTransfer.files); });
   $('#impgo2').onclick = async () => {
     if (busy || !prepared) return; busy = true; $('#impgo2').disabled = true;
     const st = (s) => { $('#impst').textContent = s; };
@@ -1696,24 +1721,18 @@ function openImport() {
 // A small passphrase dialog (the browser's prompt() can't hide typing and doesn't exist in every WebView). Resolves to the passphrase or null.
 function askPass({ title, message, confirm: twice, ok = 'OK', warn }) {
   return new Promise((resolve) => {
-    const box = document.createElement('div'); box.id = 'passdlg';
-    box.innerHTML = `<form role="dialog" aria-modal="true" aria-labelledby="pdt"><h3 id="pdt">${esc(title)}</h3>${message ? `<p>${esc(message)}</p>` : ''}${warn ? `<p class="pdw">${esc(warn)}</p>` : ''}
+    const d = PNUI.openDialog({ id: 'passdlg', width: '420px', title, body: `<form class="dlg-form">${message ? `<p>${esc(message)}</p>` : ''}${warn ? `<p class="pdw">${esc(warn)}</p>` : ''}
 <label>Passphrase<input id="pd1" type="password" autocomplete="off" spellcheck="false"></label>${twice ? '<label>Again<input id="pd2" type="password" autocomplete="off" spellcheck="false"></label>' : ''}
-<label class="pdshow"><input id="pds" type="checkbox"> Show</label><div id="pde" role="alert"></div><div class="pdact"><button type="button" id="pdc">Cancel</button><button type="submit" class="pri">${esc(ok)}</button></div></form>`;
-    document.body.appendChild(box);
-    const done = (v) => { document.removeEventListener('keydown', onKey, true); box.remove(); resolve(v); };
-    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
-    document.addEventListener('keydown', onKey, true);
+<label class="pdshow"><input id="pds" type="checkbox"> Show</label><div id="pde" role="alert"></div><div class="pdact"><button type="button" id="pdc">Cancel</button><button type="submit" class="pri">${esc(ok)}</button></div></form>`, onClose: (r) => resolve(typeof r === 'string' ? r : null) });
+    const box = d.box, done = (v) => d.close(v);
     $('#pds').onchange = (e) => { for (const i of box.querySelectorAll('input[type=password],input[data-pw]')) { i.type = e.target.checked ? 'text' : 'password'; i.dataset.pw = '1'; } };
     $('#pdc').onclick = () => done(null);
-    box.addEventListener('mousedown', (e) => { if (e.target === box) done(null); });
-    box.firstElementChild.onsubmit = (e) => {
+    box.querySelector('form').onsubmit = (e) => {
       e.preventDefault(); const a = $('#pd1').value;
       if ([...a].length < PNCrypto.MIN_PASS) { $('#pde').textContent = `Use at least ${PNCrypto.MIN_PASS} characters (a few random words work well).`; return; }
       if (twice && $('#pd2').value !== a) { $('#pde').textContent = 'The two passphrases are different.'; return; }
       done(a);
     };
-    $('#pd1').focus();
   });
 }
 const say = (s) => { $('#status').textContent = s; };
@@ -1779,7 +1798,7 @@ async function changePassphrase() {
 async function removeEncryption() {
   const n = cur && notes.get(cur); if (!n || !n.cipher) { say('This note is not encrypted'); return; }
   if (!n.enc) { say('Unlock the note first'); return; }
-  if (!window.confirm(`Remove encryption from “${n.name.split('/').pop()}”? It will be stored as plain text.`)) return;
+  if (!(await PNUI.askConfirm({ title: 'Remove encryption?', message: `“${n.name.split('/').pop()}” will be stored as plain text.`, ok: 'Remove encryption', danger: true }))) return;
   try {
     const r = await api('/api/note?name=' + encodeURIComponent(n.name), { method: 'PUT', body: n.text, headers: { 'x-base-mtime': String(n.base ?? 0) } });
     delete n.cipher; n.enc = null; n.base = r.mtime; keyring.delete(n.name); renderList(); renderPane(); say('Encryption removed');
@@ -1807,17 +1826,12 @@ async function downloadBackup() {
   document.body.appendChild(a); a.click(); a.remove(); st('Preparing your backup… your browser will ask where to save it');
 }
 function openRestore() {
-  const box = document.createElement('div'); box.id = 'bakdlg';
-  box.innerHTML = `<div role="dialog" aria-label="Restore from a backup"><header><b>Restore from a backup</b><button id="bkx" aria-label="Close">×</button></header><div class="cbody">
+  const d = PNUI.openDialog({ id: 'bakdlg', width: '540px', title: 'Restore from a backup', canClose: () => !busy, body: `
 <p>Choose a Plainnote backup (<code>.zip</code>). Restoring only <b>adds</b> files: anything you already have is left exactly as it is. A note that differs from the backup's version is kept as a separate “(restored …)” copy next to it.</p>
 <div class="bkrow"><button id="bkf" class="pri">Choose a backup…</button></div><input id="bkfi" type="file" accept=".zip,application/zip" hidden>
-<div id="bksum" aria-live="polite"></div><div class="bkrow" id="bkgo" hidden><button id="bkgo2" class="pri">Restore</button><span id="bkst" role="status"></span></div></div></div>`;
-  document.body.appendChild(box);
+<div id="bksum" aria-live="polite"></div><div class="bkrow" id="bkgo" hidden><button id="bkgo2" class="pri">Restore</button><span id="bkst" role="status"></span></div>` });
+  const box = d.box, close = () => d.close(); box.querySelector('.dlg-x').id = 'bkx';
   let file = null, busy = false;
-  const close = () => { if (busy) return; box.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = (k) => { if (k.key === 'Escape') { k.stopPropagation(); close(); } };
-  document.addEventListener('keydown', onKey, true);
-  box.onclick = (e) => { if (e.target.id === 'bakdlg' || e.target.id === 'bkx') close(); };
   const sum = (h) => { $('#bksum').innerHTML = h; };
   const plural = (n, w) => `<b>${n}</b> ${w}${n === 1 ? '' : 's'}`;
   const post = (mode) => api('/api/backup/restore?mode=' + mode, { method: 'POST', body: file });

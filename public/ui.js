@@ -68,41 +68,52 @@
     return { close, el };
   }
 
-  // ---------- dialogs ----------
-  let depth = 0;
+  // ---------- modal stack: inert background, Tab focus trap, Esc, focus return (shared by dialogs and the page's own overlays) ----------
+  const stack = [];
   const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
   const setInert = (on) => { for (const sel of ['#app', '#tabbar']) { const e = document.querySelector(sel); if (e) { if (on) e.setAttribute('inert', ''); else e.removeAttribute('inert'); } } };
-  // openDialog({ title, body (HTML string or Element), actions: [{ label, primary, danger, onClick(close) }], onClose, canClose, focus, width, className })
+  function onModalKey(e) {
+    const top = stack[stack.length - 1]; if (!top) return;                          // only the topmost modal reacts
+    if (e.key === 'Escape' && top.onEscape) { e.preventDefault(); e.stopPropagation(); top.onEscape(); }
+    else if (e.key === 'Tab') {
+      const box = top.el, f = [...box.querySelectorAll(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement);
+      if (!f.length) { e.preventDefault(); return; }
+      const first = f[0], last = f[f.length - 1], a = document.activeElement;
+      if (e.shiftKey && (a === first || !box.contains(a))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (a === last || !box.contains(a))) { e.preventDefault(); first.focus(); }
+    }
+  }
+  // modal(el, { onEscape }) -> { release() }: makes `el` the only reachable part of the page until released, then returns focus to where it was.
+  function modal(el, opts = {}) {
+    const opener = document.activeElement, h = { el, onEscape: opts.onEscape };
+    if (!stack.length) { document.addEventListener('keydown', onModalKey, true); setInert(true); }
+    stack.push(h);
+    return { release() {
+      const i = stack.indexOf(h); if (i < 0) return; stack.splice(i, 1);
+      if (!stack.length) { document.removeEventListener('keydown', onModalKey, true); setInert(false); }
+      if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
+    } };
+  }
+
+  // ---------- dialogs ----------
+  // openDialog({ title, body (HTML string or Element), actions: [{ label, primary, danger, id, onClick(close) }], onClose, canClose, focus, width, className, id })
   //   -> { box, body, close(result), closed: Promise<result> }
   function openDialog(o) {
-    const opener = document.activeElement, id = 'dlg' + Math.random().toString(36).slice(2, 8);
+    const id = 'dlg' + Math.random().toString(36).slice(2, 8);
     const scrim = document.createElement('div'); scrim.className = 'dlg-scrim';
     scrim.innerHTML = `<div class="dlg ${o.className || ''}" role="dialog" aria-modal="true" aria-labelledby="${id}t"${o.width ? ` style="--w:${o.width}"` : ''}><header><h3 id="${id}t"></h3><button type="button" class="dlg-x" aria-label="Close">×</button></header><div class="dlg-body"></div><footer class="dlg-act"></footer></div>`;
     const box = scrim.firstChild, body = box.querySelector('.dlg-body'), foot = box.querySelector('footer');
+    if (o.id) box.id = o.id;
     box.querySelector('h3').textContent = o.title || '';
     if (typeof o.body === 'string') body.innerHTML = o.body; else if (o.body) body.appendChild(o.body);
-    let resolve; const closed = new Promise((r) => { resolve = r; }); let isClosed = false;
+    let resolve; const closed = new Promise((r) => { resolve = r; }); let isClosed = false, m;
     const close = (result) => {
       if (isClosed) return; if (o.canClose && !o.canClose()) return; isClosed = true;
-      document.removeEventListener('keydown', onKey, true); scrim.remove();
-      if (--depth === 0) setInert(false);
-      if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
+      scrim.remove(); m.release();
       if (o.onClose) o.onClose(result); resolve(result);
     };
-    const onKey = (e) => {
-      if (!scrim.isConnected) return;
-      const top = [...document.querySelectorAll('.dlg-scrim')].pop(); if (top !== scrim) return;     // only the topmost dialog reacts
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(null); }
-      else if (e.key === 'Tab') {
-        const f = [...box.querySelectorAll(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement);
-        if (!f.length) { e.preventDefault(); return; }
-        const first = f[0], last = f[f.length - 1], a = document.activeElement;
-        if (e.shiftKey && (a === first || !box.contains(a))) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && (a === last || !box.contains(a))) { e.preventDefault(); first.focus(); }
-      }
-    };
     for (const a of o.actions || []) {
-      const b = document.createElement('button'); b.type = 'button'; b.textContent = a.label; if (a.primary) b.className = 'pri'; if (a.danger) b.classList.add('danger'); if (a.id) b.id = a.id;
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = a.label; if (a.primary) b.className = 'pri'; if (a.danger) b.classList.add('danger'); if (a.id) b.id = a.id; if (a.disabled) b.disabled = true;
       b.onclick = () => (a.onClick ? a.onClick(close, b) : close(a.label)); foot.appendChild(b);
     }
     if (!foot.children.length) foot.remove();
@@ -110,9 +121,8 @@
     let downOnScrim = false;
     scrim.addEventListener('mousedown', (e) => { downOnScrim = e.target === scrim; });
     scrim.addEventListener('click', (e) => { if (e.target === scrim && downOnScrim) close(null); });      // a drag that merely ends on the backdrop does not close it
-    document.addEventListener('keydown', onKey, true);
-    document.body.appendChild(scrim); depth++; setInert(true);
-    const target = (o.focus && box.querySelector(o.focus)) || box.querySelector('input:not([type=hidden]),textarea,select') || foot?.querySelector('.pri') || box.querySelector('button');
+    document.body.appendChild(scrim); m = modal(box, { onEscape: () => close(null) });
+    const target = (o.focus && box.querySelector(o.focus)) || box.querySelector('input:not([type=hidden]),textarea,select') || foot?.querySelector('.pri:not([disabled])') || box.querySelector('button:not([disabled])');
     if (target) target.focus();
     return { box, body, close, closed };
   }
@@ -148,7 +158,7 @@
     if (!box.children.length) box.remove();
   }
 
-  const api = { fuzzy, highlight, esc, toast, openDialog, askText, askConfirm, emptyState };
+  const api = { fuzzy, highlight, esc, toast, modal, openDialog, askText, askConfirm, emptyState };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.PNUI = api;
 })(typeof window !== 'undefined' ? window : globalThis);

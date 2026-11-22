@@ -7,6 +7,6 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test tests/md.test.js tests/server.test.js tests/diagram.test.js tests/clip.test.js tests/import.test.js tests/import-ui.test.js tests/tour.test.js tests/crypto.test.js tests/encrypt-ui.test.js tests/backup.test.js tests/backup-ui.test.js tests/theme.test.js tests/ui-kit.test.js tests/launcher.test.js tests/bundle.test.js tests/ui.test.js"
+    "test": "node --test tests/md.test.js tests/server.test.js tests/diagram.test.js tests/clip.test.js tests/import.test.js tests/import-ui.test.js tests/tour.test.js tests/crypto.test.js tests/encrypt-ui.test.js tests/backup.test.js tests/backup-ui.test.js tests/theme.test.js tests/ui-kit.test.js tests/dialogs-ui.test.js tests/launcher.test.js tests/bundle.test.js tests/ui.test.js"
   }
 }
