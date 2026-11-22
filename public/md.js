@@ -143,44 +143,8 @@
   const sepRe = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
   // create({ resolve }) -> { md, inline }; resolve(name) returns the canonical note name or null.
-  // Diagram fences: ```diagram with lines like `Browser -> Server -> Database`, `A -> B: label`; first line `down` lays out top-to-bottom.
-  // Pure SVG (currentColor, so it follows light/dark and prints), no dependencies.
-  function diagramSvg(src) {
-    const lines = src.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
-    const down = lines[0] && /^(down|vertical|tb|td)$/i.test(lines[0]); if (down) lines.shift();
-    const ids = [], edges = [], idx = (n) => { let i = ids.indexOf(n); if (i < 0) { ids.push(n); i = ids.length - 1; } return i; };
-    for (const l of lines) {
-      const m = l.match(/^(.*?)(?::\s*(.+))?$/), parts = m[1].split(/\s*->\s*/).map((x) => x.trim()).filter(Boolean);
-      if (parts.length === 1) idx(parts[0]);
-      for (let i = 0; i + 1 < parts.length; i++) edges.push([idx(parts[i]), idx(parts[i + 1]), i + 2 === parts.length ? (m[2] || '') : '']);
-    }
-    if (!ids.length) return '';
-    const layer = ids.map(() => 0);
-    for (let pass = 0; pass < ids.length; pass++) for (const [a, b] of edges) if (a !== b && layer[b] < layer[a] + 1 && layer[a] < ids.length) layer[b] = layer[a] + 1;
-    const cols = []; ids.forEach((_, i) => (cols[layer[i]] = cols[layer[i]] || []).push(i));
-    const lab = Math.max(0, ...edges.map((e) => e[2].length)), W = ids.map((n) => Math.max(72, n.length * 8 + 28)), H = 38, GX = down ? 56 : Math.max(64, lab * 6.5 + 24), GY = down ? Math.max(26, lab ? 0 : 0) + 26 : 26, pos = [];
-    const colSize = cols.map((c) => c ? c.reduce((t, i) => t + (down ? W[i] : H), 0) + (c.length - 1) * (down ? GY : GY) : 0);
-    const span = Math.max(...colSize, 0), colW = cols.map((c) => c ? Math.max(...c.map((i) => (down ? H : W[i]))) : 0);
-    let off = 12; const PAD = 12;
-    cols.forEach((c, k) => {
-      if (!c) return; let t = PAD + (span - colSize[k]) / 2;
-      for (const i of c) { pos[i] = down ? { x: t, y: off, w: W[i], h: H } : { x: off, y: t, w: W[i], h: H }; t += (down ? W[i] : H) + GY; }
-      off += colW[k] + GX;
-    });
-    const wTot = Math.max(...pos.map((p) => p.x + p.w)) + PAD, hTot = Math.max(...pos.map((p) => p.y + p.h)) + PAD;
-    let g = '';
-    for (const [a, b, label] of edges) {
-      const A = pos[a], B = pos[b]; if (a === b) continue;
-      const back = down ? B.y < A.y : B.x < A.x;
-      const x1 = down ? A.x + A.w / 2 : back ? A.x : A.x + A.w, y1 = down ? (back ? A.y : A.y + A.h) : A.y + A.h / 2;
-      const x2 = down ? B.x + B.w / 2 : back ? B.x + B.w : B.x, y2 = down ? (back ? B.y + B.h : B.y) : B.y + B.h / 2;
-      g += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>`;
-      if (label) g += `<text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2 - 5}" text-anchor="middle" font-size="11" fill="currentColor" opacity=".75">${esc(label)}</text>`;
-    }
-    ids.forEach((n, i) => { const p = pos[i];
-      g += `<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="${p.x + p.w / 2}" y="${p.y + p.h / 2 + 4}" text-anchor="middle" font-size="13" fill="currentColor">${esc(n)}</text>`; });
-    return `<svg class="diagram" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${wTot} ${hTot}" width="${wTot}" role="img" aria-label="Diagram: ${esc(ids.join(', '))}" style="max-width:100%;height:auto"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>${g}</svg>`;
-  }
+  // Diagram fences (flow and sequence diagrams) are drawn by diagram.js: see the syntax notes at the top of that file.
+  function diagramSvg(src) { return (typeof PNDiagram !== 'undefined' ? PNDiagram : require('./diagram.js')).render(src); }
 
   // Math: a LaTeX subset ($x^2$ inline, $$ ... $$ blocks) rendered as MathML, which every current browser draws natively. Never throws.
   const GREEK = { alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ', upsilon: 'υ', phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω' };
