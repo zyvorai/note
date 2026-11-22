@@ -175,6 +175,8 @@ function renderList() {
   if (q) rows = rows.filter((n) => MD.searchMatch(pq, n.name, n.text, lowerOf(n)));
   if (view === 'files' && !q && !activeTag) { $('#list').innerHTML = treeHtml(MD.buildTree([...notes.keys()], folders), 0) || '<div class="empty">No notes</div>'; return; }
   rows.sort((a, b) => pins.has(b.name) - pins.has(a.name) || b.mtime - a.mtime);   // pinned first, then newest
+  const listKey = $('#q').value + '|' + activeTag + '|' + view; if (listKey !== renderList.key) { renderList.key = listKey; listLimit = LIST_PAGE; }      // a new search or filter starts from the first page again
+  const total = rows.length; if (total > listLimit) rows = rows.slice(0, listLimit);                                                                   // thousands of rows cost real time: show a page, then more on request
   $('#list').innerHTML = rows.map((n) => {
     let snip = '';
     if (q) { const i = MD.searchSnippetAt(pq, n.text);
@@ -182,8 +184,14 @@ function renderList() {
     if (isTouch() && !snip) snip = `<span class="snip">${n.cipher && !n.enc ? 'Encrypted' : esc(notePreview(n.text, n.name))}</span>`;
     const inner = isTouch() ? `<div class="r1"><span class="nm">${pins.has(n.name) ? '📌 ' : ''}${n.cipher ? '🔒 ' : ''}${esc(n.name.split('/').pop())}</span><span class="tm">${esc(relTime(n.mtime))}</span></div>` : `${pins.has(n.name) ? '📌 ' : ''}${n.cipher ? '🔒 ' : ''}${esc(n.name)}`;
     return `<div class="item${n.name === cur ? ' on' : ''}" data-note="${esc(n.name)}">${inner}${snip}</div>`;
-  }).join('') || '<div class="empty">No notes</div>';
+  }).join('') + (total > rows.length ? `<div class="item more" id="moreRows" role="button">Show ${Math.min(MORE_STEP, total - rows.length)} more · ${total - rows.length} not shown</div>` : '') || '<div class="empty">No notes</div>';
 }
+const LIST_PAGE = 200, MORE_STEP = 400; let listLimit = LIST_PAGE;
+$('#list').addEventListener('click', (e) => {
+  if (!e.target.closest('#moreRows')) return;
+  const shown = $('#list').querySelectorAll('.item:not(.more)').length; listLimit += MORE_STEP; renderList();
+  const next = $('#list').querySelectorAll('.item')[shown]; if (next) { next.tabIndex = 0; next.focus(); }          // keyboard users land on the first new row (tabindex first: the a11y layer adds it a moment later)
+});
 function renderBack() {
   if (!cur) { $('#back').innerHTML = ''; return; }
   const me = notes.get(cur), hits = [];
@@ -1011,6 +1019,9 @@ function drawGraph() {
       const t = node(key, r ? r.split('/').pop() : m[1].trim(), !r), s = ids.get(o.name);
       links.push([s, t]); s.deg++; t.deg++;
     } }
+  const GRAPH_MAX = 1500;                              // all-pairs physics is O(n²): beyond this, show the neighbourhood of the open note, or the best-connected notes
+  let capped = false;
+  if (!graphScope && nodes.length > GRAPH_MAX && cur && ids.has(cur)) { graphScope = 1; capped = true; }
   if (graphScope && cur && ids.has(cur)) {           // keep only notes within graphScope links of the open note
     const dist = new Map([[cur, 0]]), q = [cur];
     while (q.length) { const id = q.shift(), d = dist.get(id); if (d >= graphScope) continue;
@@ -1019,15 +1030,23 @@ function drawGraph() {
     for (let i = links.length - 1; i >= 0; i--) if (!dist.has(links[i][0].id) || !dist.has(links[i][1].id)) links.splice(i, 1);
     for (const n of nodes) { n.deg = 0; n.x *= 0.3; n.y *= 0.3; }
     for (const [a, b] of links) { a.deg++; b.deg++; }
-  } else if (graphScope) graphScope = 0;
-  $('#gmode').textContent = graphScope ? `Around “${cur.split('/').pop()}” · ${graphScope === 1 ? '1 step' : '2 steps'}` : 'All notes';
+  } else {
+    if (graphScope) graphScope = 0;
+    if (nodes.length > GRAPH_MAX) {
+      const keep = new Set([...nodes].sort((x, y) => y.deg - x.deg).slice(0, GRAPH_MAX)); capped = true;
+      for (let i = nodes.length - 1; i >= 0; i--) if (!keep.has(nodes[i])) nodes.splice(i, 1);
+      for (let i = links.length - 1; i >= 0; i--) if (!keep.has(links[i][0]) || !keep.has(links[i][1])) links.splice(i, 1);
+    }
+  }
+  $('#gmode').textContent = (graphScope ? `Around “${cur.split('/').pop()}” · ${graphScope === 1 ? '1 step' : '2 steps'}` : capped ? `The ${GRAPH_MAX} best-connected notes` : 'All notes') + (capped && graphScope ? ' (large vault)' : '');
   $('#gmode').onclick = () => { graphScope = cur ? (graphScope + 1) % 3 : 0; drawGraph(); };
   if (!nodes.length) { pane.innerHTML = '<div class="empty">No notes yet</div>'; return; }
   cv.dataset.nodes = nodes.length;
-  const css = getComputedStyle(document.documentElement), C = (v) => css.getPropertyValue(v).trim();
-  let userView = false, frames = 0, W, H, scale = 1, ox = 0, oy = 0, alpha = 1, drag = null, pan = null, hover = null, moved = false;
+  const css = getComputedStyle(document.documentElement), C = (v) => css.getPropertyValue(v).trim(), col = {};
+  const refreshCols = () => { for (const v of ['--acc', '--line', '--mute', '--fg']) col[v] = C(v); }; refreshCols(); let paints = 0;
+  let lastEnergy = 1, idle = 0, userView = false, frames = 0, W, H, scale = 1, ox = 0, oy = 0, alpha = 1, drag = null, pan = null, hover = null, moved = false;
   const size = () => { W = pane.clientWidth; H = pane.clientHeight; cv.width = W * dpr; cv.height = H * dpr; };
-  size(); const ro = new ResizeObserver(() => { if (cv.isConnected) size(); else ro.disconnect(); }); ro.observe(pane);
+  size(); const ro = new ResizeObserver(() => { if (cv.isConnected) { size(); wake(); } else ro.disconnect(); }); ro.observe(pane);
   const rad = (n) => 4 + Math.sqrt(n.deg) * 3;
   const toW = (px, py) => [(px - W / 2 - ox) / scale, (py - H / 2 - oy) / scale];
   const pick = (px, py) => { const [x, y] = toW(px, py); let best = null, bd = 1e9;
@@ -1044,9 +1063,11 @@ function drawGraph() {
         a.vx += dx; a.vy += dy; b.vx -= dx; b.vy -= dy; } }
     for (const [a, b] of links) { const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, f = (d - 70) * 0.02;
       a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; }
+    let energy = 0;
     for (const n of nodes) { n.vx -= n.x * 0.004; n.vy -= n.y * 0.004;
       if (n === drag) { n.vx = n.vy = 0; continue; }
-      n.vx *= 0.82; n.vy *= 0.82; n.x += n.vx * alpha; n.y += n.vy * alpha; }
+      n.vx *= 0.82; n.vy *= 0.82; n.x += n.vx * alpha; n.y += n.vy * alpha; energy += (Math.abs(n.vx) + Math.abs(n.vy)) * alpha; }      // energy = how far things visibly moved this frame
+    lastEnergy = energy;
     alpha = Math.max(alpha * 0.994, 0.02);
     if (!userView && frames++ < 400) {                       // ease the view to fit the whole graph until the user takes over
       let mx = 1, my = 1; for (const n of nodes) { mx = Math.max(mx, Math.abs(n.x)); my = Math.max(my, Math.abs(n.y)); }
@@ -1055,35 +1076,43 @@ function drawGraph() {
     }
   }
   function paint() {
+    if (!(paints++ % 30)) refreshCols();                  // picks up a theme change within half a second
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
     ctx.translate(W / 2 + ox, H / 2 + oy); ctx.scale(scale, scale);
     const hot = new Set(); if (hover) { hot.add(hover); for (const [a, b] of links) { if (a === hover) hot.add(b); if (b === hover) hot.add(a); } }
     ctx.lineWidth = 1 / scale;
     for (const [a, b] of links) { const on = hover && (a === hover || b === hover);
-      ctx.strokeStyle = on ? C('--acc') : C('--line'); ctx.globalAlpha = hover && !on ? 0.3 : 1;
+      ctx.strokeStyle = on ? col['--acc'] : col['--line']; ctx.globalAlpha = hover && !on ? 0.3 : 1;
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
     ctx.font = `${12 / scale}px -apple-system,system-ui,sans-serif`; ctx.textAlign = 'center';
     for (const n of nodes) {
       const dim = hover && !hot.has(n), isCur = n.id === cur;
       ctx.globalAlpha = dim ? 0.25 : 1;
-      ctx.fillStyle = isCur ? C('--acc') : n.ghost ? C('--line') : C('--mute');
+      ctx.fillStyle = isCur ? col['--acc'] : n.ghost ? col['--line'] : col['--mute'];
       ctx.beginPath(); ctx.arc(n.x, n.y, rad(n), 0, 6.283); ctx.fill();
-      if (isCur) { ctx.strokeStyle = C('--acc'); ctx.beginPath(); ctx.arc(n.x, n.y, rad(n) + 3 / scale, 0, 6.283); ctx.stroke(); }
-      if (scale > 0.6 || hot.has(n) || isCur) { ctx.fillStyle = C('--fg'); ctx.fillText(n.label, n.x, n.y + rad(n) + 13 / scale); } }
+      if (isCur) { ctx.strokeStyle = col['--acc']; ctx.beginPath(); ctx.arc(n.x, n.y, rad(n) + 3 / scale, 0, 6.283); ctx.stroke(); }
+      if (scale > 0.6 || hot.has(n) || isCur) { ctx.fillStyle = col['--fg']; ctx.fillText(n.label, n.x, n.y + rad(n) + 13 / scale); } }
     ctx.globalAlpha = 1;
   }
-  const loop = () => { if (!cv.isConnected) return; step(); paint(); gRaf = requestAnimationFrame(loop); };
+  // The animation sleeps once the layout has settled (no battery burned on a still graph) and wakes on any interaction.
+  const loop = () => {
+    if (!cv.isConnected) { gRaf = 0; return; }
+    step(); paint();
+    idle = lastEnergy < 0.02 * nodes.length && !drag && !pan && (userView || frames >= 400) ? idle + 1 : 0;
+    gRaf = idle > 60 ? 0 : requestAnimationFrame(loop);
+  };
+  const wake = () => { idle = 0; if (!gRaf && cv.isConnected) gRaf = requestAnimationFrame(loop); };
   const pos = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  cv.onpointerdown = (e) => { const [px, py] = pos(e); cv.setPointerCapture(e.pointerId); moved = false; userView = true;
+  cv.onpointerdown = (e) => { wake(); const [px, py] = pos(e); cv.setPointerCapture(e.pointerId); moved = false; userView = true;
     const n = pick(px, py); if (n) drag = n; else { pan = [px - ox, py - oy]; } cv.style.cursor = 'grabbing'; };
-  cv.onpointermove = (e) => { const [px, py] = pos(e);
+  cv.onpointermove = (e) => { wake(); const [px, py] = pos(e);
     if (drag) { [drag.x, drag.y] = toW(px, py); alpha = 0.6; moved = true; }
     else if (pan) { ox = px - pan[0]; oy = py - pan[1]; moved = true; }
     else { const h = pick(px, py); if (h !== hover) { hover = h; cv.style.cursor = h ? 'pointer' : 'grab'; } } };
   cv.onpointerup = () => { if (drag && !moved) { const n = drag; drag = null; graphOn = false; open(n.id, true); return; }
     drag = pan = null; cv.style.cursor = hover ? 'pointer' : 'grab'; };
   cv.onpointercancel = () => { drag = pan = null; cv.style.cursor = 'grab'; };          // the browser took the gesture (scroll, system swipe): never leave a drag stuck
-  cv.onwheel = (e) => { e.preventDefault(); userView = true; const [px, py] = pos(e), k = Math.exp(-e.deltaY * 0.0015), ns = Math.min(4, Math.max(0.2, scale * k));
+  cv.onwheel = (e) => { e.preventDefault(); wake(); userView = true; const [px, py] = pos(e), k = Math.exp(-e.deltaY * 0.0015), ns = Math.min(4, Math.max(0.2, scale * k));
     const [wx, wy] = toW(px, py); scale = ns; ox = px - W / 2 - wx * scale; oy = py - H / 2 - wy * scale; };
   if (/[?&]settle\b/.test(location.search)) for (let i = 0; i < 600; i++) step();   // ?graph&settle: pre-computed layout (deterministic screenshots)
   loop();

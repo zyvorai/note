@@ -36,7 +36,7 @@ function makeVault(dir) {
     const time = (expr, runs = 1) => ev(`(async () => { const t = []; for (let i = 0; i < ${runs}; i++) { const a = performance.now(); await (${expr}); t.push(performance.now() - a); } t.sort((x, y) => x - y); return { ms: Math.round(t[Math.floor(t.length / 2)] * 10) / 10 }; })()`).then((r) => r.ms);
     const bytes = () => ev("performance.getEntriesByType('resource').filter((e) => /\\/api\\/notes/.test(e.name)).reduce((a, e) => a + e.encodedBodySize, 0)");
     const out = {};
-    await ev("performance.clearResourceTimings()");
+    await ev("performance.setResourceTimingBufferSize(5000); performance.clearResourceTimings()");
     out['cold load (first, every note)'] = await time('(async () => { notes = new Map(); await load(); })()'); out['  transferred (bytes)'] = await bytes();
     await ev("performance.clearResourceTimings()");
     out['reload when nothing changed (window focus)'] = await time('load()', 3); out['  transferred (bytes)'] = await bytes();
