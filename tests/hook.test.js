@@ -24,7 +24,7 @@ test('it stays out of the way for deletions and tags, and can be skipped once', 
   const skip = run([push], { ...fail, SKIP_TESTS: '1' }); assert.equal(skip.status, 0); assert.match(skip.stdout, /not running the tests/);
 });
 test('it is executable, installed by one npm script, and only looks at the repository it is in', () => {
-  assert.ok(fs.statSync(HOOK).mode & 0o111, 'the hook file is executable');
+  if (process.platform !== 'win32') assert.ok(fs.statSync(HOOK).mode & 0o111, 'the hook file is executable');   // Windows has no exec bit
   assert.equal(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).scripts['setup-hooks'], 'git config core.hooksPath scripts/git-hooks');
   const here = run([push], { PRE_PUSH_TEST_CMD: 'pwd' }); assert.equal(here.stdout.trim().split('\n').pop(), fs.realpathSync(path.join(__dirname, '..')), 'it runs from the repository root');
 });

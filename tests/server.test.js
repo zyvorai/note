@@ -290,7 +290,7 @@ test('pdf tools validate page ranges', () => {
 test('export renders a note to HTML with local images resolved', () => {
   const { toHtml } = require('../scripts/export-pdf');
   const h = toHtml('/n/a.md', '# T\n\n![x](attachments/p.png)', '/n');
-  assert.match(h, /<title>a<\/title>/); assert.match(h, /src="file:\/\/\/n\/attachments\/p\.png"/);
+  assert.match(h, /<title>a<\/title>/); assert.match(h, /src="file:\/\/\/(?:[A-Za-z]:\/)?n\/attachments\/p\.png"/);
 });
 
 test('version history keeps earlier versions of a note, throttled, and serves them back', async () => {

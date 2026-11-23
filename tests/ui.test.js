@@ -128,6 +128,10 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     // text size: Ctrl+= grows the editor font and the highlight layer stays aligned; Ctrl+0 resets
     const fs0 = await ev(`parseFloat(getComputedStyle(document.querySelector('#ed')).fontSize)`);
     await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '=', ctrlKey: true, bubbles: true }))`);
+    for (let i = 0; i < 30; i++) {                                   // a slow machine can apply the size a moment later
+      if (await ev(`parseFloat(getComputedStyle(document.querySelector('#ed')).fontSize)`) > fs0) break;
+      await sleep(100);
+    }
     const fs1 = await ev(`[parseFloat(getComputedStyle(document.querySelector('#ed')).fontSize), parseFloat(getComputedStyle(document.querySelector('#hl')).fontSize), document.querySelector('#ed').offsetHeight, document.querySelector('#hl').scrollHeight]`);
     assert.equal(fs1[0], fs0 + 1); assert.equal(fs1[1], fs0 + 1);
     await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '0', ctrlKey: true, bubbles: true }))`);
