@@ -583,23 +583,23 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
 
     // theme toggle: auto -> light -> dark, persisted
     const bgNow = () => ev(`getComputedStyle(document.body).backgroundColor`);
-    const bg = async () => { let v = await bgNow(); for (let i = 0; i < 20; i++) { await sleep(50); const w = await bgNow(); if (w === v) break; v = w; } return v; };   // let any colour transition finish
+    const bgIs = async (want, msg) => { let v; for (let i = 0; i < 40; i++) { v = await bgNow(); if (v === want) break; await sleep(100); } assert.equal(v, want, msg); };   // a slow runner repaints a moment later
     const mode = () => ev(`document.querySelector('#theme').dataset.mode`);
     const sys = await ev(`matchMedia('(prefers-color-scheme: dark)').matches`);
     assert.equal(await mode(), 'auto');
-    assert.equal(await bg(), sys ? 'rgb(30, 30, 30)' : 'rgb(255, 255, 255)', 'auto follows the system');
+    await bgIs(sys ? 'rgb(30, 30, 30)' : 'rgb(255, 255, 255)', 'auto follows the system');
     await ev(`document.querySelector('#theme').click()`);
-    assert.equal(await mode(), 'light'); assert.equal(await bg(), 'rgb(255, 255, 255)');
+    assert.equal(await mode(), 'light'); await bgIs('rgb(255, 255, 255)');
     assert.equal(await ev(`document.documentElement.dataset.theme`), 'light');
     await shot('8-light');
     await ev(`document.querySelector('#theme').click()`);
-    assert.equal(await mode(), 'dark'); assert.equal(await bg(), 'rgb(30, 30, 30)');
+    assert.equal(await mode(), 'dark'); await bgIs('rgb(30, 30, 30)');
     await ev(`document.querySelector('#theme').click()`);
     assert.equal(await mode(), 'auto'); assert.equal(await ev(`document.documentElement.dataset.theme === undefined`), true);
     await ev(`document.querySelector('#theme').click()`);                                   // light again, then reload
     await cdp('Page.navigate', { url: `http://127.0.0.1:${port}/` });
     await until(`document.querySelector('#theme') && document.querySelector('#list .item')`, 'reloaded');
-    assert.equal(await mode(), 'light', 'choice survives reload'); assert.equal(await bg(), 'rgb(255, 255, 255)');
+    assert.equal(await mode(), 'light', 'choice survives reload'); await bgIs('rgb(255, 255, 255)');
     await ev(`document.querySelector('[data-note="Home"]').click()`);
     await until(`document.querySelector('#hl')`, 'editor after reload');
     await ev(`document.querySelector('#gr').click()`); await until(`document.querySelector('#gc')`, 'graph'); await sleep(800);
