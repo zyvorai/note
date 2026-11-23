@@ -86,6 +86,7 @@ test('encrypted notes: encrypt, edit, lock, unlock, and nothing leaks or is lost
     assert.equal(await ev("notes.get('Diary').text"), ''); assert.equal(await ev("notes.get('Diary').enc"), null);
     await ev("document.querySelector('#q').value='correcthorse';document.querySelector('#q').dispatchEvent(new Event('input'))"); await sleep(200);
     assert.ok(!(await ev("[...document.querySelectorAll('#list .item')].some(i=>i.dataset.note==='Diary')"))); await ev("document.querySelector('#q').value='';document.querySelector('#q').dispatchEvent(new Event('input'))");
+    for (let i = 0; i < 30 && (await ev("document.body.innerText")).includes('correcthorse'); i++) await sleep(100);   // the cleared search repaints after its debounce
     assert.ok(!(await ev("document.body.innerText")).includes('correcthorse'), 'plaintext is not anywhere on the page');
 
     // wrong passphrase, then the right one

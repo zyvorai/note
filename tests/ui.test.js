@@ -582,7 +582,8 @@ test('UI works end to end in a real browser', { skip: !CHROME && 'Chrome not fou
     await shot('7-highlight-bottom');
 
     // theme toggle: auto -> light -> dark, persisted
-    const bg = () => ev(`getComputedStyle(document.body).backgroundColor`);
+    const bgNow = () => ev(`getComputedStyle(document.body).backgroundColor`);
+    const bg = async () => { let v = await bgNow(); for (let i = 0; i < 20; i++) { await sleep(50); const w = await bgNow(); if (w === v) break; v = w; } return v; };   // let any colour transition finish
     const mode = () => ev(`document.querySelector('#theme').dataset.mode`);
     const sys = await ev(`matchMedia('(prefers-color-scheme: dark)').matches`);
     assert.equal(await mode(), 'auto');
